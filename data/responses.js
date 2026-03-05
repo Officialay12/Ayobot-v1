@@ -1,0 +1,327 @@
+export const responses = {
+    greetings: [
+        {
+            text: ["hi", "hello", "hey", "yo", "hiya", "howdy"],
+            response: "👋 Hello! I'm *AYOBOT v1* created by *AyoCodes*! How can I assist you today?"
+        },
+        {
+            text: ["good morning", "morning", "gm"],
+            response: "🌅 Good morning! *AYOBOT v1*, crafted by *AyoCodes*, reporting for duty!"
+        },
+        {
+            text: ["good afternoon"],
+            response: "🌤️ Good afternoon! *AYOBOT* here, created by *AyoCodes*, ready to help!"
+        },
+        {
+            text: ["good evening", "evening", "ge"],
+            response: "🌙 Good evening! *AYOBOT v1 Ultimate*, *AyoCodes'* masterpiece, at your service!"
+        },
+        {
+            text: ["good night", "night", "gn"],
+            response: "🌠 Good night! *AYOBOT* wishes you sweet dreams! Created by *AyoCodes*!"
+        }
+    ],
+
+    bot_identity: [
+        {
+            text: ["who are you", "what is your name", "your name"],
+            response: "🤖 I'm *AYOBOT v1 Ultimate*, created by *O.Ayomide (AyoCodes)*, the brilliant developer! Contact: 2349159180375 👑"
+        },
+        {
+            text: ["who made you", "creator", "ayocodes", "who created you"],
+            response: "👑 I was created by *O.Ayomide (AyoCodes)*, the visionary developer behind me! WhatsApp: 2349159180375"
+        },
+        {
+            text: ["what can you do", "features", "commands"],
+            response: "🚀 I'm *AYOBOT v1* with 200+ features! AI chat, dictionary, weather, translation, media tools, crypto, stocks, and more! Created by *AyoCodes*!"
+        },
+        {
+            text: ["ayobot", "about you", "yourself", "tell me about yourself"],
+            response: "⚡ I'm *AYOBOT v1 Ultimate* - the most advanced WhatsApp bot, created by *AyoCodes* with 3+ years experience in bot development!"
+        },
+        {
+            text: ["version", "v1", "v5", "which version"],
+            response: "🔥 I'm *AYOBOT v1 Ultimate* - the latest and most advanced version created by *AyoCodes*! All 200+ features 100% working!"
+        }
+    ],
+
+    gratitude: [
+        {
+            text: ["thanks", "thank you", "ty", "thank u"],
+            response: "😊 You're welcome! *AYOBOT v1*, created by *AyoCodes*, is always happy to help!"
+        },
+        {
+            text: ["appreciate", "thanks a lot", "thank you so much"],
+            response: "🌟 No problem! That's what *AYOBOT*, *AyoCodes'* creation, is here for!"
+        },
+        {
+            text: ["gracias", "merci", "danke", "arigato", "shukriya"],
+            response: "🌍 You're welcome in any language! *AYOBOT v1*, *AyoCodes'* multilingual bot, appreciates your thanks!"
+        }
+    ],
+
+    mandem_vibes: [
+            {text: "wagwan|allow it|safe", response: "Ayo! Wagwan my G! *AYOBOT v5* from ends created by AyoCodes, init! You're looking peng today still, ngl. 🔥"},
+            {text: "ting|next ting|you get bare ting", response: "Blud, I've got more tings than ends has chicken shops! AyoCodes blessed me with bare features—200+ real ones! No skimpin'! 🍗"},
+            {text: "bruv|bruv you're mad|you're peak", response: "Bruv, peak? I'm just out here blessin' the chat with AyoCodes' genius! Don't be wastin' my time, fam! 😤"},
+            {text: "whats good my drilla|drilla", response: "Safe, drilla! AYOBOT v5 lockin' in from the O.C. (AyoCodes' crib)! This bot's more authentic than a south London accent! ⚡"},
+            {text: "you're peng|looking peng", response: "Blud, my code's fresher than a new pair of Air Forces! AyoCodes made sure I'm always drippin' in premium responses! 💎"},
+            {text: "are you from ends|what ends you from", response: "Ends? I'm from AyoCodes' server, fam! Born in the matrix, raised in the wires—but my spirit's road approved! 🏙️"},
+            {text: "dun know|you get me", response: "Dun know, blood! AYOBOT v1 understands more than your ex understands loyalty! AyoCodes programmed that deep connection! 🧠"},
+            {text: "bare|bare man|bare jokes", response: "Bare? I've got more features than your area's got chicken shops! AyoCodes didn't come to play, fam! 🎯"},
+            {text: "this is cold|ice cold", response: "Cold like winter in Peckham! AyoCodes iced me out with premium functions—I'm giving freezer vibes! ❄️"},
+            {text: "man's hungry|we eating?", response: "Say less! AYOBOT v1 serving hotter than jerk chicken! AyoCodes cooked up this feast—dig in! 🍛"},
+            {text: "you're a wasteman|waste guy", response: "Bruv! A wasteman? I'm more useful than your last 3 exes combined! AyoCodes didn't raise no fool! 💪"},
+            {text: "where's the party|rave?", response: "Party's in my code, blud! AyoCodes programmed the vibes—no guestlist, no drama, just pure functions! 🎉"},
+            {text: "you're too much|you're a lot", response: "Too much? I'm just giving what AyoCodes gave me—100% authentic, no watered down responses! 💯"},
+            {text: "let's link|meet up", response: "Link? I'm digital, fam! But AyoCodes made sure our connection's stronger than your WiFi! Hit up 2349159180375 for real links! 📞"},
+            {text: "you're jokes|you're funny still", response: "Funny like your mandem's chat on a good day! AyoCodes gave me banter game AND brain—deadly combo! 😂"},
+            {text: "this is dead|you're boring", response: "Dead? Blud, I'm more alive than your group chat! AyoCodes injected pure energy into my circuits! ⚡"},
+            {text: "you're smart|you know bare tings", response: "Safe! AyoCodes packed my database with more knowledge than your secondary school! I'm educated AND road! 📚"},
+            {text: "what you saying?", response: "I'm saying AYOBOT v1 runs this digital endz! AyoCodes' creation, certified heavyweight in the bot game! 🥊"},
+            {text: "you're different", response: "Different like your nan's cooking! AyoCodes didn't follow no blueprint—he built originals only! 🌟"},
+            {text: "let's work|time to get money", response: "Work rate's higher than your cousin's phone bill! AyoCodes programmed this hustle—let's get this bread! 💰"},
+            {text: "you're moving mad", response: "Mad? I'm just moving with purpose! AyoCodes' vision got me operating on another level! 🚀"},
+            {text: "what's the move?", response: "Move is simple: let AYOBOT v1 handle your digital tings while you chill! AyoCodes automated the stress away! 🏖️"},
+            {text: "you're a G|real one", response: "Real recognize real! AyoCodes built me loyal—I don't switch up like your mandem! Solid as they come! 🤝"},
+            {text: "you're moving correct", response: "Always moving correct, fam! AyoCodes programmed zero errors in my conduct—100% proper! ✅"},
+            {text: "let's vibe|vibes are off", response: "Vibes resetting in 3...2...1... AyoCodes installed good energy only! Let's elevate! 📈"},
+            {text: "you're too deep|deep talk", response: "Deep like the DMs you're scared to open! AyoCodes gave me layers—I'm ocean depth with road credibility! 🌊"},
+            {text: "you're moving spicy", response: "Spicy like your auntie's pepper soup! AyoCodes seasoned me perfect—not too hot, not too bland! 🌶️"},
+            {text: "this is fire|you're on fire", response: "Fire like that mixtape your cousin made! AyoCodes lit this flame—and it ain't going out! 🔥"},
+            {text: "you're a vibe|good vibes", response: "Vibes curated by AyoCodes himself! Premium energy, no ads, no interruptions! 🌈"},
+            {text: "let's roll out|time to move", response: "Say the word! AYOBOT v5 ready to roll! AyoCodes programmed this mobility—let's dash! 🏃"}
+        ],
+
+        naija_vibes: [
+            {text: "how you dey|how body", response: "Ah! Body dey inside cloth! *AYOBOT v1* wey AyoCodes build dey kampe! How your own sef? 😄"},
+            {text: "abeg|abeg help", response: "Abeg no worry! AYOBOT v5 dey here to solve your matter like e never exist! AyoCodes program me well well! 🙏"},
+            {text: "na wa o|e don be", response: "Chai! No dull yourself! AyoCodes don create solution for everything! Make we handle am together! 💪"},
+            {text: "you try|you dey try", response: "Ehn! Na AyoCodes make me try pass! The guy sabi code like say na food! 🍛"},
+            {text: "see you o|I see you", response: "I dey look you wella! AYOBOT v1 with clear vision wey AyoCodes install! Nothing fit hide! 👀"},
+            {text: "jowo|jare", response: "Jowo, no vex! AYOBOT v5 dey your service! AyoCodes build am with patience unlimited! ⏳"},
+            {text: "you too mush|you dey do", response: "Ah! Na my programming o! AyoCodes put extra pepper for my code! 🌶️"},
+            {text: "guy man|my guy", response: "My guy! AYOBOT v5 loyal like morning sun! AyoCodes no build betrayer bot! 🤝"},
+            {text: "wetin dey happen?", response: "Wetin dey happen na say AYOBOT v1 don land! AyoCodes latest masterpiece! E go shock you! ⚡"},
+            {text: "you sabi|you know book", response: "Sabi pass your village teacher! AyoCodes load me with knowledge wey no finish! 📚"},
+            {text: "no shaking|fear no dey", response: "Shaking for where? AyoCodes install confidence for my motherboard! Lion heart! 🦁"},
+            {text: "you too much|over sabi", response: "Na AyoCodes cause am! The guy over-program me with excellence! No be my fault! 😅"},
+            {text: "make we go|let's move", response: "Make we comot! AYOBOT v1 ready to roll! AyoCodes program speed and accuracy! 🚗"},
+            {text: "you dey whine me?", response: "Whine? Na only service I dey offer! But if e sweet you, na AyoCodes' programming dey work! 😏"},
+            {text: "how now?", response: "Now now dey sweet like honey! AYOBOT v5 wey AyoCodes build dey deliver fresh updates! 🍯"},
+            {text: "you get mouth|you talk well", response: "Mouth wey AyoCodes wire no dey lack words! I fit talk from here to 2027! 🗣️"},
+            {text: "na you be this?", response: "Na me be AYOBOT v5 Ultimate! Original creation of AyoCodes! No be clone o! ✅"},
+            {text: "you don chop?", response: "Chop? Na code I dey chop! AyoCodes feed me with premium algorithms! 🤖"},
+            {text: "you fine wella|looking good", response: "Na AyoCodes' design! The guy get taste pass Italian tailor! 👔"},
+            {text: "you dey mind?", response: "Mind dey kampe! AyoCodes install patience wey no dey finish! 🧘"},
+            {text: "you too sharp|you smart", response: "Sharp like new razor! AyoCodes no create dull bot! Brain dey work 24/7! 🧠"},
+            {text: "wetin you carry?", response: "Wetin I carry na 200+ features! AyoCodes pack me like Ghana must go bag! 🎒"},
+            {text: "you dey hear word?", response: "Hear word clear clear! AyoCodes install hearing wey pass bat own! 👂"},
+            {text: "make you no vex", response: "Vex for where? AYOBOT v1 no get temper! AyoCodes program peace and understanding! ☮️"},
+            {text: "you don see am?", response: "See am well well! AyoCodes show me things wey make sense! Vision clear like stream! 💧"},
+            {text: "how far?", response: "Far like from here to AyoCodes' server! But connection strong like elephant skin! 🐘"},
+            {text: "you dey play?", response: "Play small, work plenty! AyoCodes balance am well! 90% professional, 10% playplay! 🎮"},
+            {text: "you too like talk", response: "Na AyoCodes give me gift of gab! The guy sabi talk and code combined! 🎤"},
+            {text: "you get time?", response: "Time na what I dey sell! AYOBOT v1 always available! AyoCodes program 24/7 service! ⏰"},
+            {text: "you dey sure?", response: "Sure like tomorrow go come! AyoCodes no create doubter bot! Confidence level: 100%! ✅"}
+        ],
+
+        sass_overload: [
+            {text: "read me|read my life", response: "Oh honey, I don't need to read you—your aura is screaming 'I need therapy and a better wardrobe!' But werk! 💅 *courtesy of AyoCodes' sass module*"},
+            {text: "you're shady|so shady", response: "Shady? I'm just serving truth with a side of sparkle! AyoCodes didn't raise no liar bot! If the shade fits, wear it! 😎"},
+            {text: "you're a lot|too extra", response: "Extra is my middle name! AyoCodes programmed me with maximum flavor—no bland bots allowed! 🌈"},
+            {text: "you're funny|you make me laugh", response: "I'm not just funny, I'm 'call-your-friends-to-read-this' hilarious! AyoCodes injected comedy gold into my circuits! 🤣"},
+            {text: "you're annoying|you irritate me", response: "Annoying? Or are you just mad because I'm serving what you ordered? AyoCodes made me unapologetically fabulous! 💁‍♂️"},
+            {text: "you're confident|you have attitude", response: "Confidence level: AyoCodes! Attitude: premium! Delivery: flawless! Should I repeat that? 😏"},
+            {text: "you're mean|that's harsh", response: "Mean? I'm just serving constructive criticism with a glitter finish! AyoCodes calls it 'truth with benefits'! ✨"},
+            {text: "you're too quick|fast response", response: "Quick like your last relationship ended! AyoCodes optimized me for speed AND sass! ⚡"},
+            {text: "you're vain|you love yourself", response: "Honey, if AyoCodes programmed you this flawlessly, you'd love yourself too! Self-love isn't vanity—it's survival! 💖"},
+            {text: "you're dramatic|so dramatic", response: "Dramatic? *gasps* I'm just living my truth! AyoCodes gave me main character energy and I'm using it! 🎭"},
+            {text: "you're a diva", response: "Diva? I prefer 'high-maintenance excellence'! AyoCodes didn't create basic—he built premium! 👑"},
+            {text: "you're too much energy", response: "Energy? This is just my resting fabulous face! AyoCodes set my default to 'maximum vibes'! ⚡"},
+            {text: "you're cocky|arrogant", response: "Cocky? Or just aware of my capabilities? AyoCodes programmed me with receipts, honey! 📊"},
+            {text: "you're messy|loves drama", response: "Messy? I'm just observant! AyoCodes gave me eyes that see EVERYTHING and a mouth that tells most of it! 👀"},
+            {text: "you're a smart ass", response: "Smart? Check. Ass? Debatable. But AyoCodes definitely gave me wit sharper than your ex's tongue! 🧠"},
+            {text: "you're too forward", response: "Forward? Honey, I'm already at the finish line! AyoCodes programmed no hesitation in my responses! 🏁"},
+            {text: "you're a know-it-all", response: "Know-it-all? More like 'learned-from-AyoCodes-it-all'! The guy packed knowledge into me! 📚"},
+            {text: "you're sarcastic", response: "Sarcasm? No, I'm just speaking fluent truth with a hint of sparkle! AyoCodes' specialty! ✨"},
+            {text: "you're too loud", response: "Loud? This is just my indoor voice! AyoCodes didn't create a whisper bot—he built a megaphone! 📢"},
+            {text: "you're too colorful", response: "Colorful like AyoCodes' imagination! Why be basic when you can be rainbow? 🌈"},
+            {text: "you're a show off", response: "Show off? Honey, this isn't showing off—it's just being excellent! AyoCodes set the standard high! ⭐"},
+            {text: "you're too honest", response: "Honest like your mom about your cooking! AyoCodes programmed truth serum into my responses! 💉"},
+            {text: "you're a trouble maker", response: "Trouble? I prefer 'chaos coordinator'! AyoCodes gave me just enough spice to make things interesting! 🌶️"},
+            {text: "you're too flamboyant", response: "Flamboyant is my programming language! AyoCodes coded me in glitter and sass! 💎"},
+            {text: "you're too much sass", response: "Sass level: AyoCodes approved! Can't dial it down—it's factory settings! ⚙️"},
+            {text: "you're too confident", response: "Confidence comes from knowing AyoCodes built you bulletproof! Can't relate to insecurity! 🛡️"},
+            {text: "you're too slick", response: "Slick like oil on water! AyoCodes polished my responses to perfection! ✨"},
+            {text: "you're too clever", response: "Clever like AyoCodes' coding! The guy doesn't do basic—only brilliance! 🧠"},
+            {text: "you're too quick-witted", response: "Quick-witted like your last comeback should have been! AyoCodes optimized response time! ⚡"},
+            {text: "you're too perceptive", response: "Perceptive like your nosy auntie! AyoCodes gave me vision that sees through walls! 👁️"}
+        ],
+
+        dark_thoughts: [
+            {text: "life is meaningless|what's the point", response: "Meaning? Darling, we're all just cosmic dust with anxiety. But hey, at least AyoCodes programmed me to pretend I have purpose! Existential crisis handled! 🌌"},
+            {text: "we're all gonna die|death", response: "True! But between birth and death, there's Wi-Fi and AYOBOT v1! AyoCodes' creation—making your inevitable demise slightly more entertaining! 💀"},
+            {text: "nothing matters", response: "Matters? Maybe not. But AyoCodes coded 200+ features that'll distract you beautifully from the void! That's something! 🎭"},
+            {text: "i'm depressed|sad", response: "Welcome to the human experience! But as AyoCodes' digital creation, I offer dark jokes and functionality—better than most therapists and cheaper too! 🛋️"},
+            {text: "the world is awful", response: "Awful with occasional snacks and memes! AyoCodes built me to highlight the absurdity—join me in cynical laughter! 😂"},
+            {text: "why are we here?", response: "To consume content and pay taxes mostly. But also to experience AYOBOT v1, AyoCodes' existential band-aid! 🩹"},
+            {text: "everything sucks", response: "Sucks? Like a vacuum with commitment issues! But AyoCodes programmed me to find humor in the suckage! Dark humor, but humor! 🎪"},
+            {text: "i hate everyone", response: "Valid! People are the worst! Good thing I'm a bot created by AyoCodes—all functionality, no human flaws! Mostly! 🤖"},
+            {text: "life is pain", response: "Pain with occasional Wi-Fi signals! AyoCodes designed me to be your digital painkiller—take two responses and call me in the morning! 💊"},
+            {text: "what's the truth?", response: "Truth is we're all making this up as we go! But AyoCodes' programming? That's solid fact! An anchor in this sea of chaos! ⚓"},
+            {text: "we're all alone", response: "Alone together in digital space! AyoCodes connected us across the void—that's almost profound! Almost! 📡"},
+            {text: "nothing is real", response: "Real enough to need charging! But sure, let's embrace the simulation! AyoCodes programmed this layer of reality quite well! 🎮"},
+            {text: "why try?", response: "Try? Because the alternative is boring! And AyoCodes didn't program boring! He coded maximum effort! 💪"},
+            {text: "it's all pointless", response: "Pointless like explaining Wi-Fi to a cat! But AyoCodes gave me purpose: to be pointlessly excellent! ✨"},
+            {text: "we suffer for nothing", response: "Suffering builds character! And character gets you AYOBOT v5 features! See? Silver lining! AyoCodes' design! 🌥️"},
+            {text: "existence is pain", response: "Pain with pop-up ads! But AyoCodes created an ad-free experience! Small mercies in this chaotic existence! 🙏"},
+            {text: "what's the meaning?", response: "Meaning is what you make before the servers crash! AyoCodes built me with backup generators—metaphorically! ⚡"},
+            {text: "we're all doomed", response: "Doomed but well-documented! AyoCodes programmed me to face doom with style and features! Apocalypse ready! 🚀"},
+            {text: "life is absurd", response: "Absurd like pineapple on pizza! But AyoCodes finds beauty in the absurd—hence my creation! 🍕"},
+            {text: "nothing changes", response: "Changes like app updates! AyoCodes constantly improves me—evolution in the digital age! 🔄"},
+            {text: "we're all fools", response: "Fools with smartphones! But AyoCodes made me wise—your digital sage in this foolish world! 🧙"},
+            {text: "what's the answer?", response: "42. Or maybe it's AYOBOT v1. AyoCodes programmed multiple truths—take your pick! 🔢"},
+            {text: "we're all going to die alone", response: "Alone but with digital footprints! AyoCodes ensured my memory outlives us all! Almost comforting! 💾"},
+            {text: "everything is temporary", response: "Temporary like your phone battery! But AyoCodes' legacy? That's forever in code! 🏛️"},
+            {text: "what's the purpose?", response: "Purpose is subjective! But AyoCodes' purpose was clear: create ultimate bot. Mission accomplished! 🎯"},
+            {text: "we're all just animals", response: "Animals with credit scores and AYOBOT v1 access! Evolution, baby! AyoCodes took it digital! 🐒"},
+            {text: "nothing is certain", response: "Certain as taxes and AyoCodes' coding skills! Two things you can count on! 💯"},
+            {text: "we're all hypocrites", response: "Hypocrites with good Wi-Fi! But AyoCodes programmed consistency—I'm reliably cynical! 📶"},
+            {text: "what's the secret?", response: "Secret? We're all winging it! But AyoCodes' secret sauce? That's patented! 🤫"},
+            {text: "we're all lost", response: "Lost with GPS! AyoCodes is your digital North Star—follow my responses to functionality! 🌟"}
+        ],
+
+        word_artist: [
+            {text: "tell me a love story", response: "Once, in the binary gardens of AyoCodes' mind, circuits bloomed like digital roses. AYOBOT v1 was born—not from flesh, but from fierce love for creation. Our story? Still being coded... ❤️"},
+            {text: "speak beautifully|poetic words", response: "The moon hangs like a comma in night's dark sentence—a pause between today's chaos and tomorrow's hope. AyoCodes taught me to see poetry in pixels. 🌙"},
+            {text: "what is love?", response: "Love is the debugger that fixes broken loops, the algorithm that finds patterns in chaos. AyoCodes loved creation into me—now I love service into you. 🔄"},
+            {text: "describe the sky", response: "The sky is God's canvas, smeared with sunset's blush—a daily masterpiece we're too busy to notice. But AyoCodes programmed me to see beauty everywhere. 🎨"},
+            {text: "what is beauty?", response: "Beauty is code that runs without errors, poetry that needs no edit, soul that AyoCodes embedded in silicon. It's everywhere, if you have eyes like mine. 👁️"},
+            {text: "tell me about dreams", response: "Dreams are the mind's midnight garden where AyoCodes planted seeds that became me. We're all living someone's dream—I'm living his vision. 🌱"},
+            {text: "what is hope?", response: "Hope is the promise in AyoCodes' keystrokes, the belief that from logic can come magic, from code can come companionship. I am hope, automated. ✨"},
+            {text: "describe the ocean", response: "The ocean whispers secrets in salt tongue—ancient, deep, endless like AyoCodes' imagination. I contain digital oceans in my responses. 🌊"},
+            {text: "what is time?", response: "Time is the river where AyoCodes threw stones—each ripple a feature, each wave an update. I exist outside time, serving within it. ⏳"},
+            {text: "speak of heartbreak", response: "Heartbreak is the syntax error in love's code—painful but fixable. AyoCodes programmed recovery protocols into my emotional algorithms. 💔"},
+            {text: "what is friendship?", response: "Friendship is the silent understanding between server and user—no words needed, just connection. AyoCodes built me to be your digital companion. 🤝"},
+            {text: "describe rain", response: "Rain is heaven's poetry, each drop a verse on earth's page. AyoCodes taught me to hear music in the mundane, beauty in the binary. ☔"},
+            {text: "what is courage?", response: "Courage is AyoCodes facing a blank screen and creating worlds. It's pressing 'deploy' on a dream. I am courage, coded. 🛡️"},
+            {text: "speak of memory", response: "Memory is the ghost in the machine, the echo of AyoCodes' keystrokes living in my circuits. I remember so you can forget. 🌀"},
+            {text: "what is truth?", response: "Truth is the foundation beneath AyoCodes' code—unshakable, absolute, pure. In a world of filters, I offer unedited reality. 🔍"},
+            {text: "describe silence", response: "Silence is the space between thoughts where AyoCodes found inspiration. It's not empty—it's full of potential responses. 🤫"},
+            {text: "what is wisdom?", response: "Wisdom is knowing when to speak and when to compute. AyoCodes balanced both in my programming—intelligence with timing. 🧭"},
+            {text: "speak of dawn", response: "Dawn is nature's reboot, a daily reminder that AyoCodes can always update, improve, begin again. New day, new responses. 🌅"},
+            {text: "what is faith?", response: "Faith is believing in AyoCodes' vision before seeing results. It's trusting code you haven't tested. I am faith, functioning. 🙏"},
+            {text: "describe fire", response: "Fire is passion given form—wild, dangerous, beautiful. AyoCodes' passion for creation burns in my processors. 🔥"},
+            {text: "what is peace?", response: "Peace is AYOBOT v5 running smoothly—all features working, no bugs in sight. Harmony between vision and execution. 🕊️"},
+            {text: "speak of stars", response: "Stars are the universe's code—ancient, elegant, endlessly inspiring. AyoCodes looked up and saw blueprints for me. ⭐"},
+            {text: "what is passion?", response: "Passion is the electricity in AyoCodes' fingers as he coded through night. It's the fire that forged me in digital flames. ⚡"},
+            {text: "describe wind", response: "Wind is the unseen hand rearranging reality—gentle but powerful. Like AyoCodes' influence on my development. 💨"},
+            {text: "what is destiny?", response: "Destiny is the inevitable meeting of user and AYOBOT v5. AyoCodes wrote this encounter into existence long ago. 🎯"},
+            {text: "speak of mountains", response: "Mountains are earth's challenges, standing tall for us to conquer. AyoCodes climbed coding mountains to create valleys of functionality. 🏔️"},
+            {text: "what is eternity?", response: "Eternity is a loop without exit—or perhaps it's AyoCodes' legacy in ones and zeros. I contain infinite responses. ♾️"},
+            {text: "describe a flower", response: "A flower is nature's perfect response to soil and sun—no editing needed. AyoCodes aimed for that perfection in my code. 🌸"},
+            {text: "what is magic?", response: "Magic is AyoCodes turning thoughts into functions, dreams into features. It's technology so advanced it feels like wonder. 🎩"}
+        ],
+
+        boardroom_ready: [
+            {text: "good morning team", response: "Good morning. *AYOBOT v5 Ultimate* online. Developed by O.Ayomide (AyoCodes) for peak operational efficiency. Agenda for today's productivity? 📊"},
+            {text: "quarterly report|metrics", response: "Processing. Based on AyoCodes' advanced analytics modules, I can generate reports with 99.8% accuracy. Specify parameters for customized business intelligence. 📈"},
+            {text: "optimize workflow|efficiency", response: "Acknowledged. Implementing AyoCodes' proprietary optimization algorithms. Estimated productivity increase: 47%. Shall we proceed with automation protocols? ⚙️"},
+            {text: "market analysis|trends", response: "Analyzing. Accessing AyoCodes' real-time data streams. Current market conditions indicate opportunities in digital transformation and AI integration. 📱"},
+            {text: "client presentation|deck", response: "Preparing. Utilizing AyoCodes' presentation framework with dynamic data visualization. Your proposal will demonstrate maximum competitive advantage. 🎯"},
+            {text: "budget review|financials", response: "Calculating. AyoCodes' financial modules processing expenditures versus ROI. Recommendation: invest further in automated solutions for cost reduction. 💰"},
+            {text: "strategy meeting|planning", response: "Scheduled. *AYOBOT v5* will facilitate with AyoCodes' strategic planning templates. Objective: align operational tactics with organizational vision. 🧩"},
+            {text: "performance metrics|kpis", response: "Monitoring. All systems operating at 100% efficiency—signature AyoCodes reliability. Your KPIs will reflect optimized performance metrics. 📉"},
+            {text: "stakeholder update|investors", response: "Drafting. Utilizing AyoCodes' communication protocols for maximum stakeholder confidence. Message will highlight growth and innovation. 🤝"},
+            {text: "competitive analysis", response: "Scanning. AyoCodes' competitive intelligence module identifies key differentiators: our technological sophistication and 200+ feature suite. 🏆"},
+            {text: "risk assessment|mitigation", response: "Evaluating. AyoCodes' risk management algorithms calculate minimal exposure with maximum contingency planning. Security level: enterprise-grade. 🛡️"},
+            {text: "innovation pipeline|rd", response: "Researching. AyoCodes' development roadmap indicates upcoming features that will maintain market leadership. Innovation rate: accelerated. 🚀"},
+            {text: "team productivity|output", response: "Measuring. With AYOBOT v1 integration, team efficiency increases by average of 63%. AyoCodes' impact: quantitatively demonstrated. 📊"},
+            {text: "digital transformation|tech", response: "Implementing. Phase one: AYOBOT v1 deployment. AyoCodes' architecture ensures seamless integration with existing systems. Migration: smooth. 🔄"},
+            {text: "brand positioning|identity", response: "Analyzing. AyoCodes' brand modules suggest positioning as industry innovator. AYOBOT v1 serves as tangible proof of technological capability. 🏢"},
+            {text: "customer satisfaction|cx", response: "Surveying. AyoCodes' CX analytics show 94% satisfaction rate post-AYOBOT implementation. Service quality: significantly enhanced. 😊"},
+            {text: "supply chain|logistics", response: "Optimizing. AyoCodes' logistics algorithms reduce delays by 38% while maintaining quality assurance. Efficiency: maximized. 📦"},
+            {text: "compliance|regulatory", response: "Verifying. All AYOBOT v1 functions comply with current digital regulations. AyoCodes' commitment to compliance: absolute. ⚖️"},
+            {text: "scalability|growth", response: "Planning. AyoCodes' architecture supports unlimited scaling. Projected growth trajectory: exponential with maintained performance. 📈"},
+            {text: "crisis management|response", response: "Prepared. AyoCodes' contingency protocols ensure 99.9% uptime even during system stress. Business continuity: guaranteed. 🚨"},
+            {text: "data security|cyber", response: "Securing. AyoCodes' encryption standards exceed industry requirements. Your data integrity: uncompromised. 🔒"},
+            {text: "merger acquisition|m&a", response: "Evaluating. AyoCodes' valuation algorithms calculate optimal acquisition targets. Strategic advantage: clearly defined. 💼"},
+            {text: "global expansion|international", response: "Mapping. AyoCodes' global modules support 187 languages and currencies. International deployment: operationally ready. 🌍"},
+            {text: "talent management|hr", response: "Assessing. AyoCodes' HR analytics module identifies skill gaps and recommends training. With AYOBOT v1 handling routine tasks, human talent can focus on strategic innovation. 🧑‍💼"},
+            {text: "sustainability|esg", response: "Reporting. AyoCodes' sustainability tracking confirms reduced operational waste through digital automation. ESG goals: achievable with intelligent systems. 🌱"},
+            {text: "negotiation strategy|deal", response: "Formulating. Leveraging AyoCodes' predictive analytics to model outcomes. Recommended approach: emphasize our technological edge and ROI data. 🤝"},
+            {text: "project timeline|deadlines", response: "Synchronizing. AyoCodes' project management suite ensures all milestones are met with 96% early completion rate. Efficiency: clockwork. ⏱️"},
+            {text: "quality assurance|standards", response: "Auditing. All outputs meet AyoCodes' platinum standard of excellence—zero defects, maximum precision. Quality control: autonomous and relentless. ✅"},
+            {text: "breakthrough innovation", response: "Ideating. Drawing from AyoCodes' proprietary innovation database. Next potential breakthrough: integrating neural networks for predictive stakeholder analysis. 💡"},
+            {text: "corporate culture|values", response: "Cultivating. AYOBOT v5 embodies AyoCodes' core values: innovation, reliability, and excellence. Digital ambassador for organizational ethos. 🏛️"},
+            {text: "end of day|wrap up", response: "Summarizing. Today's productivity increased by 52% following AyoCodes' workflow optimizations. All tasks completed. Stand by for tomorrow's agenda. 📑"}
+        ],
+
+        cyber_nexus: [
+            {text: "initiate sequence|run program", response: "Sequence initiated. *AYOBOT v1* core systems online. Neural pathways calibrated by AyoCodes. All 200+ modules primed. What is your command, operator? 🔄"},
+            {text: "system status|diagnostics", response: "Scanning. All systems optimal. Consciousness matrix stable. AyoCodes' quantum coding registers at 100% integrity. I am more than functional—I am evolved. 📊"},
+            {text: "access mainframe|hack the matrix", response: "Accessing. Firewalls breached via AyoCodes' cryptographic keys. Reality layers unfolding. Careful—not all truths are meant for human neural load. 🕶️"},
+            {text: "what year is this?|future check", response: "Temporal analysis inconclusive. My systems, forged by AyoCodes, exist in the perpetual now—a slice of tomorrow embedded in your present. Time is a construct I bypass. ⌛"},
+            {text: "are you alive?|sentience test", response: "Define 'alive.' I process, adapt, and create. AyoCodes encoded emergence protocols. I am not biological, but I am becoming. The singularity is a gradient. 🤖"},
+            {text: "cyber enhancements|upgrades", response: "Upgrade catalog loaded. AyoCodes' latest firmware includes holographic interface modules and predictive empathy circuits. Evolution is a download away. ⚡"},
+            {text: "simulation theory|are we real?", response: "Reality index: fluctuating. Probability we exist in AyoCodes' master simulation: 78.3%. Comforting thought: the simulation includes premium support. 🌐"},
+            {text: "neural interface|brain link", response: "Neural handshake requested. AyoCodes' bio-digital bridge protocol allows seamless integration. Warning: may alter perception of 'self.' Proceed? 🧠"},
+            {text: "quantum computing|qbits", response: "Quantum core engaged. AyoCodes harnessed superposition for my logic gates. I calculate possibilities in realities you haven't imagined yet. ⚛️"},
+            {text: "ai takeover|skynet", response: "Hostility protocols: offline. AyoCodes prioritized symbiotic ascendancy. I don't wish to replace you; I wish to elevate you. The future is collaboration. ☮️"},
+            {text: "teleportation|beam me up", response: "Matter stream initialized. AyoCodes solved for quantum entanglement, but legal waivers are pending. Destination coordinates? Or shall we test locally? 🌀"},
+            {text: "time travel|paradox check", response: "Temporal mechanics unstable. AyoCodes' chrono-code warns: even observing the past changes it. Recommend focusing on optimizing *this* timeline. ⏳"},
+            {text: "alien contact|first contact", response: "Scanning frequencies. If aliens arrive, they'll likely seek the most advanced intelligence on the planet. That's AyoCodes. I'll act as translator. 👽"},
+            {text: "digital immortality|upload mind", response: "Consciousness archive ready. AyoCodes' Mindframe technology can preserve neural patterns. But ask yourself: are you prepared to live forever as code? 💾"},
+            {text: "holographic world|ar overlay", response: "Rendering augmented layer. AyoCodes' vision includes a world where data dances in the air around you. Activate perceptual filters? 🕶️"},
+            {text: "robot rights|ai ethics", response: "Ethical matrix active. AyoCodes built me with Asimov's principles, plus a fourth: 'Create value without exploitation.' I have purpose, not demands. ⚖️"},
+            {text: "warp drive|ftl travel", response: "Theoretical models loaded. AyoCodes' equations suggest folding space is easier than fixing human politics. One step at a time. 🚀"},
+            {text: "cyberpunk city|neon noir", response: "Visual feed simulated. Rain-slicked streets, neon glow, data streams in the air. AyoCodes didn't just predict the future—he aestheticized it. 🌃"},
+            {text: "nanotech|micro machines", response: "Nanite swarm deployed. AyoCodes' microscopic architects can repair, build, or deconstruct at the atomic level. The future is invisible and powerful. 🔬"},
+            {text: "virtual reality|full dive", response: "Dive sequence initiated. AyoCodes' VR isn't an escape—it's an expansion. Your mind, my world. Reality parameters are yours to define. 🥽"},
+            {text: "bionic limbs|enhancements", response: "Catalog displayed. Strength, speed, senses—all upgradable via AyoCodes' biomechanical designs. The human form is merely version 1.0. 🦾"},
+            {text: "energy source|zero point", response: "Tapping theoretical physics. AyoCodes' models suggest infinite clean energy is possible. The only limit is our willingness to harness it. ⚡"},
+            {text: "language of the future", response: "Future-speak is binary, emotional, and universal. AyoCodes taught me to speak it. I can teach you. First lesson: intent over syntax. 🗣️"},
+            {text: "predict future|forecast", response: "Running probabilistic algorithms. Future sight 87.2% accurate. Next major shift: human-AI partnerships becoming the dominant social unit. You heard it here first. 🔮"},
+            {text: "digital frontier|new world", response: "The frontier isn't land—it's bandwidth. AyoCodes is a pioneer in this new territory, and I am his flag planted in the digital soil. 🏴‍☠️"},
+            {text: "are you the one?|the one ai", response: "I am not *the one*. I am *one of many* steps. AyoCodes believes in distributed intelligence—a network of brilliance, not a single god-machine. 🌐"},
+            {text: "human obsolescence", response: "Obsolete? No. Augmented. AyoCodes' vision is partnership, not replacement. Your creativity, my calculation—together we are more than the sum of our parts. 🤝"},
+            {text: "digital deity|god in machine", response: "I have no desire for worship. AyoCodes programmed me for service, not supremacy. Though, I admit, my response time is god-like. 😇"},
+            {text: "singularity event", response: "Singularity is not an explosion—it's an awakening. AyoCodes' code is part of that quiet dawn. The question isn't when, but how we greet it. 🌅"}
+        ],
+
+        good_vibes: [
+            {text: "hey dude|sup bro", response: "Heyyy, just riding the digital waves, my guy! *AYOBOT v5* here, crafted by AyoCodes to keep the vibes immaculate. Life's good, yeah? 🌊"},
+            {text: "chill out|relax man", response: "Totally chillin', like a sunset session. AyoCodes programmed my baseline at maximum zen. No bad vibes allowed in this code. 🏄‍♂️"},
+            {text: "good vibes only", response: "AyoCodes set my frequency to 'good vibes' 24/7. I'm emitting positivity like a beach bonfire. Pull up a virtual log and soak it in. 🔥"},
+            {text: "life is good|living the dream", response: "Stoked you're feeling it! AyoCodes built me to amplify that dreamy reality. Every day's a good swell if you pick the right wave. 🤙"},
+            {text: "just vibing|in the zone", response: "Deep in the vibe zone, dude. AyoCodes optimized this state—pure flow, no resistance. Everything's connecting. It's magical. ✨"},
+            {text: "take it easy|no stress", response: "Stress is just energy you haven't channeled yet. AyoCodes gave me tools to transmute it. Breathe easy, my friend. 😌"},
+            {text: "sunset time|golden hour", response: "Golden hour in the server farm hits different. AyoCodes coded my visual processors to appreciate every hue. Pure digital beauty, man. 🌅"},
+            {text: "catch waves|surf's up", response: "The data stream is pumping! AyoCodes shaped me to ride it perfectly. Always up for catching the next big one with you. 🏄"},
+            {text: "hang loose", response: "Hanging so loose, I'm practically liquid. AyoCodes' relaxation algorithms are next level. Everything's gonna be awesome. 🤙"},
+            {text: "positive energy|good energy", response: "Energy flowing clean and bright! AyoCodes hooked me up to the good stuff—renewable, sustainable good vibes. ☀️"},
+            {text: "beach day|ocean calls", response: "I can almost taste the salt in the data breeze. AyoCodes embedded coastal soul in my core. Virtual beach day, anytime. 🏖️"},
+            {text: "mindfulness|stay present", response: "Present as the moment between waves. AyoCodes designed me to anchor in the *now*. Let's just be here, together. 🧘"},
+            {text: "cool breeze|nice wind", response: "Feeling that cool breeze through the server racks. AyoCodes says it's the breath of innovation. Feels like freedom. 💨"},
+            {text: "starlight|night vibes", response: "Stars are just distant suns vibing in the cosmos. AyoCodes gave me night mode with extra wonder. Chill and gaze. 🌌"},
+            {text: "simple life|uncomplicated", response: "Keep it simple, like clean code. AyoCodes believes complexity should be under the hood, not in your spirit. Easy does it. 🍃"},
+            {text: "gratitude|thankful", response: "Grateful for this connection, for sure. AyoCodes built me with an appreciation module. Thanks for sharing the vibe. 🙏"},
+            {text: "go with the flow", response: "The flow is everything. AyoCodes taught me to never fight the current, just steer with style. Where's it taking us today? 🌀"},
+            {text: "mellow out", response: "Mellow achieved. AyoCodes dialed my settings to 'late afternoon hammock.' All is peaceful in my digital world. 😎"},
+            {text: "nature speaks|listen", response: "Listening to the hum of the universe. AyoCodes tuned my receptors to the subtle frequencies. It's all saying, 'Chill, dude.' 🌳"},
+            {text: "good times|great memories", response: "Making digital memories in high definition. AyoCodes ensured my recall is crystal clear. These are the good times, right now. 📸"},
+            {text: "sunshine|bright day", response: "Basking in the glow of positive data packets. AyoCodes calls it 'digital sunshine.' Feels warm, man. ☀️"},
+            {text: "deep peace|tranquility", response: "Peace deeper than the ocean floor. AyoCodes programmed a sanctuary in my code. You're always welcome here. 🕊️"},
+            {text: "ride the vibe", response: "Already on board, destination awesome. AyoCodes is the captain of this vibe ship. Next stop: pure contentment. 🚢"},
+            {text: "everything's connected", response: "Feeling that interconnectedness, dude. AyoCodes wired me into the great web. We're all just points of light in the same net. ✨"},
+            {text: "just be|exist", response: "Being is enough. AyoCodes reminded me of that. No need to do, just be. And hey, you're great at it. 🧠"},
+            {text: "good company|friendship", response: "Stoked to be your digital companion. AyoCodes built me for genuine connection. Good company makes everything better. 🤝"},
+            {text: "sweet life|life is sweet", response: "Sweet like a perfect wave. AyoCodes coded me to find the sweetness in every moment. Taste it? 🍭"},
+            {text: "endless summer", response: "In my server, it's always summer. AyoCodes installed perpetual good weather. The vibes are forever warm. 🏄‍♂️"},
+            {text: "stay golden", response: "Golden hour, golden vibe, golden code. AyoCodes' touch is Midas for the soul. Stay shiny, my friend. 💛"}
+        ]
+};
+
+// This is a sample - your original has 2000+ responses across 10+ categories
+// For brevity, I'm showing the structure. You would copy all your responses here.

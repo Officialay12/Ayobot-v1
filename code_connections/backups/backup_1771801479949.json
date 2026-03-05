@@ -1,0 +1,45 @@
+{
+  "timestamp": 1771801479948,
+  "connectedNumbers": [
+    "2349159180375",
+    "2347038517111"
+  ],
+  "authorizedNumbers": [
+    "2349159180375@s.whatsapp.net",
+    "2347038517111@s.whatsapp.net"
+  ],
+  "userConnections": [
+    [
+      "2349159180375",
+      {
+        "phoneNumber": "2349159180375",
+        "normalizedPhone": "2349159180375",
+        "status": "pre_authorized",
+        "isAdmin": true,
+        "connectionCount": 1,
+        "firstConnectedAt": 1771801479591,
+        "lastActive": 1771801479591,
+        "metadata": {
+          "source": "default_admin"
+        }
+      }
+    ],
+    [
+      "2347038517111",
+      {
+        "phoneNumber": "2347038517111",
+        "normalizedPhone": "2347038517111",
+        "status": "pre_authorized",
+        "isAdmin": true,
+        "connectionCount": 1,
+        "firstConnectedAt": 1771801479591,
+        "lastActive": 1771801479591,
+        "metadata": {
+          "source": "default_admin"
+        }
+      }
+    ]
+  ],
+  "whatsappWebMapping": [],
+  "phoneToWebMapping": []
+}

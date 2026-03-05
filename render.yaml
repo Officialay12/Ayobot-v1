@@ -1,0 +1,17 @@
+# render.yaml
+services:
+  - type: web
+    name: ayobot-{{USER_ID}}
+    runtime: node
+    buildCommand: npm install
+    startCommand: node index.js
+    plan: free
+    envVars:
+      - key: ADMIN
+        value: "{{PHONE_NUMBER}}"
+      - key: BOT_ID
+        value: "{{USER_ID}}"
+      - key: NODE_VERSION
+        value: "22"
+      - key: PREFIX
+        value: "."
