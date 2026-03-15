@@ -50,6 +50,7 @@
     "mammoth": "^1.6.0",
     "mathjs": "^12.3.1",
     "moment-timezone": "^0.5.43",
+    "mongodb": "^7.1.0",
     "node-cache": "^5.1.2",
     "node-fetch": "^3.3.2",
     "ollama": "^0.5.1",
