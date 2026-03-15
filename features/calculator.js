@@ -2,7 +2,7 @@
 // Integrated with AYOBOT's formatting and error handling
 
 import * as math from "mathjs";
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
+import { formatError, formatInfo } from "../utils/formatters.js";
 
 /**
  * Main calculator function - handles all calculation requests

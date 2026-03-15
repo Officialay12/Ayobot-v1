@@ -1,20 +1,35 @@
-// features/crypto.js - COMPLETE CRYPTOCURRENCY MODULE
-// Multi-API support with real-time prices, charts, and market data
+// features/crypto.js - AYOBOT v1 | Created by AYOCODES
+// Enhanced: multi-API, fiat conversion, accurate 7d data, correct currency symbols
 
 import axios from "axios";
-import { ENV } from "../index.js";
 import {
-  formatSuccess,
+  formatData,
   formatError,
   formatInfo,
-  formatData,
+  formatSuccess,
 } from "../utils/formatters.js";
 
-// Cache for crypto data to reduce API calls
+// ─── Cache ────────────────────────────────────────────────────────────────────
 const priceCache = new Map();
-const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_TTL = 60_000; // 1 minute
 
-// Popular coin mappings
+// ─── Currency config ──────────────────────────────────────────────────────────
+// BUG FIX: old code always used "$" — now uses correct symbol per currency.
+// CoinGecko supports all of these as vs_currency. — AYOCODES
+const CURRENCY_CONFIG = {
+  usd: { symbol: "$", name: "USD" },
+  eur: { symbol: "€", name: "EUR" },
+  gbp: { symbol: "£", name: "GBP" },
+  jpy: { symbol: "¥", name: "JPY" },
+  inr: { symbol: "₹", name: "INR" },
+  ngn: { symbol: "₦", name: "NGN" },
+};
+const SUPPORTED_CURRENCIES = Object.keys(CURRENCY_CONFIG);
+
+// ─── Fiat currency set (for convert command) ──────────────────────────────────
+const FIAT_SET = new Set(SUPPORTED_CURRENCIES);
+
+// ─── Coin map ─────────────────────────────────────────────────────────────────
 const COIN_MAP = {
   btc: "bitcoin",
   bitcoin: "bitcoin",
@@ -50,368 +65,489 @@ const COIN_MAP = {
   ftm: "fantom",
   fantom: "fantom",
   cro: "crypto-com-chain",
-  crypto: "crypto-com-chain",
   mana: "decentraland",
   decentraland: "decentraland",
   sand: "the-sandbox",
   sandbox: "the-sandbox",
   ape: "apecoin",
   apecoin: "apecoin",
+  uni: "uniswap",
+  uniswap: "uniswap",
+  aave: "aave",
+  trx: "tron",
+  tron: "tron",
+  xlm: "stellar",
+  stellar: "stellar",
+  icp: "internet-computer",
+  fil: "filecoin",
+  filecoin: "filecoin",
+  hbar: "hedera-hashgraph",
+  hedera: "hedera-hashgraph",
+  apt: "aptos",
+  aptos: "aptos",
+  arb: "arbitrum",
+  arbitrum: "arbitrum",
+  op: "optimism",
+  optimism: "optimism",
+  sui: "sui",
+  inj: "injective-protocol",
+  injective: "injective-protocol",
+  pepe: "pepe",
+  floki: "floki",
+  wld: "worldcoin-wld",
+  worldcoin: "worldcoin-wld",
 };
 
-// Supported currencies
-const SUPPORTED_CURRENCIES = ["usd", "eur", "gbp", "jpy", "inr", "ngn"];
+// ─── CoinPaprika ID map ───────────────────────────────────────────────────────
+const PAPRIKA_MAP = {
+  bitcoin: "btc-bitcoin",
+  ethereum: "eth-ethereum",
+  dogecoin: "doge-dogecoin",
+  solana: "sol-solana",
+  ripple: "xrp-xrp",
+  cardano: "ada-cardano",
+  polkadot: "dot-polkadot",
+  polygon: "matic-polygon",
+  "shiba-inu": "shib-shiba-inu",
+  chainlink: "link-chainlink",
+  litecoin: "ltc-litecoin",
+  binancecoin: "bnb-binance-coin",
+  cosmos: "atom-cosmos",
+  algorand: "algo-algorand",
+  near: "near-near-protocol",
+  "avalanche-2": "avax-avalanche",
+  fantom: "ftm-fantom",
+  uniswap: "uni-uniswap",
+  aave: "aave-new",
+  tron: "trx-tron",
+  stellar: "xlm-stellar",
+  filecoin: "fil-filecoin",
+};
 
-/**
- * Main crypto price command
- * Usage: .crypto <coin> [currency]
- * Example: .crypto bitcoin
- * Example: .crypto eth eur
- */
-export async function crypto({ fullArgs, from, sock }) {
-  try {
-    // Parse arguments
-    const args = fullArgs?.toLowerCase().split(/\s+/) || [];
-    let coin = args[0] || "";
-    let currency = "usd";
+// ─── Binance symbol map ───────────────────────────────────────────────────────
+const BINANCE_MAP = {
+  bitcoin: "BTCUSDT",
+  ethereum: "ETHUSDT",
+  dogecoin: "DOGEUSDT",
+  solana: "SOLUSDT",
+  ripple: "XRPUSDT",
+  cardano: "ADAUSDT",
+  polkadot: "DOTUSDT",
+  polygon: "MATICUSDT",
+  litecoin: "LTCUSDT",
+  binancecoin: "BNBUSDT",
+  cosmos: "ATOMUSDT",
+  near: "NEARUSDT",
+  "avalanche-2": "AVAXUSDT",
+  fantom: "FTMUSDT",
+  chainlink: "LINKUSDT",
+  uniswap: "UNIUSDT",
+  tron: "TRXUSDT",
+  stellar: "XLMUSDT",
+};
 
-    // Check if second argument is a currency
-    if (args.length > 1 && SUPPORTED_CURRENCIES.includes(args[1])) {
-      currency = args[1];
-    }
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    // Check for help command
-    if (coin === "help" || !coin) {
-      await showHelp(from, sock);
-      return;
-    }
+// Format a number with the correct currency symbol and smart units. — AYOCODES
+function formatAmount(num, currency = "usd") {
+  if (num == null || isNaN(num)) return "N/A";
+  const sym = CURRENCY_CONFIG[currency]?.symbol ?? "$";
+  if (num >= 1e12) return `${sym}${(num / 1e12).toFixed(2)}T`;
+  if (num >= 1e9) return `${sym}${(num / 1e9).toFixed(2)}B`;
+  if (num >= 1e6) return `${sym}${(num / 1e6).toFixed(2)}M`;
+  if (num >= 1e3) return `${sym}${(num / 1e3).toFixed(2)}K`;
+  return `${sym}${num.toFixed(2)}`;
+}
 
-    // Map common abbreviations
-    const mappedCoin = COIN_MAP[coin] || coin;
+function formatPercent(num) {
+  if (num == null || isNaN(num)) return "N/A";
+  const icon = num > 0 ? "📈" : num < 0 ? "📉" : "➡️";
+  return `${icon} ${num > 0 ? "+" : ""}${num.toFixed(2)}%`;
+}
 
-    await sock.sendMessage(from, {
-      text: `💰 *Fetching ${mappedCoin.toUpperCase()} data...*`,
-    });
+// Format the coin price with right number of decimal places. — AYOCODES
+function formatPrice(price, currency = "usd") {
+  const sym = CURRENCY_CONFIG[currency]?.symbol ?? "$";
+  if (price == null || isNaN(price)) return "N/A";
+  let str;
+  if (price < 0.00001) str = price.toExponential(4);
+  else if (price < 0.001) str = price.toFixed(8);
+  else if (price < 1) str = price.toFixed(6);
+  else if (price < 10) str = price.toFixed(4);
+  else if (price < 1000) str = price.toFixed(2);
+  else str = price.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${sym}${str}`;
+}
 
-    // Check cache first
-    const cacheKey = `${mappedCoin}:${currency}`;
-    const cached = priceCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      await sendPriceResponse(
-        sock,
-        from,
-        cached.data,
-        mappedCoin,
-        currency,
-        true,
-      );
-      return;
-    }
+// Sleep helper for retry backoff. — AYOCODES
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    // Try multiple APIs in sequence
-    let data = null;
-    let errors = [];
-
-    // Try CoinGecko first (best)
+// ─── CoinGecko — primary source ───────────────────────────────────────────────
+// Uses /coins/{id} endpoint to get accurate 7d change data.
+// BUG FIX: old code used simple/price which doesn't return 7d on free tier.
+// Retries once on 429 rate-limit with a 2s backoff. — AYOCODES
+async function fetchFromCoinGecko(coin, currency) {
+  let attempt = 0;
+  while (attempt < 2) {
     try {
-      data = await fetchFromCoinGecko(mappedCoin, currency);
-    } catch (error) {
-      errors.push(`CoinGecko: ${error.message}`);
-    }
+      const res = await axios.get(
+        `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(coin)}`,
+        {
+          params: {
+            localization: false,
+            tickers: false,
+            community_data: false,
+            developer_data: false,
+            sparkline: false,
+          },
+          timeout: 10_000,
+        },
+      );
 
-    // Try CoinPaprika second
-    if (!data) {
-      try {
-        data = await fetchFromCoinPaprika(mappedCoin, currency);
-      } catch (error) {
-        errors.push(`CoinPaprika: ${error.message}`);
+      const d = res.data;
+      const mkt = d.market_data;
+      if (!mkt) throw new Error("No market data");
+
+      return {
+        name: d.name,
+        symbol: d.symbol?.toUpperCase(),
+        price: mkt.current_price?.[currency] ?? mkt.current_price?.usd,
+        change24h: mkt.price_change_percentage_24h,
+        change7d: mkt.price_change_percentage_7d,
+        change30d: mkt.price_change_percentage_30d,
+        marketCap: mkt.market_cap?.[currency] ?? mkt.market_cap?.usd,
+        volume24h: mkt.total_volume?.[currency] ?? mkt.total_volume?.usd,
+        high24h: mkt.high_24h?.[currency] ?? mkt.high_24h?.usd,
+        low24h: mkt.low_24h?.[currency] ?? mkt.low_24h?.usd,
+        ath: mkt.ath?.[currency] ?? mkt.ath?.usd,
+        athChange: mkt.ath_change_percentage?.[currency],
+        rank: d.market_cap_rank,
+        lastUpdated: Math.floor(new Date(mkt.last_updated).getTime() / 1000),
+        source: "CoinGecko",
+      };
+    } catch (err) {
+      if (err.response?.status === 429 && attempt === 0) {
+        // Rate limited — wait and retry once. — AYOCODES
+        await sleep(2000);
+        attempt++;
+        continue;
       }
+      throw err;
     }
-
-    // Try Binance third (for major coins)
-    if (!data) {
-      try {
-        data = await fetchFromBinance(mappedCoin, currency);
-      } catch (error) {
-        errors.push(`Binance: ${error.message}`);
-      }
-    }
-
-    if (!data) {
-      // Show suggestions for similar coins
-      const suggestions = await getCoinSuggestions(coin);
-      const suggestionText =
-        suggestions.length > 0
-          ? `\n\n*Did you mean:* ${suggestions.join(", ")}?`
-          : "";
-
-      await sock.sendMessage(from, {
-        text: formatError(
-          "CRYPTO ERROR",
-          `Could not fetch data for "${coin}".${suggestionText}\n\nTry: .crypto help for supported coins.`,
-        ),
-      });
-      console.log("❌ Crypto errors:", errors);
-      return;
-    }
-
-    // Cache the data
-    priceCache.set(cacheKey, {
-      data,
-      timestamp: Date.now(),
-    });
-
-    // Send response
-    await sendPriceResponse(sock, from, data, mappedCoin, currency);
-  } catch (error) {
-    console.error("❌ Crypto error:", error);
-    await sock.sendMessage(from, {
-      text: formatError("CRYPTO ERROR", error.message),
-    });
   }
 }
 
-/**
- * Show help information
- */
-async function showHelp(from, sock) {
-  const popularCoins = Object.entries(COIN_MAP)
-    .slice(0, 15)
-    .map(([abbr, name]) => `• ${abbr} → ${name}`)
-    .join("\n");
-
-  await sock.sendMessage(from, {
-    text: formatInfo(
-      "💰 CRYPTO PRICES",
-      "*Usage:* .crypto <coin> [currency]\n" +
-        "*Examples:*\n" +
-        "• .crypto bitcoin\n" +
-        "• .crypto eth eur\n" +
-        "• .crypto doge gbp\n\n" +
-        "*Supported Currencies:*\n" +
-        "• USD, EUR, GBP, JPY, INR, NGN\n\n" +
-        "*Popular Coins:*\n" +
-        `${popularCoins}\n\n` +
-        "*Commands:*\n" +
-        "• .crypto list - Show all coins\n" +
-        "• .crypto top - Show top 10 coins\n" +
-        "• .crypto chart <coin> - Get price chart",
-    ),
-  });
-}
-
-/**
- * Fetch from CoinGecko API
- */
-async function fetchFromCoinGecko(coin, currency) {
-  const response = await axios.get(
-    `https://api.coingecko.com/api/v3/simple/price`,
-    {
-      params: {
-        ids: coin,
-        vs_currencies: currency,
-        include_24hr_change: true,
-        include_7d_change: true,
-        include_market_cap: true,
-        include_24hr_vol: true,
-        include_last_updated_at: true,
-      },
-      timeout: 5000,
-    },
-  );
-
-  const data = response.data[coin];
-  if (!data) throw new Error("Coin not found");
-
-  return {
-    price: data[currency],
-    change24h: data[`${currency}_24h_change`],
-    change7d: data[`${currency}_7d_change`],
-    marketCap: data[`${currency}_market_cap`],
-    volume24h: data[`${currency}_24h_vol`],
-    lastUpdated: data.last_updated_at,
-    source: "CoinGecko",
-  };
-}
-
-/**
- * Fetch from CoinPaprika API
- */
+// ─── CoinPaprika — fallback 1 ─────────────────────────────────────────────────
 async function fetchFromCoinPaprika(coin, currency) {
-  // Map to CoinPaprika IDs
-  const paprikaMap = {
-    bitcoin: "btc-bitcoin",
-    ethereum: "eth-ethereum",
-    dogecoin: "doge-dogecoin",
-    solana: "sol-solana",
-    ripple: "xrp-xrp",
-    cardano: "ada-cardano",
-    polkadot: "dot-polkadot",
-    polygon: "matic-polygon",
-    "shiba-inu": "shib-shiba-inu",
-    chainlink: "link-chainlink",
-    litecoin: "ltc-litecoin",
-    binancecoin: "bnb-binance-coin",
-  };
+  const paprikaId = PAPRIKA_MAP[coin];
+  if (!paprikaId) throw new Error(`No CoinPaprika ID for ${coin}`);
 
-  const paprikaId = paprikaMap[coin] || `${coin}-${coin}`;
-
-  const response = await axios.get(
+  const res = await axios.get(
     `https://api.coinpaprika.com/v1/tickers/${paprikaId}`,
-    { timeout: 5000 },
+    { timeout: 8_000 },
   );
 
-  const data = response.data;
-  const quote = data.quotes[currency.toUpperCase()] || data.quotes.USD;
+  const d = res.data;
+  // CoinPaprika only has USD and BTC quotes on free tier — convert if needed.
+  // BUG FIX: old code silently tried currency.toUpperCase() which would fail
+  // for NGN/INR etc., returning undefined price. — AYOCODES
+  const quote = d.quotes?.USD;
+  if (!quote) throw new Error("No quote data from CoinPaprika");
+
+  // If non-USD requested, fetch exchange rate to convert. — AYOCODES
+  let price = quote.price;
+  let marketCap = quote.market_cap;
+  let volume = quote.volume_24h;
+
+  if (currency !== "usd") {
+    const rate = await getExchangeRate("usd", currency);
+    if (rate) {
+      price *= rate;
+      marketCap *= rate;
+      volume *= rate;
+    }
+  }
 
   return {
-    price: quote.price,
+    name: d.name,
+    symbol: d.symbol,
+    price,
     change24h: quote.percent_change_24h,
     change7d: quote.percent_change_7d,
-    marketCap: quote.market_cap,
-    volume24h: quote.volume_24h,
-    lastUpdated: Date.now() / 1000,
+    change30d: quote.percent_change_30d,
+    marketCap,
+    volume24h: volume,
+    high24h: null,
+    low24h: null,
+    ath: null,
+    athChange: null,
+    rank: d.rank,
+    lastUpdated: Math.floor(Date.now() / 1000),
     source: "CoinPaprika",
   };
 }
 
-/**
- * Fetch from Binance API (for major coins)
- */
+// ─── Binance — fallback 2 ────────────────────────────────────────────────────
 async function fetchFromBinance(coin, currency) {
-  // Binance uses different symbols
-  const binanceMap = {
-    bitcoin: "BTCUSDT",
-    ethereum: "ETHUSDT",
-    dogecoin: "DOGEUSDT",
-    solana: "SOLUSDT",
-    ripple: "XRPUSDT",
-    cardano: "ADAUSDT",
-    polkadot: "DOTUSDT",
-    polygon: "MATICUSDT",
-    litecoin: "LTCUSDT",
-    binancecoin: "BNBUSDT",
-  };
+  const symbol = BINANCE_MAP[coin];
+  if (!symbol) throw new Error(`No Binance symbol for ${coin}`);
 
-  const symbol = binanceMap[coin];
-  if (!symbol) throw new Error("Coin not supported on Binance");
-
-  const response = await axios.get(
-    `https://api.binance.com/api/v3/ticker/24hr`,
-    {
+  const [tickerRes, statsRes] = await Promise.all([
+    axios.get("https://api.binance.com/api/v3/ticker/24hr", {
       params: { symbol },
-      timeout: 5000,
-    },
-  );
+      timeout: 8_000,
+    }),
+    axios.get("https://api.binance.com/api/v3/ticker/price", {
+      params: { symbol },
+      timeout: 8_000,
+    }),
+  ]);
 
-  const data = response.data;
-  const price = parseFloat(data.lastPrice);
-  const change24h = parseFloat(data.priceChangePercent);
-  const volume = parseFloat(data.volume) * price;
+  const t = tickerRes.data;
+  let price = parseFloat(t.lastPrice);
+  let high24h = parseFloat(t.highPrice);
+  let low24h = parseFloat(t.lowPrice);
+  let volume = parseFloat(t.volume) * price;
+  const change24h = parseFloat(t.priceChangePercent);
+
+  // Convert from USD if non-USD currency requested. — AYOCODES
+  if (currency !== "usd") {
+    const rate = await getExchangeRate("usd", currency);
+    if (rate) {
+      price *= rate;
+      high24h *= rate;
+      low24h *= rate;
+      volume *= rate;
+    }
+  }
 
   return {
+    name: coin,
+    symbol: coin.toUpperCase(),
     price,
     change24h,
-    change7d: null,
-    marketCap: null, // Binance doesn't provide market cap
+    change7d: null, // Binance 24hr endpoint doesn't have 7d
+    change30d: null,
+    marketCap: null,
     volume24h: volume,
-    lastUpdated: Date.now() / 1000,
+    high24h,
+    low24h,
+    ath: null,
+    athChange: null,
+    rank: null,
+    lastUpdated: Math.floor(Date.now() / 1000),
     source: "Binance",
   };
 }
 
-/**
- * Get coin suggestions for similar names
- */
-async function getCoinSuggestions(input) {
-  const allCoins = Object.keys(COIN_MAP);
-  const suggestions = allCoins
-    .filter((coin) => coin.includes(input) || input.includes(coin))
-    .slice(0, 5);
+// ─── Exchange rate helper (for fiat conversion) ───────────────────────────────
+// BUG FIX: cryptoConvert used to pass NGN as a coin ID to CoinGecko — crashes.
+// Now fiat→fiat rates are fetched from a free exchange rate API. — AYOCODES
+const rateCache = new Map();
+async function getExchangeRate(from, to) {
+  if (from === to) return 1;
+  const key = `${from}:${to}`;
+  const cached = rateCache.get(key);
+  if (cached && Date.now() - cached.ts < 300_000) return cached.rate; // 5 min cache
 
-  return suggestions.map((s) => COIN_MAP[s]);
+  try {
+    const res = await axios.get(
+      `https://api.exchangerate-api.com/v4/latest/${from.toUpperCase()}`,
+      { timeout: 5_000 },
+    );
+    const rate = res.data?.rates?.[to.toUpperCase()];
+    if (!rate) throw new Error("No rate");
+    rateCache.set(key, { rate, ts: Date.now() });
+    return rate;
+  } catch {
+    // Fallback to open.er-api.com. — AYOCODES
+    try {
+      const res2 = await axios.get(
+        `https://open.er-api.com/v6/latest/${from.toUpperCase()}`,
+        { timeout: 5_000 },
+      );
+      const rate = res2.data?.rates?.[to.toUpperCase()];
+      if (!rate) throw new Error("No rate fallback");
+      rateCache.set(key, { rate, ts: Date.now() });
+      return rate;
+    } catch {
+      return null;
+    }
+  }
 }
 
-/**
- * Send formatted price response
- */
-async function sendPriceResponse(
+// ─── Coin suggestions ─────────────────────────────────────────────────────────
+function getCoinSuggestions(input) {
+  const seen = new Set();
+  return Object.entries(COIN_MAP)
+    .filter(([abbr, id]) => abbr.includes(input) || input.includes(abbr))
+    .map(([, id]) => id)
+    .filter((id) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, 5);
+}
+
+// ─── Format & send price card ─────────────────────────────────────────────────
+async function sendPriceCard(
   sock,
   from,
   data,
   coin,
   currency,
-  cached = false,
+  fromCache = false,
 ) {
-  const formatNumber = (num) => {
-    if (!num && num !== 0) return "N/A";
-    if (num > 1e12) return `$${(num / 1e12).toFixed(2)}T`;
-    if (num > 1e9) return `$${(num / 1e9).toFixed(2)}B`;
-    if (num > 1e6) return `$${(num / 1e6).toFixed(2)}M`;
-    if (num > 1e3) return `$${(num / 1e3).toFixed(2)}K`;
-    return num.toFixed?.(2) || num;
-  };
+  const sym = CURRENCY_CONFIG[currency]?.symbol ?? "$";
+  const cur = currency.toUpperCase();
 
-  const formatPercent = (num) => {
-    if (!num && num !== 0) return "N/A";
-    const sign = num > 0 ? "📈" : num < 0 ? "📉" : "➡️";
-    return `${sign} ${num.toFixed(2)}%`;
-  };
-
-  const price = data.price;
-  const change24h = data.change24h;
-  const change7d = data.change7d;
-  const marketCap = data.marketCap;
-  const volume24h = data.volume24h;
-  const source = data.source;
-
-  // Format price with proper decimal places
-  let priceFormatted;
-  if (price < 0.0001) {
-    priceFormatted = price.toExponential(4);
-  } else if (price < 1) {
-    priceFormatted = price.toFixed(6);
-  } else if (price < 1000) {
-    priceFormatted = price.toFixed(2);
-  } else {
-    priceFormatted = price.toLocaleString(undefined, {
-      maximumFractionDigits: 2,
-    });
-  }
-
-  const cryptoData = {
-    "💎 Coin": coin.toUpperCase(),
-    "💵 Price": `${currency.toUpperCase()} ${priceFormatted}`,
-    "📊 24h Change": formatPercent(change24h),
-    "📈 7d Change": change7d ? formatPercent(change7d) : "N/A",
-    "💰 Market Cap": marketCap ? formatNumber(marketCap) : "N/A",
-    "📦 Volume (24h)": volume24h ? formatNumber(volume24h) : "N/A",
-    "🔄 Source": source,
+  const fields = {
+    "💎 Coin": `${data.name ?? coin} (${data.symbol ?? coin.toUpperCase()})`,
+    "💵 Price": formatPrice(data.price, currency),
+    "📊 24h Change": formatPercent(data.change24h),
+    "📈 7d Change":
+      data.change7d != null ? formatPercent(data.change7d) : "N/A",
+    "📅 30d Change":
+      data.change30d != null ? formatPercent(data.change30d) : "N/A",
+    "🔺 24h High":
+      data.high24h != null ? formatPrice(data.high24h, currency) : "N/A",
+    "🔻 24h Low":
+      data.low24h != null ? formatPrice(data.low24h, currency) : "N/A",
+    "💰 Market Cap":
+      data.marketCap != null ? formatAmount(data.marketCap, currency) : "N/A",
+    "📦 Volume (24h)":
+      data.volume24h != null ? formatAmount(data.volume24h, currency) : "N/A",
+    "🏆 ATH": data.ath != null ? formatPrice(data.ath, currency) : "N/A",
+    "📉 ATH Change":
+      data.athChange != null ? formatPercent(data.athChange) : "N/A",
+    "🏅 Rank": data.rank != null ? `#${data.rank}` : "N/A",
+    "🔧 Source": data.source,
     "⏰ Updated": new Date(data.lastUpdated * 1000).toLocaleTimeString(),
   };
 
-  // Add cache indicator
-  if (cached) {
-    cryptoData["⚡"] = "Cached (1 min)";
-  }
+  if (fromCache) fields["⚡ Cache"] = "Served from cache (< 1 min)";
 
   await sock.sendMessage(from, {
-    text: formatData("💰 CRYPTO PRICE", cryptoData),
+    text: formatData(`💰 CRYPTO PRICE — ${cur}`, fields),
   });
 }
 
-/**
- * Get top cryptocurrencies by market cap
- * Usage: .crypto top
- */
+// ─── Main .crypto command ─────────────────────────────────────────────────────
+export async function crypto({ fullArgs, from, sock }) {
+  try {
+    const args = (fullArgs ?? "").toLowerCase().trim().split(/\s+/);
+    let coin = args[0] ?? "";
+    let currency = "usd";
+
+    if (!coin || coin === "help") {
+      return showHelp(from, sock);
+    }
+
+    if (args.length > 1 && SUPPORTED_CURRENCIES.includes(args[1])) {
+      currency = args[1];
+    }
+
+    const mappedCoin = COIN_MAP[coin] ?? coin;
+
+    await sock.sendMessage(from, {
+      text: `💰 *Fetching ${mappedCoin.toUpperCase()} data...*`,
+    });
+
+    // Serve from cache if fresh. — AYOCODES
+    const cacheKey = `price:${mappedCoin}:${currency}`;
+    const cached = priceCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      return sendPriceCard(sock, from, cached.data, mappedCoin, currency, true);
+    }
+
+    let data = null;
+    const errors = [];
+
+    for (const [label, fn] of [
+      ["CoinGecko", () => fetchFromCoinGecko(mappedCoin, currency)],
+      ["CoinPaprika", () => fetchFromCoinPaprika(mappedCoin, currency)],
+      ["Binance", () => fetchFromBinance(mappedCoin, currency)],
+    ]) {
+      try {
+        data = await fn();
+        if (data?.price != null) break;
+        data = null;
+      } catch (e) {
+        errors.push(`${label}: ${e.message}`);
+      }
+    }
+
+    if (!data) {
+      const suggestions = getCoinSuggestions(coin);
+      const hint = suggestions.length
+        ? `\n\n💡 *Did you mean:* ${suggestions.join(", ")}?`
+        : "";
+      console.error("❌ Crypto fetch failed:", errors);
+      return sock.sendMessage(from, {
+        text: formatError(
+          "CRYPTO ERROR",
+          `Could not fetch data for *"${coin}"*.${hint}\n\n` +
+            `Type *.crypto help* for supported coins.\n\n` +
+            `⚠️ Errors:\n${errors.join("\n")}`,
+        ),
+      });
+    }
+
+    // Cache it. — AYOCODES
+    priceCache.set(cacheKey, { data, ts: Date.now() });
+    return sendPriceCard(sock, from, data, mappedCoin, currency);
+  } catch (err) {
+    console.error("❌ crypto cmd error:", err);
+    return sock.sendMessage(from, {
+      text: formatError("CRYPTO ERROR", err.message),
+    });
+  }
+}
+
+// ─── Help ─────────────────────────────────────────────────────────────────────
+async function showHelp(from, sock) {
+  const seen = new Set();
+  const popularCoins = Object.entries(COIN_MAP)
+    .filter(([, id]) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, 20)
+    .map(([abbr, id]) => `• ${abbr} → ${id}`)
+    .join("\n");
+
+  await sock.sendMessage(from, {
+    text: formatInfo(
+      "💰 CRYPTO HELP",
+      "*Usage:* .crypto <coin> [currency]\n\n" +
+        "*Examples:*\n" +
+        "• .crypto bitcoin\n" +
+        "• .crypto eth eur\n" +
+        "• .crypto doge ngn\n" +
+        "• .crypto sol gbp\n\n" +
+        "*Supported Currencies:*\n" +
+        "• USD ($) · EUR (€) · GBP (£) · JPY (¥) · INR (₹) · NGN (₦)\n\n" +
+        "*Other Commands:*\n" +
+        "• .cryptotop — Top 10 by market cap\n" +
+        "• .cryptochart <coin> — TradingView chart link\n" +
+        "• .cryptoconvert <amount> <from> <to> — Convert\n\n" +
+        "*Popular Coins:*\n" +
+        popularCoins,
+    ),
+  });
+}
+
+// ─── Top 10 ───────────────────────────────────────────────────────────────────
 export async function cryptoTop({ from, sock }) {
   try {
     await sock.sendMessage(from, {
-      text: "📊 *Fetching top cryptocurrencies...*",
+      text: "📊 *Fetching top 10 cryptocurrencies...*",
     });
 
-    const response = await axios.get(
-      `https://api.coingecko.com/api/v3/coins/markets`,
+    const res = await axios.get(
+      "https://api.coingecko.com/api/v3/coins/markets",
       {
         params: {
           vs_currency: "usd",
@@ -419,160 +555,203 @@ export async function cryptoTop({ from, sock }) {
           per_page: 10,
           page: 1,
           sparkline: false,
+          price_change_percentage: "24h,7d",
         },
-        timeout: 5000,
+        timeout: 10_000,
       },
     );
 
-    const coins = response.data;
-    let topList = "🏆 *TOP 10 CRYPTOCURRENCIES*\n\n";
+    let msg =
+      `╔══════════════════════════════╗\n` +
+      `║  🏆 TOP 10 CRYPTOCURRENCIES  ║\n` +
+      `╚══════════════════════════════╝\n\n`;
 
-    coins.forEach((coin, index) => {
-      const rank = (index + 1).toString().padStart(2, " ");
-      const change = coin.price_change_percentage_24h;
-      const changeSymbol = change > 0 ? "📈" : change < 0 ? "📉" : "➡️";
+    res.data.forEach((coin, i) => {
+      const rank = String(i + 1).padStart(2, " ");
+      const ch24 = coin.price_change_percentage_24h ?? 0;
+      const ch7d = coin.price_change_percentage_7d_in_currency ?? null;
+      const icon24 = ch24 > 0 ? "📈" : ch24 < 0 ? "📉" : "➡️";
+      const icon7d =
+        ch7d != null ? (ch7d > 0 ? "📈" : ch7d < 0 ? "📉" : "➡️") : "";
 
-      topList += `${rank}. ${coin.symbol.toUpperCase()} - ${coin.name}\n`;
-      topList += `   💵 $${coin.current_price.toLocaleString()}\n`;
-      topList += `   ${changeSymbol} ${change.toFixed(2)}%\n`;
-      topList += `   💰 Market Cap: $${(coin.market_cap / 1e9).toFixed(2)}B\n\n`;
+      msg += `*${rank}. ${coin.symbol.toUpperCase()}* — ${coin.name}\n`;
+      msg += `   💵 $${coin.current_price.toLocaleString()}\n`;
+      msg += `   ${icon24} 24h: ${ch24 > 0 ? "+" : ""}${ch24.toFixed(2)}%`;
+      if (ch7d != null)
+        msg += `  ${icon7d} 7d: ${ch7d > 0 ? "+" : ""}${ch7d.toFixed(2)}%`;
+      msg += `\n   💰 MCap: $${(coin.market_cap / 1e9).toFixed(2)}B\n\n`;
     });
 
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+
+    await sock.sendMessage(from, { text: msg });
+  } catch (err) {
+    console.error("❌ cryptoTop error:", err);
     await sock.sendMessage(from, {
-      text: formatSuccess("📊 MARKET OVERVIEW", topList),
-    });
-  } catch (error) {
-    console.error("❌ Crypto top error:", error);
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not fetch top cryptocurrencies."),
+      text: formatError("ERROR", `Could not fetch top coins.\n${err.message}`),
     });
   }
 }
 
-/**
- * Get crypto chart URL
- * Usage: .crypto chart <coin>
- */
+// ─── Chart link ───────────────────────────────────────────────────────────────
 export async function cryptoChart({ fullArgs, from, sock }) {
   const coin = fullArgs?.toLowerCase().trim();
-
   if (!coin) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "📈 CRYPTO CHART",
-        "Usage: .crypto chart <coin>\nExample: .crypto chart bitcoin",
+        "Usage: .cryptochart <coin>\nExample: .cryptochart bitcoin",
       ),
     });
-    return;
   }
 
-  const mappedCoin = COIN_MAP[coin] || coin;
+  const mappedCoin = COIN_MAP[coin] ?? coin;
 
-  // Chart URLs from TradingView
-  const chartUrls = {
-    bitcoin: "https://www.tradingview.com/symbols/BTCUSD/",
-    ethereum: "https://www.tradingview.com/symbols/ETHUSD/",
-    dogecoin: "https://www.tradingview.com/symbols/DOGEUSD/",
-    solana: "https://www.tradingview.com/symbols/SOLUSD/",
-    ripple: "https://www.tradingview.com/symbols/XRPUSD/",
-    cardano: "https://www.tradingview.com/symbols/ADAUSD/",
-    polkadot: "https://www.tradingview.com/symbols/DOTUSD/",
-    polygon: "https://www.tradingview.com/symbols/MATICUSD/",
-    litecoin: "https://www.tradingview.com/symbols/LTCUSD/",
-    binancecoin: "https://www.tradingview.com/symbols/BNBUSD/",
+  const TV_MAP = {
+    bitcoin: "BTCUSD",
+    ethereum: "ETHUSD",
+    dogecoin: "DOGEUSD",
+    solana: "SOLUSD",
+    ripple: "XRPUSD",
+    cardano: "ADAUSD",
+    polkadot: "DOTUSD",
+    polygon: "MATICUSD",
+    litecoin: "LTCUSD",
+    binancecoin: "BNBUSD",
+    cosmos: "ATOMUSD",
+    "avalanche-2": "AVAXUSD",
+    fantom: "FTMUSD",
+    chainlink: "LINKUSD",
+    uniswap: "UNIUSD",
+    tron: "TRXUSD",
+    stellar: "XLMUSD",
   };
 
-  const chartUrl =
-    chartUrls[mappedCoin] || `https://www.coingecko.com/en/coins/${mappedCoin}`;
+  const tvSymbol = TV_MAP[mappedCoin];
+  const chartUrl = tvSymbol
+    ? `https://www.tradingview.com/symbols/${tvSymbol}/`
+    : `https://www.coingecko.com/en/coins/${mappedCoin}`;
 
   await sock.sendMessage(from, {
     text: formatSuccess(
       "📈 CHART LINK",
-      `*${mappedCoin.toUpperCase()} Chart*\n\n🔗 ${chartUrl}\n\n_Click the link to view live chart_`,
+      `*${mappedCoin.toUpperCase()} Live Chart*\n\n` +
+        `🔗 ${chartUrl}\n\n` +
+        `_Open the link for live candles & indicators_\n\n` +
+        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     ),
   });
 }
 
-/**
- * Convert between cryptocurrencies
- * Usage: .crypto convert <amount> <from> <to>
- */
+// ─── Convert ──────────────────────────────────────────────────────────────────
+// BUG FIX: old code passed fiat like "ngn" to CoinGecko as a coin ID —
+// now detects fiat vs crypto and handles each case properly. — AYOCODES
 export async function cryptoConvert({ fullArgs, from, sock }) {
-  const args = fullArgs?.toLowerCase().split(/\s+/) || [];
+  const args = (fullArgs ?? "").toLowerCase().trim().split(/\s+/);
 
-  if (args.length < 3) {
-    await sock.sendMessage(from, {
+  if (args.length < 3 || !args[0]) {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "🔄 CRYPTO CONVERT",
-        "Usage: .crypto convert <amount> <from> <to>\n" +
-          "Example: .crypto convert 1 bitcoin usd\n" +
-          "Example: .crypto convert 1000 ngn bitcoin",
+        "Usage: .cryptoconvert <amount> <from> <to>\n\n" +
+          "*Examples:*\n" +
+          "• .cryptoconvert 1 bitcoin usd\n" +
+          "• .cryptoconvert 0.5 eth btc\n" +
+          "• .cryptoconvert 50000 ngn bitcoin\n" +
+          "• .cryptoconvert 100 usd eth\n\n" +
+          "Supports all crypto coins and USD/EUR/GBP/JPY/INR/NGN",
       ),
     });
-    return;
   }
 
   const amount = parseFloat(args[0]);
-  const fromCoin = args[1];
-  const toCoin = args[2];
+  const fromRaw = args[1];
+  const toRaw = args[2];
 
   if (isNaN(amount) || amount <= 0) {
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", "Please enter a valid amount."),
+    return sock.sendMessage(from, {
+      text: formatError("ERROR", "Please enter a valid positive amount."),
     });
-    return;
   }
 
+  const fromIsFiat = FIAT_SET.has(fromRaw);
+  const toIsFiat = FIAT_SET.has(toRaw);
+  const fromMapped = COIN_MAP[fromRaw] ?? fromRaw;
+  const toMapped = COIN_MAP[toRaw] ?? toRaw;
+
   await sock.sendMessage(from, {
-    text: `🔄 *Converting ${amount} ${fromCoin.toUpperCase()} to ${toCoin.toUpperCase()}...*`,
+    text: `🔄 *Converting ${amount} ${fromRaw.toUpperCase()} → ${toRaw.toUpperCase()}...*`,
   });
 
   try {
-    // Get price for fromCoin in USD first
-    const fromMapped = COIN_MAP[fromCoin] || fromCoin;
-    const toMapped = COIN_MAP[toCoin] || toCoin;
+    let resultAmount;
+    let rateLabel;
 
-    // Fetch both prices
-    const [fromData, toData] = await Promise.all([
-      fetchFromCoinGecko(fromMapped, "usd").catch(() => null),
-      fetchFromCoinGecko(toMapped, "usd").catch(() => null),
-    ]);
-
-    if (!fromData || !toData) {
-      throw new Error("Could not fetch prices");
+    if (fromIsFiat && toIsFiat) {
+      // ── Fiat → Fiat ──────────────────────────────────────────────────────
+      const rate = await getExchangeRate(fromRaw, toRaw);
+      if (!rate) throw new Error("Could not get exchange rate");
+      resultAmount = amount * rate;
+      rateLabel = `1 ${fromRaw.toUpperCase()} = ${rate.toFixed(4)} ${toRaw.toUpperCase()}`;
+    } else if (!fromIsFiat && toIsFiat) {
+      // ── Crypto → Fiat ─────────────────────────────────────────────────────
+      const data = await fetchFromCoinGecko(fromMapped, toRaw)
+        .catch(() => fetchFromCoinPaprika(fromMapped, toRaw))
+        .catch(() => fetchFromBinance(fromMapped, toRaw));
+      if (!data?.price)
+        throw new Error(`Could not fetch price for ${fromMapped}`);
+      resultAmount = amount * data.price;
+      rateLabel = `1 ${fromMapped.toUpperCase()} = ${formatPrice(data.price, toRaw)}`;
+    } else if (fromIsFiat && !toIsFiat) {
+      // ── Fiat → Crypto ─────────────────────────────────────────────────────
+      const data = await fetchFromCoinGecko(toMapped, fromRaw)
+        .catch(() => fetchFromCoinPaprika(toMapped, fromRaw))
+        .catch(() => fetchFromBinance(toMapped, fromRaw));
+      if (!data?.price)
+        throw new Error(`Could not fetch price for ${toMapped}`);
+      resultAmount = amount / data.price;
+      rateLabel = `1 ${toMapped.toUpperCase()} = ${formatPrice(data.price, fromRaw)}`;
+    } else {
+      // ── Crypto → Crypto ───────────────────────────────────────────────────
+      const [fromData, toData] = await Promise.all([
+        fetchFromCoinGecko(fromMapped, "usd")
+          .catch(() => fetchFromCoinPaprika(fromMapped, "usd"))
+          .catch(() => fetchFromBinance(fromMapped, "usd")),
+        fetchFromCoinGecko(toMapped, "usd")
+          .catch(() => fetchFromCoinPaprika(toMapped, "usd"))
+          .catch(() => fetchFromBinance(toMapped, "usd")),
+      ]);
+      if (!fromData?.price)
+        throw new Error(`Could not fetch price for ${fromMapped}`);
+      if (!toData?.price)
+        throw new Error(`Could not fetch price for ${toMapped}`);
+      const usdValue = amount * fromData.price;
+      resultAmount = usdValue / toData.price;
+      rateLabel = `1 ${fromMapped.toUpperCase()} = ${(fromData.price / toData.price).toFixed(8)} ${toMapped.toUpperCase()}`;
     }
 
-    const fromPrice = fromData.price;
-    const toPrice = toData.price;
+    const fromSym = fromIsFiat ? (CURRENCY_CONFIG[fromRaw]?.symbol ?? "") : "";
+    const toSym = toIsFiat ? (CURRENCY_CONFIG[toRaw]?.symbol ?? "") : "";
 
-    // Convert
-    const valueInUSD = amount * fromPrice;
-    const convertedAmount = valueInUSD / toPrice;
-
-    const result = {
-      "🔄 From": `${amount} ${fromMapped.toUpperCase()}`,
-      "💵 USD Value": `$${valueInUSD.toFixed(2)}`,
-      "🔄 To": `${convertedAmount.toFixed(6)} ${toMapped.toUpperCase()}`,
-      "💰 Rate": `1 ${fromMapped.toUpperCase()} = ${(fromPrice / toPrice).toFixed(6)} ${toMapped.toUpperCase()}`,
+    const fields = {
+      "🔄 From": `${fromSym}${amount} ${fromRaw.toUpperCase()}`,
+      "✅ Result": `${toSym}${resultAmount.toFixed(toIsFiat ? 2 : 8)} ${toRaw.toUpperCase()}`,
+      "💱 Rate": rateLabel,
+      "⏰ Time": new Date().toLocaleTimeString(),
     };
 
     await sock.sendMessage(from, {
-      text: formatData("🔄 CONVERSION RESULT", result),
+      text: formatData("🔄 CONVERSION RESULT", fields),
     });
-  } catch (error) {
+  } catch (err) {
+    console.error("❌ cryptoConvert error:", err);
     await sock.sendMessage(from, {
       text: formatError(
-        "ERROR",
-        "Could not perform conversion. Please check the coin names.",
+        "CONVERSION ERROR",
+        `${err.message}\n\n` +
+          `💡 Check the coin names and try again.\n` +
+          `Example: .cryptoconvert 1 bitcoin usd`,
       ),
     });
   }
 }
-
-// Export all functions
-export default {
-  crypto,
-  cryptoTop,
-  cryptoChart,
-  cryptoConvert,
-};

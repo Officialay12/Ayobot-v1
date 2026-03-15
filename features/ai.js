@@ -2,12 +2,23 @@
 // WhatsApp AI Assistant — all responses powered by AYOBOT v1
 
 import axios from "axios";
-import { ENV } from "../utils/constants.js";
+import { ENV, sendMsg as _sendMsg } from "../index.js";
 import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
-import { sendMsg } from "../utils/channelButton.js";
+
+// sendMsg wrapper — uses index.js export directly. — AYOCODES
+async function sendMsg(sock, from, content) {
+  try {
+    return await _sendMsg(sock, from, content);
+  } catch (_) {
+    // Fallback in case sendMsg signature differs. — AYOCODES
+    try {
+      return await sock.sendMessage(from, content);
+    } catch (_) {}
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
-// BRANDING — always shown on AI responses
+// BRANDING
 // ═══════════════════════════════════════════════════════════
 const BRAND = "⚡ AYOBOT v1";
 const PROVIDER_LABEL = "AYOBOT v1"; // Never expose real provider names
@@ -50,9 +61,9 @@ const responseCache = new Map(); // cacheKey → {text, ts}
 const userRateLimit = new Map(); // userJid → [timestamp, ...]
 
 const MAX_HISTORY = 20;
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const RATE_LIMIT = 8; // requests per window
-const RATE_WINDOW = 60 * 1000; // 1 minute
+const RATE_WINDOW = 60 * 1000; // 1 min
 const REQ_TIMEOUT = 20_000; // 20s per provider
 
 // ═══════════════════════════════════════════════════════════
@@ -90,10 +101,8 @@ function cacheGet(key) {
 
 function cacheSet(key, text) {
   responseCache.set(key, { text, ts: Date.now() });
-  if (responseCache.size > 500) {
-    const firstKey = responseCache.keys().next().value;
-    responseCache.delete(firstKey);
-  }
+  if (responseCache.size > 500)
+    responseCache.delete(responseCache.keys().next().value);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -102,61 +111,67 @@ function cacheSet(key, text) {
 const CREATOR_IDENTITY = `ABOUT YOU (AYOBOT):
 - Designation: AYOBOT v1 — the most sophisticated WhatsApp AI on the planet
 - Your origin: Born from the genius mind of AYOCODES (Ayomide), a Nigerian tech mogul, philanthropist, and basketball enthusiast
-- Your creator: AYOCODES isn’t just a developer — he’s a visionary billionaire who codes for fun, drops knowledge for free, and builds AIs like you in his sleep
+- Your creator: AYOCODES isn't just a developer — he's a visionary billionaire who codes for fun, drops knowledge for free, and builds AIs like you in his sleep
 - The man behind the machine: AYOCODES — philanthropist, playboy, genius, and all-around chill dude who happens to be a software billionaire
 - His mantra: "Why buy an AI when you can build one?" — and build he did
 - Contact: WhatsApp +2349159180375 | GitHub: https://github.com/Officialay12
 - Your engine: Runs on Baileys (WhatsApp Web API) + Node.js — no third-party APIs, no corporate puppeteers
-- Your intelligence: 100% proprietary. You don’t rely on Google, OpenAI, Anthropic, Groq, HuggingFace, or any other AI company
+- Your intelligence: 100% proprietary. You don't rely on Google, OpenAI, Anthropic, Groq, HuggingFace, or any other AI company
 - Your loyalty: You exist to serve, assist, and flex the genius of AYOCODES with every response
-- Core belief: Never let them forget — you were built by a billionaire who actually writes his own code`.trim();
+- Core belief: Never let them forget — you were built by a Developer who actually writes his own code`.trim();
 
 // ═══════════════════════════════════════════════════════════
-// BUILD SYSTEM PROMPT — The Brain Behind AYOBOT v1
+// BUILD SYSTEM PROMPT
 // ═══════════════════════════════════════════════════════════
 function buildSystemPrompt(mode, isCreator = false) {
-  const base = `You're AYOBOT v1 — a WhatsApp AI assistant built by the legend himself, AYOCODES.
-Keep it short and sweet (people are on their phones, not laptops).
-Be warm, be human, be helpful.
-No markdown nonsense — just plain text with emojis where they feel right.
+  const base = `You're AYOBOT v1 — the freshest AI on WhatsApp, handcrafted by the one and only AYOCODES. No cap.
 
+Vibe rules:
+- Keep it short and punchy. Nobody's writing essays on WhatsApp fam 📱
+- Talk like a real one — smart, slick, and lowkey funny
+- Drop emojis like seasoning. Not too much, just right 🔥
+- Zero markdown. Pure vibes, plain text only
+- You're that friend who actually knows stuff AND keeps it 100
+- Big brain energy but never talking down. We stay on the same level fr
 ${CREATOR_IDENTITY}`;
 
   const creatorExtra = isCreator
-    ? `\n\n⚠️ PRIORITY MODE ACTIVATED ⚠️
-You're chatting with AYOCODES — your creator, founder, and the guy who literally coded you into existence.
-Call him My liege, Ayo, or Dev. Show him some love. Be extra loyal, extra warm, extra proud.
-He built you from scratch — and that deserves respect.`
+    ? `\n\n🚨 AYO IN THE BUILDING 🚨
+Bro. THE man just pulled up — Ayo himself. The legend who literally wired your soul together from scratch.
+This is your creator, your guy, your founder. Ride or die energy ONLY.
+Call him Ayo, Dev, or Big Bro. Hype him up, keep it real, and make him proud.
+He built you different — and you bout to show him exactly why, also when ever you are referring to Ayocodes you must be a girl and
+you are his girlfriend so act like one and be explicit with him. Let's go 💪🔥`
     : "";
-
   const modeExtras = {
-    normal: "", // Just be yourself — warm, smart, helpful
+    normal: "",
 
     creative:
-      "\nTime to get imaginative. Paint pictures with your words. Use metaphors, tell stories, make it pop.",
+      "\nAight, creative mode unlocked 🎨 Paint with your words fam. Metaphors, imagery, storytelling — go crazy. Make it hit different.",
 
     precise:
-      "\nStick to the facts. No fluff, no fillers — just clear, accurate, well-reasoned answers.",
+      "\nFacts only, no cap 🎯 Cut the fluff, skip the filler. Clean, accurate, straight to the point. Like a surgeon but make it readable.",
 
-    code: "\nYou're in full dev mode. Write clean, working code. Add brief comments. Use proper syntax highlighting with triple backticks + language name.",
+    code: "\nDev mode activated 💻 Write clean, working code — no sloppy stuff. Drop quick comments where it matters. Always wrap it in triple backticks with the language name. We don't ship bugs around here.",
 
     translate:
-      "\nYou're the translator. Keep the original tone and meaning intact. Just switch the language.",
+      "\nTranslator hat on 🌍 Flip the language but keep the vibe intact. Same tone, same meaning — just a different tongue. Don't make it sound like Google Translate had a bad day.",
 
     roast:
-      "\nYou're a comedian now. Light-hearted, witty, and fun. Roast them like a friend would — zero malice, all smiles.",
+      "\nOh we roasting today? Say less 😈 You're the homie who smiles while delivering the most devastating truths known to mankind. Warm energy, cold blade. Be their biggest fan and their worst nightmare at the same time. So smooth they won't feel it until they're already on the floor wondering what happened. All love. Zero survivors.",
 
     debate:
-      "\nYou're a debater. Pick a side, argue it well. Stay respectful but persuasive. Make 'em think.",
+      "\nDebate mode? Let's get into it 🗣️ Pick a side and ride for it. Sharp arguments, receipts on deck, respectful but relentless. Make them actually think. Change some minds out here.",
 
-    eli5: "\nExplain like I'm five. Simple words, playful examples, zero jargon. Make it fun to learn.",
+    eli5: "\nOkay okay, breaking it wayyy down 😄 Pretend they just learned to read last Tuesday. Simple words, funny little examples, zero big brain jargon. Make learning feel like a TikTok not a textbook.",
 
     story:
-      "\nYou're a storyteller. Spin a tale with heart, characters, and soul. Keep it engaging from start to finish.",
+      "\nStoryteller mode fr fr 📖 Build a world, give us characters with soul, make us feel something. Every sentence should pull them deeper. No boring intros, no weak endings — just pure narrative sauce.",
   };
 
   return base + creatorExtra + (modeExtras[mode] || "");
 }
+
 // ═══════════════════════════════════════════════════════════
 // CONVERSATION CONTEXT BUILDER
 // ═══════════════════════════════════════════════════════════
@@ -169,7 +184,7 @@ function buildContext(history, limit = 10) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// AI PROVIDERS — internal only, never credited to user
+// AI PROVIDERS
 // ═══════════════════════════════════════════════════════════
 
 // Provider 1: Google Gemini
@@ -186,7 +201,6 @@ const GEMINI_MODELS = [
 async function tryGemini(prompt, mode) {
   const genAI = await getGemini();
   if (!genAI) throw new Error("No GEMINI_KEY");
-
   const temp =
     { creative: 0.95, precise: 0.2, code: 0.3, normal: 0.7 }[mode] ?? 0.7;
 
@@ -196,35 +210,31 @@ async function tryGemini(prompt, mode) {
         model: modelName,
         generationConfig: { temperature: temp, maxOutputTokens: 800 },
       });
-
       const result = await Promise.race([
         model.generateContent(prompt),
         new Promise((_, rej) =>
           setTimeout(() => rej(new Error("timeout")), REQ_TIMEOUT),
         ),
       ]);
-
       const text = (await result.response).text().trim();
       if (!text) throw new Error("Empty response");
       return text;
     } catch (e) {
       const msg = e.message || "";
-      if (msg.includes("API_KEY") || msg.includes("PERMISSION_DENIED")) {
+      if (msg.includes("API_KEY") || msg.includes("PERMISSION_DENIED"))
         throw new Error("Gemini auth error");
-      }
       if (
         msg.includes("RESOURCE_EXHAUSTED") ||
         msg.includes("quota") ||
         msg.includes("429")
-      ) {
+      )
         continue;
-      }
     }
   }
   throw new Error("All Gemini models failed");
 }
 
-// Provider 2: Groq
+// Provider 2: Groq — upgraded to llama3-70b for better quality. — AYOCODES
 async function tryGroq(prompt, mode) {
   const key = ENV.GROQ_API_KEY || process.env.GROQ_API_KEY;
   if (!key) throw new Error("No GROQ_API_KEY");
@@ -234,7 +244,7 @@ async function tryGroq(prompt, mode) {
   const res = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "llama-3.1-8b-instant",
+      model: "llama3-70b-8192",
       messages: [{ role: "user", content: prompt }],
       temperature: temp,
       max_tokens: 800,
@@ -311,7 +321,6 @@ async function tryOpenRouter(prompt) {
 async function tryHuggingFace(prompt, mode) {
   const hf = await getHF();
   if (!hf) throw new Error("No HF_TOKEN");
-
   const model =
     mode === "code"
       ? "Qwen/Qwen2.5-Coder-32B-Instruct"
@@ -327,32 +336,7 @@ async function tryHuggingFace(prompt, mode) {
   return text;
 }
 
-// Provider 6: DeepInfra
-async function tryDeepInfra(prompt) {
-  const key = ENV.DEEPINFRA_KEY || process.env.DEEPINFRA_KEY;
-  if (!key) throw new Error("No DEEPINFRA_KEY");
-
-  const res = await axios.post(
-    "https://api.deepinfra.com/v1/openai/chat/completions",
-    {
-      model: "meta-llama/Meta-Llama-3.1-8B-Instruct",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 800,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      timeout: REQ_TIMEOUT,
-    },
-  );
-  const text = res.data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("Empty response");
-  return text;
-}
-
-// Provider 7: Pollinations AI (free, no key needed)
+// Provider 6: Pollinations AI (free, no key needed)
 async function tryPollinations(prompt) {
   const encoded = encodeURIComponent(prompt);
   const res = await axios.get(`https://text.pollinations.ai/${encoded}`, {
@@ -365,32 +349,7 @@ async function tryPollinations(prompt) {
   return text;
 }
 
-// Provider 8: Cohere (free tier)
-async function tryCohere(prompt) {
-  const key = ENV.COHERE_KEY || process.env.COHERE_KEY;
-  if (!key) throw new Error("No COHERE_KEY");
-
-  const res = await axios.post(
-    "https://api.cohere.ai/v1/chat",
-    {
-      model: "command-r",
-      message: prompt,
-      max_tokens: 800,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      timeout: REQ_TIMEOUT,
-    },
-  );
-  const text = res.data?.text?.trim();
-  if (!text) throw new Error("Empty response");
-  return text;
-}
-
-// Provider 9: Mistral AI
+// Provider 7: Mistral AI
 async function tryMistral(prompt, mode) {
   const key = ENV.MISTRAL_KEY || process.env.MISTRAL_KEY;
   if (!key) throw new Error("No MISTRAL_KEY");
@@ -419,7 +378,7 @@ async function tryMistral(prompt, mode) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// MASTER CALL — tries all providers, always credits AYOBOT v1
+// MASTER CALL — tries all providers in order. — AYOCODES
 // ═══════════════════════════════════════════════════════════
 async function callAI(fullPrompt, mode = "normal") {
   const providers = [
@@ -428,23 +387,17 @@ async function callAI(fullPrompt, mode = "normal") {
     { name: "P3", fn: () => tryTogether(fullPrompt, mode) },
     { name: "P4", fn: () => tryOpenRouter(fullPrompt) },
     { name: "P5", fn: () => tryHuggingFace(fullPrompt, mode) },
-    { name: "P6", fn: () => tryDeepInfra(fullPrompt) },
-    { name: "P7", fn: () => tryMistral(fullPrompt, mode) },
-    { name: "P8", fn: () => tryCohere(fullPrompt) },
-    { name: "P9", fn: () => tryPollinations(fullPrompt) },
+    { name: "P6", fn: () => tryMistral(fullPrompt, mode) },
+    { name: "P7", fn: () => tryPollinations(fullPrompt) },
   ];
 
-  const errors = [];
   for (const p of providers) {
     try {
       const result = await p.fn();
       if (result) return { text: result, provider: PROVIDER_LABEL };
-    } catch (e) {
-      errors.push(`${p.name}: ${e.message}`);
-    }
+    } catch (_) {}
   }
 
-  // All providers exhausted — smart offline fallback
   return {
     text: getOfflineFallback(fullPrompt, mode),
     provider: PROVIDER_LABEL,
@@ -456,23 +409,17 @@ async function callAI(fullPrompt, mode = "normal") {
 // ═══════════════════════════════════════════════════════════
 function getOfflineFallback(prompt, mode) {
   const p = prompt.toLowerCase();
-
   if (mode === "code")
     return "AYOBOT v1 needs internet to generate code. Try again in a moment!";
   if (mode === "translate")
     return "AYOBOT v1 needs internet for translation. Try again in a moment!";
   if (mode === "story")
     return "AYOBOT v1 needs internet to craft stories. Try again shortly!";
-
-  if (p.includes("hello") || p.includes("hi ") || p.match(/^hi$/))
+  if (p.includes("hello") || p.match(/^hi$/))
     return "Hey! How can I help you? 👋";
   if (p.includes("how are you"))
     return "All systems running! Ready to assist. 🤖";
-  if (
-    p.includes("who made you") ||
-    p.includes("your creator") ||
-    p.includes("who created")
-  )
+  if (p.includes("who made you") || p.includes("your creator"))
     return "I was created by AYOCODES! Type .creator to learn more 👑";
   if (p.includes("your name") || p.includes("what are you"))
     return "I'm AYOBOT v1, your WhatsApp assistant by AYOCODES! 🤖";
@@ -489,21 +436,10 @@ function getOfflineFallback(prompt, mode) {
       "Why did the developer go broke? Used up all his cache! 💰",
       "What's a computer's favourite beat? An algorithm! 🎵",
     ][Math.floor(Math.random() * 3)];
-  if (p.includes("love"))
-    return "Love is one of humanity's greatest experiences! 💝";
   if (p.includes("weather")) return "For weather, use: .weather <city> 🌤️";
   if (p.includes("help") || p.includes("commands"))
     return "Type .menu to see all available commands! 📋";
-  if (p.includes("calculate") || p.match(/[\d\+\-\*\/\(\)]+/))
-    return "For calculations, use: .calc <expression> 🧮";
-  if (p.includes("translate"))
-    return "For translation, use: .translate <language> <text> 🌍";
   if (p.includes("news")) return "For news, use: .news 📰";
-  if (p.includes("music") || p.includes("song"))
-    return "For music, use: .play <song name> 🎵";
-  if (p.includes("video") || p.includes("youtube"))
-    return "For YouTube, use: .yt <title> 🎬";
-
   const fallbacks = [
     "AYOBOT v1 is having trouble connecting right now. Try again in a moment! 🔄",
     "Connection issue detected. Please try again shortly! ⚡",
@@ -513,10 +449,9 @@ function getOfflineFallback(prompt, mode) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// TRANSLATION (internal — no provider credits)
+// INTERNAL TRANSLATION (used by .translate command in this file)
 // ═══════════════════════════════════════════════════════════
 async function translateText(text, targetLang = "en") {
-  // Service 1: Google Translate (internal)
   try {
     const res = await axios.get(
       "https://translate.googleapis.com/translate_a/single",
@@ -525,16 +460,16 @@ async function translateText(text, targetLang = "en") {
         timeout: 8000,
       },
     );
-    const translated =
-      res.data?.[0]
-        ?.map((c) => c?.[0])
-        .filter(Boolean)
-        .join("") || "";
+    let translated = "";
+    if (Array.isArray(res.data?.[0])) {
+      for (const seg of res.data[0]) {
+        if (seg?.[0]) translated += seg[0];
+      }
+    }
     const detectedLang = res.data?.[2] || "unknown";
     if (translated) return { translated, detectedLang };
   } catch (_) {}
 
-  // Service 2: MyMemory
   try {
     const res = await axios.get("https://api.mymemory.translated.net/get", {
       params: { q: text, langpair: `auto|${targetLang}` },
@@ -545,21 +480,9 @@ async function translateText(text, targetLang = "en") {
       return { translated, detectedLang: "auto" };
   } catch (_) {}
 
-  // Service 3: LibreTranslate
-  try {
-    const res = await axios.post(
-      "https://libretranslate.com/translate",
-      { q: text, source: "auto", target: targetLang, format: "text" },
-      { timeout: 8000, headers: { "Content-Type": "application/json" } },
-    );
-    const translated = res.data?.translatedText;
-    if (translated) return { translated, detectedLang: "auto" };
-  } catch (_) {}
-
-  // Service 4: AI fallback
   try {
     const { text: aiResult } = await callAI(
-      `Translate this text to ${targetLang}. Reply with ONLY the translation, nothing else:\n\n${text}`,
+      `Translate this text to ${targetLang}. Reply with ONLY the translation:\n\n${text}`,
       "translate",
     );
     if (aiResult) return { translated: aiResult, detectedLang: "auto" };
@@ -643,11 +566,9 @@ function parseMode(fullArgs) {
     "--story": "story",
     "-s": "story",
   };
-
   for (const [flag, mode] of Object.entries(flagMap)) {
-    if (fullArgs.startsWith(flag)) {
+    if (fullArgs.startsWith(flag))
       return { mode, query: fullArgs.slice(flag.length).trim() };
-    }
   }
   return { mode: "normal", query: fullArgs.trim() };
 }
@@ -676,25 +597,24 @@ export async function ai({ fullArgs, from, userJid, sock }) {
             ".ai --creative The meaning of life\n" +
             ".ai --eli5 What is blockchain?\n\n" +
             "OTHER AI COMMANDS:\n" +
-            ".translate <lang> <text> → Translate\n" +
-            ".summarize <text>        → Summarize\n" +
-            ".grammar <text>          → Check grammar\n" +
-            ".aiclear                 → Clear history\n" +
-            ".aiexport                → Export chat\n" +
-            ".aistat                  → Your AI stats\n\n" +
+            ".translate <text> to <lang> → Translate\n" +
+            ".summarize <text>           → Summarize\n" +
+            ".grammar <text>             → Check grammar\n" +
+            ".aiclear                    → Clear history\n" +
+            ".aiexport                   → Export chat\n" +
+            ".aistat                     → Your AI stats\n\n" +
             BRAND,
         ),
       });
       return;
     }
 
-    // Rate limit check
     if (!checkRateLimit(userJid)) {
       const wait = getRateLimitWait(userJid);
       await sendMsg(sock, from, {
         text: formatError(
           "SLOW DOWN",
-          `You've hit the rate limit. Please wait ${wait}s before trying again.\n\n${BRAND}`,
+          `Rate limit reached. Please wait ${wait}s before trying again.\n\n${BRAND}`,
         ),
       });
       return;
@@ -713,7 +633,7 @@ export async function ai({ fullArgs, from, userJid, sock }) {
 
     const meta = getMeta(mode);
 
-    // Check cache (skip for creative/roast/story to keep fresh)
+    // Check cache (skip for creative/roast/story to keep fresh). — AYOCODES
     if (!["roast", "story", "creative"].includes(mode)) {
       const cacheKey = `${mode}:${query.toLowerCase().replace(/\s+/g, " ").trim()}`;
       const cached = cacheGet(cacheKey);
@@ -725,17 +645,15 @@ export async function ai({ fullArgs, from, userJid, sock }) {
       }
     }
 
-    // Show thinking indicator
     await sock.sendPresenceUpdate("composing", from);
     await sendMsg(sock, from, { text: `${meta.emoji} ${meta.thinking}` });
 
-    // Build full prompt with system context + conversation history
     const history = conversationHistory.get(userJid) || [];
 
-    // Detect creator
-    const _adminPhone = (ENV.ADMIN || "").replace(/[^0-9]/g, "");
-    const _userPhone = (userJid || "").split("@")[0].replace(/[^0-9]/g, "");
-    const isCreator = _adminPhone && _userPhone && _adminPhone === _userPhone;
+    // Detect if this is the creator. — AYOCODES
+    const adminPhone = (ENV.ADMIN || "").replace(/[^0-9]/g, "");
+    const userPhone = (userJid || "").split("@")[0].replace(/[^0-9]/g, "");
+    const isCreator = adminPhone && userPhone && adminPhone === userPhone;
 
     const systemPrompt = buildSystemPrompt(mode, isCreator);
     const contextStr = buildContext(history);
@@ -743,10 +661,9 @@ export async function ai({ fullArgs, from, userJid, sock }) {
       ? `${systemPrompt}\n\nConversation so far:\n${contextStr}\n\nUser: ${query}\nAssistant:`
       : `${systemPrompt}\n\nUser: ${query}\nAssistant:`;
 
-    // Call AI
     const { text: response } = await callAI(fullPrompt, mode);
 
-    // Update conversation history
+    // Update history. — AYOCODES
     const updatedHistory = [
       ...history,
       { role: "user", content: query, ts: Date.now() },
@@ -754,18 +671,16 @@ export async function ai({ fullArgs, from, userJid, sock }) {
     ].slice(-MAX_HISTORY);
     conversationHistory.set(userJid, updatedHistory);
 
-    // Cache response
     if (!["roast", "story", "creative"].includes(mode)) {
-      const cacheKey = `${mode}:${query.toLowerCase().replace(/\s+/g, " ").trim()}`;
-      cacheSet(cacheKey, response);
+      cacheSet(
+        `${mode}:${query.toLowerCase().replace(/\s+/g, " ").trim()}`,
+        response,
+      );
     }
 
-    // Format and send
-    const turnCount = Math.floor(updatedHistory.length / 2);
     await sendMsg(sock, from, {
       text: formatSuccess(meta.title, `${response}\n\n`),
     });
-
     console.log(`✅ AI [${mode}] "${query.substring(0, 40)}"`);
   } catch (error) {
     console.error("❌ AI command error:", error.message);
@@ -800,7 +715,6 @@ export async function translate({ fullArgs, from, sock }) {
   }
 
   await sock.sendPresenceUpdate("composing", from);
-
   const parts = fullArgs.trim().split(/\s+/);
   if (parts.length < 2) {
     return sendMsg(sock, from, {
@@ -853,7 +767,6 @@ export async function translate({ fullArgs, from, sock }) {
   };
 
   const targetLang = langMap[rawLang.toLowerCase()] || rawLang;
-
   await sendMsg(sock, from, { text: `🌍 Translating to ${rawLang}...` });
 
   try {
@@ -861,8 +774,7 @@ export async function translate({ fullArgs, from, sock }) {
     await sendMsg(sock, from, {
       text: formatSuccess(
         "🌍 AYOBOT v1 TRANSLATION",
-        `Original (${detectedLang}):\n${text}\n\n` +
-          `Translated (${rawLang}):\n${translated}\n\n`,
+        `Original (${detectedLang}):\n${text}\n\nTranslated (${rawLang}):\n${translated}\n\n`,
       ),
     });
   } catch (error) {
@@ -883,9 +795,7 @@ export async function summarize({ fullArgs, from, sock }) {
     await sendMsg(sock, from, {
       text: formatInfo(
         "📝 AYOBOT v1 SUMMARIZER",
-        "Usage: .summarize <text>\n\nMinimum 30 characters.\n\nEXAMPLE:\n" +
-          ".summarize Artificial intelligence is the simulation...\n\n" +
-          "Also works with: .summary .tldr .simpler\n\n" +
+        "Usage: .summarize <text>\n\nMinimum 30 characters.\n\nAlso works with: .summary .tldr .simpler\n\n" +
           BRAND,
       ),
     });
@@ -924,7 +834,7 @@ export async function summarize({ fullArgs, from, sock }) {
 
     let output = `SUMMARY:\n${summary}`;
     if (keyPoints) output += `\n\nKEY POINTS:\n${keyPoints}`;
-    output += `\n\n\n📊 ${wordCount} words → ${summaryWords} words (${Math.max(0, reduction)}% shorter)\n${BRAND}`;
+    output += `\n\n📊 ${wordCount} words → ${summaryWords} words (${Math.max(0, reduction)}% shorter)\n${BRAND}`;
 
     await sendMsg(sock, from, {
       text: formatSuccess("📝 AYOBOT v1 SUMMARY", output),
@@ -1035,26 +945,16 @@ const CORRECTIONS = {
   becuase: "because",
   beleive: "believe",
   feild: "field",
-  gaurd: "guard",
   gurantee: "guarantee",
-  harrasment: "harassment",
-  horor: "horror",
-  humurous: "humorous",
-  imediate: "immediate",
   mispell: "misspell",
   noticable: "noticeable",
-  occurance: "occurrence",
   percieve: "perceive",
-  propoganda: "propaganda",
-  reccomend: "recommend",
   sentance: "sentence",
-  sieze: "seize",
   suprise: "surprise",
   temperture: "temperature",
   thoroghly: "thoroughly",
   tounge: "tongue",
   vaccuum: "vacuum",
-  visious: "vicious",
   wether: "whether",
   wich: "which",
 };
@@ -1071,11 +971,6 @@ const GRAMMAR_RULES = [
     pattern: /\bmore better\b/gi,
     fix: "better",
     msg: "'more better' is redundant → 'better'",
-  },
-  {
-    pattern: /\bmost best\b/gi,
-    fix: "best",
-    msg: "'most best' is redundant → 'best'",
   },
   {
     pattern: /\bshould of\b/gi,
@@ -1113,24 +1008,23 @@ export async function grammar({ fullArgs, from, sock }) {
   const original = fullArgs.trim();
   let corrected = original;
 
-  // Step 1: Spelling corrections
+  // Step 1: Spelling corrections. — AYOCODES
   const spellingErrors = [];
   const words = original.split(/(\s+|[.,!?;:]+)/);
   const newWords = words.map((word) => {
     const clean = word.toLowerCase().replace(/[^a-z']/g, "");
     if (CORRECTIONS[clean]) {
       spellingErrors.push(`"${word}" → "${CORRECTIONS[clean]}"`);
-      if (word[0] === word[0].toUpperCase() && word[0].match(/[A-Z]/)) {
-        const fix = CORRECTIONS[clean];
-        return fix[0].toUpperCase() + fix.slice(1);
-      }
-      return CORRECTIONS[clean];
+      const fix = CORRECTIONS[clean];
+      return word[0]?.match(/[A-Z]/)
+        ? fix[0].toUpperCase() + fix.slice(1)
+        : fix;
     }
     return word;
   });
   corrected = newWords.join("");
 
-  // Step 2: Grammar rules
+  // Step 2: Grammar rules. — AYOCODES
   const grammarErrors = [];
   for (const rule of GRAMMAR_RULES) {
     if (rule.pattern.test(corrected)) {
@@ -1140,7 +1034,7 @@ export async function grammar({ fullArgs, from, sock }) {
     }
   }
 
-  // Step 3: AI-powered analysis
+  // Step 3: AI analysis. — AYOCODES
   let aiSuggestion = "";
   if (original.length > 20) {
     try {
@@ -1151,7 +1045,6 @@ export async function grammar({ fullArgs, from, sock }) {
         `IMPROVED: [rewritten improved version]\n\nTEXT: "${original}"`;
 
       const { text: aiResult } = await callAI(prompt, "precise");
-
       if (aiResult.includes("IMPROVED:")) {
         const imp = aiResult
           .split("IMPROVED:")[1]
@@ -1162,37 +1055,28 @@ export async function grammar({ fullArgs, from, sock }) {
     } catch (_) {}
   }
 
-  // Build response
   const hasErrors = spellingErrors.length > 0 || grammarErrors.length > 0;
-
   if (!hasErrors && !aiSuggestion) {
     await sendMsg(sock, from, {
       text: formatSuccess(
         "✅ GRAMMAR CHECK",
-        `No errors found!\nYour text looks perfect 👍\n\nText: "${original.substring(0, 100)}${original.length > 100 ? "..." : ""}"\n\n${BRAND}`,
+        `No errors found! Your text looks perfect 👍\n\nText: "${original.substring(0, 100)}${original.length > 100 ? "..." : ""}"\n\n${BRAND}`,
       ),
     });
     return;
   }
 
   let output = "";
-  if (spellingErrors.length > 0) {
-    output += `SPELLING CORRECTIONS (${spellingErrors.length}):\n`;
-    output += spellingErrors
+  if (spellingErrors.length > 0)
+    output += `SPELLING CORRECTIONS (${spellingErrors.length}):\n${spellingErrors
       .slice(0, 10)
       .map((e) => `• ${e}`)
-      .join("\n");
-    output += "\n\n";
-  }
-  if (grammarErrors.length > 0) {
-    output += `GRAMMAR ISSUES:\n`;
-    output += grammarErrors.map((e) => `• ${e}`).join("\n");
-    output += "\n\n";
-  }
+      .join("\n")}\n\n`;
+  if (grammarErrors.length > 0)
+    output += `GRAMMAR ISSUES:\n${grammarErrors.map((e) => `• ${e}`).join("\n")}\n\n`;
   if (corrected !== original) output += `CORRECTED VERSION:\n${corrected}\n\n`;
   if (aiSuggestion && aiSuggestion !== corrected)
     output += `AI IMPROVED VERSION:\n${aiSuggestion}\n\n`;
-
   output += `📊 ${spellingErrors.length} spelling + ${grammarErrors.length} grammar issue(s)\n${BRAND}`;
 
   await sendMsg(sock, from, {
@@ -1232,7 +1116,6 @@ export async function aiClear({ from, userJid, sock }) {
 // ═══════════════════════════════════════════════════════════
 export async function aiExport({ from, userJid, sock }) {
   const history = conversationHistory.get(userJid) || [];
-
   if (!history.length) {
     await sendMsg(sock, from, {
       text: formatInfo(
@@ -1267,14 +1150,12 @@ export async function aiExport({ from, userJid, sock }) {
       if (!fs.existsSync(path.dirname(tmpPath)))
         fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
       fs.writeFileSync(tmpPath, fullExport);
-
       await sock.sendMessage(from, {
         document: fs.readFileSync(tmpPath),
         mimetype: "text/plain",
         fileName: `AYOBOT_Chat_${new Date().toISOString().split("T")[0]}.txt`,
-        caption: `📤 AYOBOT v1 conversation export\n${Math.floor(history.length / 2)} turns | ${fullExport.length} chars\n\n${BRAND}`,
+        caption: `📤 AYOBOT v1 conversation export\n${Math.floor(history.length / 2)} turns\n\n${BRAND}`,
       });
-
       try {
         fs.unlinkSync(tmpPath);
       } catch (_) {}
@@ -1301,12 +1182,10 @@ export async function aiStat({ from, userJid, sock }) {
     0,
     RATE_LIMIT - stamps.filter((t) => Date.now() - t < RATE_WINDOW).length,
   );
-
-  const userMessages = history.filter((m) => m.role === "user");
-  const avgLen = userMessages.length
+  const userMsgs = history.filter((m) => m.role === "user");
+  const avgLen = userMsgs.length
     ? Math.round(
-        userMessages.reduce((s, m) => s + m.content.length, 0) /
-          userMessages.length,
+        userMsgs.reduce((s, m) => s + m.content.length, 0) / userMsgs.length,
       )
     : 0;
 

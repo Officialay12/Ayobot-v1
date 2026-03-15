@@ -1,15 +1,15 @@
 // features/imageTools.js - COMPLETE FIXED VERSION
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import axios from "axios";
+import { exec } from "child_process";
 import FormData from "form-data";
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import { fileURLToPath } from "url";
-import { exec } from "child_process";
 import util from "util";
 import { ENV } from "../index.js";
-import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
+import { formatError, formatInfo } from "../utils/formatters.js";
 
 const execPromise = util.promisify(exec);
 const __filename = fileURLToPath(import.meta.url);

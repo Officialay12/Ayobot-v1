@@ -4,12 +4,11 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import {
-  formatSuccess,
+  formatData,
   formatError,
   formatInfo,
-  formatData,
+  formatSuccess,
 } from "../utils/formatters.js";
-import { ENV } from "../index.js";
 
 // Local lyrics database (expanded with more songs)
 const LOCAL_LYRICS = {
@@ -1067,10 +1066,7 @@ async function sendLyricsResponse(sock, from, data, cached = false) {
   }
 
   const header = `🎵 *${title}*${artist ? ` by *${artist}*` : ""}`;
-  const footer =
-    `\n\n━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📡 Source: ${source}${cached ? " (cached)" : ""}\n` +
-    `⚡ *AYOBOT v1* | 👑 Created by AYOCODES`;
+  const footer = `\n\n━━━━━━━━━━━━━━━━━━━━━\n`;
 
   await sock.sendMessage(from, {
     text: formatSuccess(header, cleanLyrics + footer),

@@ -1,4 +1,7 @@
-// utils/validators.js - FIXED RATE LIMITING (NO SPAM)
+// utils/validators.js - AYOBOT v1 | Created by AYOCODES
+// Hardened against JID device suffixes, null inputs, cache poisoning,
+// network failures, and all known WhatsApp Baileys edge cases. — AYOCODES
+
 import {
   commandRateLimit,
   spamTracker,
@@ -15,194 +18,209 @@ import {
   GROUP_META_TTL,
 } from "../index.js";
 
-// ========== IMPROVED RATE LIMITING ==========
+// ─── JID / Phone normalization ────────────────────────────────────────────────
+// THE most important function in this file. Every WhatsApp JID comparison MUST
+// go through this. Handles:
+//   2349159180375:58@s.whatsapp.net  → 2349159180375
+//   2349159180375@s.whatsapp.net     → 2349159180375
+//   2349159180375                    → 2349159180375
+//   +234 915 918 0375                → 2349159180375
+//   null / undefined / object        → ""
+// — AYOCODES
+export function normalizeNum(jid) {
+  if (!jid) return "";
+  if (typeof jid === "object") jid = jid.id || jid.jid || String(jid);
+  return String(jid)
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/[^0-9]/g, "");
+}
+
+// Build a clean canonical JID from anything. — AYOCODES
+export function toJid(raw) {
+  const digits = normalizeNum(raw);
+  return digits ? `${digits}@s.whatsapp.net` : null;
+}
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
 export function isRateLimited(userJid, isAdminUser) {
-  // Admins never get rate limited
-  if (isAdminUser) return false;
-
+  if (!userJid || isAdminUser) return false;
   const now = Date.now();
-  const key = `rate_${userJid}`;
-
-  // Get user's command timestamps
-  let userTimestamps = commandRateLimit.get(key) || [];
-
-  // Remove timestamps older than the rate limit window
-  userTimestamps = userTimestamps.filter(
-    (timestamp) => now - timestamp < RATE_LIMIT_WINDOW,
-  );
-
-  // Check if user has exceeded the limit
-  if (userTimestamps.length >= MAX_COMMANDS_PER_WINDOW) {
-    return true;
-  }
-
-  // Add current timestamp
-  userTimestamps.push(now);
-  commandRateLimit.set(key, userTimestamps);
-
+  const key = `rate_${normalizeNum(userJid)}`;
+  let timestamps = commandRateLimit.get(key) || [];
+  timestamps = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW);
+  if (timestamps.length >= MAX_COMMANDS_PER_WINDOW) return true;
+  timestamps.push(now);
+  commandRateLimit.set(key, timestamps);
   return false;
 }
 
 export function getRateLimitMessage() {
-  // Return a random rate limit message
   return RATE_LIMIT_MESSAGES[
     Math.floor(Math.random() * RATE_LIMIT_MESSAGES.length)
   ];
 }
 
-// ========== IMPROVED SPAM DETECTION ==========
+// ─── Spam detection ───────────────────────────────────────────────────────────
 export function isSpam(userJid, text) {
-  // Don't check admins
-  if (isAdmin(userJid)) return false;
-
+  if (!userJid || isAdmin(userJid)) return false;
   const now = Date.now();
-  const spamKey = `spam_${userJid}`;
-  const messageKey = `msg_${userJid}`;
-
-  // Get or initialize spam tracker
-  let spamData = spamTracker.get(spamKey) || {
+  const key = `spam_${normalizeNum(userJid)}`;
+  let data = spamTracker.get(key) || {
+    messages: [],
     messageCount: 0,
     firstMessageTime: now,
     lastMessageTime: now,
-    messages: [],
   };
-
-  // Clean old messages
-  spamData.messages = spamData.messages.filter(
-    (m) => now - m.time < SPAM_TIME_WINDOW,
-  );
-
-  // Check for too many messages
-  if (spamData.messages.length >= MAX_SPAM_MESSAGES) {
-    return true;
-  }
-
-  // Check for similar messages (spam)
-  const similarMessages = spamData.messages.filter(
-    (m) => m.text === text,
-  ).length;
-
-  if (similarMessages >= MAX_SIMILAR_MESSAGES) {
-    return true;
-  }
-
-  // Add this message
-  spamData.messages.push({ text, time: now });
-  spamData.lastMessageTime = now;
-  spamData.messageCount++;
-
-  // Update tracker
-  spamTracker.set(spamKey, spamData);
-
+  data.messages = data.messages.filter((m) => now - m.time < SPAM_TIME_WINDOW);
+  if (data.messages.length >= MAX_SPAM_MESSAGES) return true;
+  const similar = data.messages.filter((m) => m.text === text).length;
+  if (similar >= MAX_SIMILAR_MESSAGES) return true;
+  data.messages.push({ text: text || "", time: now });
+  data.lastMessageTime = now;
+  data.messageCount++;
+  spamTracker.set(key, data);
   return false;
 }
 
-// ========== REST OF YOUR EXISTING FUNCTIONS (unchanged) ==========
+// ─── Link detection ───────────────────────────────────────────────────────────
 export function containsLink(text) {
   if (!text || typeof text !== "string") return false;
-
-  const urlPatterns = [
+  const patterns = [
     /https?:\/\/[^\s<>"']+/gi,
     /(?:www\.)[^\s<>"']+\.[^\s<>"']{2,}/gi,
-    /\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:\/[^\s<>"']*)?\b/gi,
-    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?(?:\/[^\s<>"']*)?\b/gi,
-    /\b(?:bit\.ly|tinyurl\.com|is\.gd|cli\.gs|ow\.ly|goo\.gl|tiny\.cc|cutt\.ly|rebrand\.ly)\/[^\s<>"']*/gi,
-    /(?:chat\.whatsapp\.com|wa\.me|call\.whatsapp\.com)\/[^\s<>"']+/gi,
-    /t\.me\/[^\s<>"']+/gi,
-    /discord\.gg\/[^\s<>"']+/gi,
-    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi,
+    /\b(?:bit\.ly|tinyurl\.com|is\.gd|ow\.ly|goo\.gl|tiny\.cc|cutt\.ly|rebrand\.ly|shorturl\.at)\/\S+/gi,
+    /(?:chat\.whatsapp\.com|wa\.me|call\.whatsapp\.com)\/\S+/gi,
+    /t\.me\/\S+/gi,
+    /discord\.gg\/\S+/gi,
+    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?(?:\/\S*)?\b/gi,
   ];
-
-  for (const pattern of urlPatterns) {
-    if (pattern.test(text)) return true;
-  }
-  if (text.includes("://")) return true;
-  return false;
+  for (const p of patterns) if (p.test(text)) return true;
+  return text.includes("://");
 }
 
+// ─── Text extractor ───────────────────────────────────────────────────────────
 export function extractText(message) {
-  if (!message.message) return "";
+  if (!message?.message) return "";
+  const m = message.message;
   return (
-    message.message.conversation ||
-    message.message.extendedTextMessage?.text ||
-    message.message.imageMessage?.caption ||
-    message.message.videoMessage?.caption ||
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.buttonsResponseMessage?.selectedDisplayText ||
+    m.listResponseMessage?.title ||
     ""
   );
 }
 
+// ─── Target user extractor ────────────────────────────────────────────────────
 export function extractTargetUser(args, message) {
+  // 1. Quoted/replied-to message
   const quoted =
-    message?.message?.extendedTextMessage?.contextInfo?.participant;
-  if (quoted) {
-    return { jid: quoted, phone: quoted.split("@")[0], method: "reply" };
+    message?.message?.extendedTextMessage?.contextInfo?.participant ||
+    message?.message?.extendedTextMessage?.contextInfo?.remoteJid;
+  if (quoted && quoted.includes("@")) {
+    const jid = toJid(quoted);
+    if (jid) return { jid, phone: normalizeNum(jid), method: "reply" };
   }
 
+  // 2. @mention in message
   const mentions =
     message?.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (mentions?.length > 0) {
-    return {
-      jid: mentions[0],
-      phone: mentions[0].split("@")[0],
-      method: "mention",
-    };
+    const jid = mentions[0];
+    return { jid, phone: normalizeNum(jid), method: "mention" };
   }
 
+  // 3. Raw phone number in args
   if (args?.length > 0) {
     const phone = args[0].replace(/[^0-9]/g, "");
-    if (phone.length >= 10) {
+    if (phone.length >= 7) {
       return { jid: `${phone}@s.whatsapp.net`, phone, method: "number" };
     }
   }
+
   return null;
 }
 
+// ─── Group admin check (with cache) ──────────────────────────────────────────
 export async function isGroupAdminCached(groupJid, userJid, sock) {
-  const cacheKey = `${groupJid}_${userJid}`;
+  if (!groupJid || !userJid) return false;
+
+  // Global owner always passes — check before any network call. — AYOCODES
+  if (isAdmin(userJid)) return true;
+
+  const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
   const cached = adminCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL)
+  if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
     return cached.isAdmin;
+  }
 
   try {
-    if (isAdmin(userJid)) {
-      adminCache.set(cacheKey, { isAdmin: true, timestamp: Date.now() });
-      return true;
-    }
     const metadata = await sock.groupMetadata(groupJid).catch(() => null);
-    if (!metadata) return false;
-    const participant = metadata.participants.find((p) => p.id === userJid);
-    const isAdminUser = !!(
+    if (!metadata?.participants) return false;
+
+    const userNum = normalizeNum(userJid);
+    const participant = metadata.participants.find(
+      (p) => normalizeNum(p.id) === userNum,
+    );
+    const result = !!(
       participant?.admin === "admin" || participant?.admin === "superadmin"
     );
-    adminCache.set(cacheKey, { isAdmin: isAdminUser, timestamp: Date.now() });
-    return isAdminUser;
-  } catch (error) {
+
+    adminCache.set(cacheKey, { isAdmin: result, timestamp: Date.now() });
+    return result;
+  } catch (err) {
+    console.error("isGroupAdminCached error:", err.message);
     return false;
   }
 }
 
+// ─── Bot admin check ──────────────────────────────────────────────────────────
 export async function isBotGroupAdminCached(groupJid, sock) {
-  const botId = sock.user.id.split(":")[0] + "@s.whatsapp.net";
-  return await isGroupAdminCached(groupJid, botId, sock);
+  if (!sock?.user?.id) return false;
+  const botJid = `${normalizeNum(sock.user.id)}@s.whatsapp.net`;
+  return isGroupAdminCached(groupJid, botJid, sock);
 }
 
+// ─── Group metadata cache ─────────────────────────────────────────────────────
 export async function getGroupMetadataCached(groupJid, sock) {
+  if (!groupJid || !sock) return null;
   const cached = groupMetadataCache.get(groupJid);
-  if (cached && Date.now() - cached.timestamp < GROUP_META_TTL)
+  if (cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
     return cached.metadata;
+  }
   try {
     const metadata = await sock.groupMetadata(groupJid);
-    groupMetadataCache.set(groupJid, { metadata, timestamp: Date.now() });
-    return metadata;
-  } catch (error) {
+    if (metadata) {
+      groupMetadataCache.set(groupJid, { metadata, timestamp: Date.now() });
+    }
+    return metadata || null;
+  } catch (err) {
+    // Return stale cache rather than null if available. — AYOCODES
+    if (cached?.metadata) return cached.metadata;
     return null;
   }
 }
 
+// ─── Cache invalidation ───────────────────────────────────────────────────────
 export function clearAdminCache(groupJid, userJid) {
-  adminCache.delete(`${groupJid}_${userJid}`);
+  if (groupJid && userJid) {
+    adminCache.delete(`${groupJid}_${normalizeNum(userJid)}`);
+  }
 }
 
+export function clearGroupCache(groupJid) {
+  if (!groupJid) return;
+  groupMetadataCache.delete(groupJid);
+  for (const key of adminCache.keys()) {
+    if (key.startsWith(`${groupJid}_`)) adminCache.delete(key);
+  }
+}
+
+// ─── Main group command validator ─────────────────────────────────────────────
 export async function validateGroupCommand(
   from,
   userJid,
@@ -210,64 +228,60 @@ export async function validateGroupCommand(
   requiredLevel = "admin",
 ) {
   try {
-    if (!from.endsWith("@g.us")) {
+    if (!from?.endsWith("@g.us")) {
       return {
         success: false,
-        error: "❌ *Group Only Command*\nThis command only works in groups.",
+        error: "❌ *Group Only*\nThis command only works in groups.",
       };
     }
 
-    const metadata = await getGroupMetadataCached(from, sock);
-    if (!metadata) {
+    if (!userJid || !sock) {
       return {
         success: false,
-        error: "❌ *Group Error*\nCould not fetch group information.",
+        error: "❌ *Internal Error*\nMissing user or socket context.",
       };
     }
 
     const userIsGlobalAdmin = isAdmin(userJid);
-    const userIsGroupAdmin = await isGroupAdminCached(from, userJid, sock);
 
-    // Check if user has admin rights
+    if (requiredLevel === "member") {
+      const metadata = await getGroupMetadataCached(from, sock);
+      return {
+        success: true,
+        metadata,
+        userIsGlobalAdmin,
+        userIsGroupAdmin: false,
+      };
+    }
+
+    const userIsGroupAdmin = await isGroupAdminCached(from, userJid, sock);
     const userHasAdminRights = userIsGlobalAdmin || userIsGroupAdmin;
 
-    if (requiredLevel === "admin" && !userHasAdminRights) {
+    if (!userHasAdminRights) {
       return {
         success: false,
         error: "❌ *Admin Only*\nOnly group admins can use this command.",
       };
     }
 
-    // For commands requiring bot admin
     if (requiredLevel === "botAdmin") {
-      if (!userHasAdminRights) {
-        return {
-          success: false,
-          error: "❌ *Admin Only*\nOnly group admins can use this command.",
-        };
-      }
-
       const botIsAdmin = await isBotGroupAdminCached(from, sock);
       if (!botIsAdmin) {
         return {
           success: false,
           error:
-            "❌ *Bot Not Admin*\nI need to be a group admin to perform this action.\n\nPlease make me an admin first.",
+            "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first.",
         };
       }
     }
 
-    return {
-      success: true,
-      metadata,
-      userIsGlobalAdmin,
-      userIsGroupAdmin,
-    };
-  } catch (error) {
-    console.error("Validation error:", error);
+    const metadata = await getGroupMetadataCached(from, sock);
+    return { success: true, metadata, userIsGlobalAdmin, userIsGroupAdmin };
+  } catch (err) {
+    console.error("validateGroupCommand error:", err.message);
     return {
       success: false,
-      error: "❌ *Validation Error*\nCould not validate permissions.",
+      error: "❌ *Validation Error*\nCould not check permissions. Try again.",
     };
   }
 }

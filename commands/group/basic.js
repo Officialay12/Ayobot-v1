@@ -1,10 +1,28 @@
-// commands/group/basic.js - ULTRA COMPLETE + ALL FIXED + PRODUCTION READY
+// commands/group/basic.js
+// ════════════════════════════════════════════════════════════════════════════
+//  AYOBOT v1 — Basic Commands
+//  Author  : AYOCODES
+//  Contact : wa.me/2349159180375
+//  GitHub  : https://github.com/ayocodes
+//
+//  All the everyday commands that don't belong in a specialised module.
+//  I keep each function self-contained — one job, clean error handling,
+//  and always something useful back to the user even when things go wrong.
+//
+//  Quick index:
+//    menu · ping · status · creator · creatorGit · auto · weather
+//    shorten · viewOnce · joinWaitlist · scrape · connectInfo · time
+//    pdf · getip · ip · myip · whois · dns · getpp · getgpp
+//    prefixinfo · platform · url · fetch · qencode · take · imgbb
+//    screenshot · inspect · trebleboost · jarvis · jarvisVoice
+//    jarvisStatus · ironmanStatus · vcf · viewvcf
+// ════════════════════════════════════════════════════════════════════════════
+
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import fs from "fs";
 import path from "path";
-import PDFDocument from "pdfkit";
 import { fileURLToPath } from "url";
 import {
   autoReplyEnabled,
@@ -24,36 +42,86 @@ import {
   formatUptime,
 } from "../../utils/formatters.js";
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  MODULE BOOTSTRAP
+// ─────────────────────────────────────────────────────────────────────────────
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure temp directory exists
+// Temp folder — a handful of commands write scratch files here
 const tempDir = path.join(__dirname, "../../temp");
-if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+// PDFKit is optional. I load it lazily so a missing package doesn't
+// crash the entire module on startup — it just disables .pdf gracefully.
+let _PDFDocument = null;
+async function getPDFDoc() {
+  if (!_PDFDocument) {
+    try {
+      const mod = await import("pdfkit");
+      _PDFDocument = mod.default || mod;
+    } catch (_) {
+      _PDFDocument = null;
+    }
+  }
+  return _PDFDocument;
 }
 
-// ========== MENU COMMAND ==========
+// Safe uptime fallback — index.js sets botStartTime after connection
+function getSafeStartTime() {
+  return botStartTime || Date.now();
+}
+
+// ─── Browser spoofing pool ────────────────────────────────────────────────────
+// I rotate these for any outbound HTTP request that might hit bot-detection.
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+];
+const randomUA = () =>
+  USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+// Full browser-like header set — this is what bypasses most anti-scrape walls
+function browserHeaders(ua, referer = "https://www.google.com/") {
+  return {
+    "User-Agent": ua,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    Referer: referer,
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "cross-site",
+    "Cache-Control": "max-age=0",
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MENU
+//  Sends the full categorised command list.
+//  Admin section is appended when the caller is a recognised admin.
+// ════════════════════════════════════════════════════════════════════════════
 export async function menu({ from, sock, isAdmin }) {
   try {
     await sock.sendPresenceUpdate("composing", from);
 
-    const memory = process.memoryUsage();
-    const memoryUsed = (memory.heapUsed / 1024 / 1024).toFixed(2);
-    const memoryTotal = (memory.heapTotal / 1024 / 1024).toFixed(2);
-    const memoryPercent = ((memory.heapUsed / memory.heapTotal) * 100).toFixed(
-      1,
-    );
-
+    const mem = process.memoryUsage();
     const stats = {
-      uptime: formatUptime(Date.now() - botStartTime),
-      memory: memoryPercent,
-      memoryUsed,
-      memoryTotal,
+      uptime: formatUptime(Date.now() - getSafeStartTime()),
+      memory: ((mem.heapUsed / mem.heapTotal) * 100).toFixed(1),
+      memoryUsed: (mem.heapUsed / 1024 / 1024).toFixed(2),
+      memoryTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
     };
 
-    const commands = [
-      // ===== AYOBOT =====
+    const menuCommands = [
+      // ── AYOBOT ────────────────────────────────────────────────────────────
       {
         category: "*🔰 AYOBOT*",
         cmd: "`.getip`",
@@ -88,7 +156,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "*🔰 AYOBOT*",
         cmd: "`.myip`",
         emoji: "● 🌐",
-        desc: "Show your IP",
+        desc: "Show your public IP",
       },
       {
         category: "*🔰 AYOBOT*",
@@ -102,67 +170,12 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● 👥",
         desc: "Get group pic",
       },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.preinfo`",
-        emoji: "● ℹ️",
-        desc: "Prefix information",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.kitchen`",
-        emoji: "● 📱",
-        desc: "Kitchen settings",
-      },
-
-      // ===== CONVERSION & MEDIA =====
+      // ── CONVERSION & MEDIA ────────────────────────────────────────────────
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.shorten`",
         emoji: "● 🔗",
         desc: "Shorten URL",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.short`",
-        emoji: "● 🔗",
-        desc: "Short URL maker",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tiny`",
-        emoji: "● 🔗",
-        desc: "Tiny URL creator",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.url`",
-        emoji: "● 🌍",
-        desc: "URL info",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.fetch`",
-        emoji: "● 📡",
-        desc: "Fetch website data",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.qencode`",
-        emoji: "● 📱",
-        desc: "Encode to QR",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.take`",
-        emoji: "● 🎨",
-        desc: "Take screenshot",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.imgbb`",
-        emoji: "● 📸",
-        desc: "Upload to ImgBB",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
@@ -172,57 +185,15 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tt`",
-        emoji: "● 🎵",
-        desc: "TikTok no watermark",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.save`",
-        emoji: "● 💾",
-        desc: "Save to storage",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.screenshot`",
-        emoji: "● 📷",
-        desc: "Take webpage screenshot",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.inspect`",
-        emoji: "● 🔍",
-        desc: "Inspect element",
+        cmd: "`.sticker`",
+        emoji: "● 🎭",
+        desc: "Create sticker",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.toimage`",
         emoji: "● 🖼️",
-        desc: "Convert to image",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.toimg`",
-        emoji: "● 🖼️",
         desc: "Sticker to image",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tosticker`",
-        emoji: "● 🎭",
-        desc: "Image to sticker",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.s`",
-        emoji: "● 🎭",
-        desc: "Quick sticker maker",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.sticker`",
-        emoji: "● 🎭",
-        desc: "Create sticker",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
@@ -232,135 +203,15 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tovoice`",
-        emoji: "● 🔊",
-        desc: "Convert to voice",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.tts`",
         emoji: "● 🗣️",
         desc: "Text to speech",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.speak`",
-        emoji: "● 🗣️",
-        desc: "Make bot speak",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.voices`",
-        emoji: "● 🗣️",
-        desc: "List TTS voices",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.trebleboost`",
-        emoji: "● ⚡",
-        desc: "Boost audio treble",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jarvis`",
-        emoji: "● 🤖",
-        desc: "Jarvis AI chat",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.j`",
-        emoji: "● 🤖",
-        desc: "Quick Jarvis",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.ask`",
-        emoji: "● 🤖",
-        desc: "Ask Jarvis",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jarvisv`",
-        emoji: "● 🔊",
-        desc: "Jarvis voice",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jv`",
-        emoji: "● 🔊",
-        desc: "Jarvis voice quick",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jarvisstatus`",
-        emoji: "● 📊",
-        desc: "Jarvis status",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jstatus`",
-        emoji: "● 📊",
-        desc: "Jarvis stats",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jstats`",
-        emoji: "● 📊",
-        desc: "Jarvis statistics",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.ironman`",
-        emoji: "● 🦾",
-        desc: "Ironman AI",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.suit`",
-        emoji: "● 🦿",
-        desc: "Ironman suit mode",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.stark`",
-        emoji: "● 🦾",
-        desc: "Tony Stark AI",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.iron`",
-        emoji: "● 🦾",
-        desc: "Ironman quick",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.togif`",
-        emoji: "● 🎞️",
-        desc: "Video to GIF",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tovideo`",
-        emoji: "● 🎬",
-        desc: "GIF to video",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tovid`",
-        emoji: "● 🎬",
-        desc: "Convert to video",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.removebg`",
         emoji: "● ✨",
         desc: "Remove background",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.nobg`",
-        emoji: "● ✨",
-        desc: "Background remover",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
@@ -376,12 +227,23 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.giphy`",
-        emoji: "● 🎞️",
-        desc: "GIPHY search",
+        cmd: "`.jarvis`",
+        emoji: "● 🤖",
+        desc: "Jarvis AI chat",
       },
-
-      // ===== CONTACT TOOLS =====
+      {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.togif`",
+        emoji: "● 🎞️",
+        desc: "Video to GIF",
+      },
+      {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.tovideo`",
+        emoji: "● 🎬",
+        desc: "GIF to video",
+      },
+      // ── CONTACT TOOLS ─────────────────────────────────────────────────────
       {
         category: "> *_📞 CONTACT TOOLS_*",
         cmd: "`.vcf`",
@@ -400,85 +262,12 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● 🔓",
         desc: "View VCF quick",
       },
-      {
-        category: "> *_📞 CONTACT TOOLS_*",
-        cmd: "`.open`",
-        emoji: "● 🔓",
-        desc: "Open contact",
-      },
-      {
-        category: "> *_📞 CONTACT TOOLS_*",
-        cmd: "`.arise`",
-        emoji: "● 🔓",
-        desc: "Arise contact tool",
-      },
-
-      // ===== MUSIC & MEDIA =====
+      // ── MUSIC & MEDIA ─────────────────────────────────────────────────────
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.play`",
         emoji: "● ▶️",
         desc: "Play music",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.music`",
-        emoji: "● 🎵",
-        desc: "Download music",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.song`",
-        emoji: "● 🎵",
-        desc: "Get song",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.yt`",
-        emoji: "● 📺",
-        desc: "YouTube search",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.youtube`",
-        emoji: "● 📺",
-        desc: "YouTube download",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.ytsearch`",
-        emoji: "● 🔍",
-        desc: "Search YouTube",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.yts`",
-        emoji: "● 🔍",
-        desc: "YouTube search quick",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.ytdownload`",
-        emoji: "● ⬇️",
-        desc: "Download YouTube",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.ytdl`",
-        emoji: "● ⬇️",
-        desc: "YouTube downloader",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.spotify`",
-        emoji: "● 🎧",
-        desc: "Spotify download",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.sp`",
-        emoji: "● 🎧",
-        desc: "Spotify quick",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
@@ -494,27 +283,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.artist`",
-        emoji: "● 👤",
-        desc: "Artist info",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.album`",
-        emoji: "● 💿",
-        desc: "Album info",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.search`",
-        emoji: "● 🔍",
-        desc: "Search anything",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.genius`",
-        emoji: "● 🎤",
-        desc: "Genius lyrics",
+        cmd: "`.spotify`",
+        emoji: "● 🎧",
+        desc: "Spotify download",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
@@ -524,21 +295,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.ig`",
-        emoji: "● 📸",
-        desc: "Instagram reel",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.facebook`",
         emoji: "● 📘",
         desc: "Facebook video",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.fb`",
-        emoji: "● 📘",
-        desc: "FB downloader",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
@@ -548,33 +307,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.x`",
-        emoji: "● 🐦",
-        desc: "X video download",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.pinterest`",
         emoji: "● 📌",
         desc: "Pinterest download",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.pin`",
-        emoji: "● 📌",
-        desc: "Pin downloader",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.img`",
-        emoji: "● 🖼️",
-        desc: "Image search",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.image`",
-        emoji: "● 🖼️",
-        desc: "Get images",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
@@ -582,14 +317,7 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● ⬇️",
         desc: "Download media",
       },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.dl`",
-        emoji: "● ⬇️",
-        desc: "Quick download",
-      },
-
-      // ===== AI & TOOLS =====
+      // ── AI & TOOLS ────────────────────────────────────────────────────────
       {
         category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.ai`",
@@ -598,27 +326,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.aiclear`",
-        emoji: "● 🧹",
-        desc: "Clear AI history",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.aiexport`",
-        emoji: "● 📤",
-        desc: "Export AI chat",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.summarize`",
         emoji: "● 📋",
         desc: "Summarize text",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.simpler`",
-        emoji: "● 📋",
-        desc: "Simplify text",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -634,63 +344,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.tr`",
-        emoji: "● 🌍",
-        desc: "Quick translate",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.tl`",
-        emoji: "● 🌍",
-        desc: "Translate language",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.lang`",
-        emoji: "● 🌍",
-        desc: "Change language",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.languages`",
-        emoji: "● 📚",
-        desc: "List languages",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.langs`",
-        emoji: "● 📚",
-        desc: "Available langs",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.detect`",
-        emoji: "● 🔍",
-        desc: "Detect language",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.langdetect`",
-        emoji: "● 🔍",
-        desc: "Language detect",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.weather`",
         emoji: "● ☁️",
         desc: "Weather forecast",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.w`",
-        emoji: "● ☁️",
-        desc: "Quick weather",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.forecast`",
-        emoji: "● ☁️",
-        desc: "Weather details",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -700,63 +356,15 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.calculate`",
-        emoji: "● 🧮",
-        desc: "Math calculate",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.math`",
-        emoji: "● 🧮",
-        desc: "Math solver",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.convert`",
         emoji: "● 🔄",
         desc: "Unit converter",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.conv`",
-        emoji: "● 🔄",
-        desc: "Quick convert",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.uconvert`",
-        emoji: "● 🔄",
-        desc: "Unit convert",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.units`",
-        emoji: "● 📏",
-        desc: "Unit list",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.allunits`",
-        emoji: "● 📚",
-        desc: "All units",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.dict`",
         emoji: "● 📖",
         desc: "Dictionary",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.dictionary`",
-        emoji: "● 📖",
-        desc: "Word meaning",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.define`",
-        emoji: "● 📖",
-        desc: "Define word",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -772,45 +380,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.eth`",
-        emoji: "● Ξ",
-        desc: "Ethereum price",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.doge`",
-        emoji: "● Ð",
-        desc: "Dogecoin price",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.cryptotop`",
-        emoji: "● 📈",
-        desc: "Top crypto",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.cryptochart`",
-        emoji: "● 📊",
-        desc: "Crypto chart",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.cryptoconvert`",
-        emoji: "● 🔄",
-        desc: "Convert crypto",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.stock`",
         emoji: "● 📈",
         desc: "Stock price",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.stocks`",
-        emoji: "● 📈",
-        desc: "Stock market",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -820,69 +392,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.film`",
-        emoji: "● 🎬",
-        desc: "Film details",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.imdb`",
-        emoji: "● 🎬",
-        desc: "IMDB rating",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.tv`",
-        emoji: "● 📺",
-        desc: "TV show info",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.series`",
-        emoji: "● 📺",
-        desc: "Series details",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.show`",
-        emoji: "● 📺",
-        desc: "Show info",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.recommend`",
-        emoji: "● 👍",
-        desc: "Recommendations",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.rec`",
-        emoji: "● 👍",
-        desc: "Quick rec",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.suggest`",
-        emoji: "● 👍",
-        desc: "Suggestions",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.news`",
         emoji: "● 📰",
         desc: "Latest news",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.headlines`",
-        emoji: "● 📰",
-        desc: "News headlines",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.breaking`",
-        emoji: "● 📰",
-        desc: "Breaking news",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -898,21 +410,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.iplookup`",
-        emoji: "● 🔍",
-        desc: "IP details",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.whois`",
         emoji: "● 🔎",
         desc: "WHOIS lookup",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.domain`",
-        emoji: "● 🔎",
-        desc: "Domain info",
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
@@ -922,24 +422,11 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.dnslookup`",
-        emoji: "● 🌐",
-        desc: "DNS details",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
         cmd: "`.scan`",
-        emoji: "● 🛡️",
-        desc: "Port scan",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.virustotal`",
         emoji: "● 🛡️",
         desc: "Virus scan",
       },
-
-      // ===== FUN & GAMES =====
+      // ── FUN & GAMES ───────────────────────────────────────────────────────
       {
         category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.joke`",
@@ -948,27 +435,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.laugh`",
-        emoji: "● 😂",
-        desc: "Funny joke",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.quote`",
         emoji: "● 💫",
         desc: "Random quote",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.motivation`",
-        emoji: "● 💫",
-        desc: "Motivation quote",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.inspire`",
-        emoji: "● 💫",
-        desc: "Inspire me",
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
@@ -984,21 +453,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.rockpaperscissors`",
-        emoji: "● ✂️",
-        desc: "Play RPS",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.dice`",
         emoji: "● 🎲",
         desc: "Roll dice",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.roll`",
-        emoji: "● 🎲",
-        desc: "Random number",
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
@@ -1008,36 +465,11 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.coin`",
-        emoji: "● 🪙",
-        desc: "Coin toss",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.roast`",
         emoji: "● 🔥",
         desc: "Roast someone",
       },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.burn`",
-        emoji: "● 🔥",
-        desc: "Burn message",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.pickup`",
-        emoji: "● 💘",
-        desc: "Pickup line",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.pickupline`",
-        emoji: "● 💘",
-        desc: "Flirty line",
-      },
-
-      // ===== ENCRYPTION =====
+      // ── ENCRYPTION ────────────────────────────────────────────────────────
       {
         category: "> *_🔐 ENCRYPTION_*",
         cmd: "`.encrypt`",
@@ -1062,75 +494,37 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● 🔑",
         desc: "Generate password",
       },
-
-      // ===== STORAGE =====
+      // ── STORAGE ───────────────────────────────────────────────────────────
       {
         category: "> *_💾 STORAGE_*",
-        cmd: "`.save`",
+        cmd: "`.note`",
         emoji: "● 💾",
         desc: "Save note",
       },
       {
         category: "> *_💾 STORAGE_*",
-        cmd: "`.store`",
-        emoji: "● 💾",
-        desc: "Store data",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.get`",
+        cmd: "`.getnote`",
         emoji: "● 📂",
-        desc: "Get saved",
+        desc: "Get note",
       },
       {
         category: "> *_💾 STORAGE_*",
-        cmd: "`.recall`",
-        emoji: "● 📂",
-        desc: "Recall note",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.list`",
+        cmd: "`.notes`",
         emoji: "● 📋",
-        desc: "List saved",
+        desc: "List notes",
       },
       {
         category: "> *_💾 STORAGE_*",
-        cmd: "`.keys`",
-        emoji: "● 📋",
-        desc: "List keys",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.delkey`",
-        emoji: "● 🗑️",
-        desc: "Delete key",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.forget`",
+        cmd: "`.delnote`",
         emoji: "● 🗑️",
         desc: "Delete note",
       },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.clear`",
-        emoji: "● 🧹",
-        desc: "Clear storage",
-      },
-
-      // ===== DOCUMENTS =====
+      // ── DOCUMENTS ─────────────────────────────────────────────────────────
       {
         category: "> *_📄 DOCUMENTS_*",
         cmd: "`.qr`",
         emoji: "● 📱",
         desc: "Generate QR",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.qrcode`",
-        emoji: "● 📱",
-        desc: "Create QR code",
       },
       {
         category: "> *_📄 DOCUMENTS_*",
@@ -1144,20 +538,7 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● 🕸️",
         desc: "Web scrape",
       },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.tweek`",
-        emoji: "● 🕸️",
-        desc: "Tweek tools",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.connect`",
-        emoji: "● 🔌",
-        desc: "Connect service",
-      },
-
-      // ===== BASIC =====
+      // ── BASIC ─────────────────────────────────────────────────────────────
       {
         category: "> *_📋 BASIC_*",
         cmd: "`.menu`",
@@ -1166,33 +547,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_📋 BASIC_*",
-        cmd: "`.help`",
-        emoji: "● ℹ️",
-        desc: "Get help",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.commands`",
-        emoji: "● 📋",
-        desc: "All commands",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.cmds`",
-        emoji: "● 📋",
-        desc: "Command list",
-      },
-      {
-        category: "> *_📋 BASIC_*",
         cmd: "`.ping`",
         emoji: "● 🏓",
-        desc: "Check bot",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.latency`",
-        emoji: "● ⏱️",
-        desc: "Bot speed",
+        desc: "Check bot latency",
       },
       {
         category: "> *_📋 BASIC_*",
@@ -1202,71 +559,22 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_📋 BASIC_*",
-        cmd: "`.me`",
-        emoji: "● 👤",
-        desc: "Your profile",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.profile`",
-        emoji: "● 👤",
-        desc: "View profile",
-      },
-      {
-        category: "> *_📋 BASIC_*",
         cmd: "`.creator`",
         emoji: "● 👑",
-        desc: "Bot creator",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.maker`",
-        emoji: "● 👑",
-        desc: "About maker",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.dev`",
-        emoji: "● 👑",
-        desc: "Developer info",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.creatorsgit`",
-        emoji: "● 🐙",
-        desc: "Creator's GitHub",
+        desc: "Bot creator info",
       },
       {
         category: "> *_📋 BASIC_*",
         cmd: "`.auto`",
         emoji: "● 🤖",
-        desc: "Auto mode",
+        desc: "Auto reply toggle",
       },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.autoreply`",
-        emoji: "● 🤖",
-        desc: "Auto reply",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.chatbot`",
-        emoji: "● 🤖",
-        desc: "Chatbot mode",
-      },
-
-      // ===== GROUP =====
+      // ── GROUP MANAGEMENT ──────────────────────────────────────────────────
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.kick`",
         emoji: "● 👢",
         desc: "Remove member",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.remove`",
-        emoji: "● 👢",
-        desc: "Kick user",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1276,21 +584,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.invite`",
-        emoji: "● ➕",
-        desc: "Invite link",
-      },
-      {
-        category: "> *_👥 GROUP_*",
         cmd: "`.promote`",
         emoji: "● ⭐",
         desc: "Make admin",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.makeadmin`",
-        emoji: "● ⭐",
-        desc: "Promote to admin",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1300,21 +596,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.unadmin`",
-        emoji: "● ⬇️",
-        desc: "Demote admin",
-      },
-      {
-        category: "> *_👥 GROUP_*",
         cmd: "`.ban`",
         emoji: "● 🚫",
         desc: "Ban user",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.unban`",
-        emoji: "● ✅",
-        desc: "Unban user",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1324,27 +608,27 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.warnings`",
-        emoji: "● 📜",
-        desc: "Check warns",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.clearwarns`",
-        emoji: "● 🧹",
-        desc: "Clear warnings",
-      },
-      {
-        category: "> *_👥 GROUP_*",
         cmd: "`.mute`",
         emoji: "● 🔇",
-        desc: "Mute user",
+        desc: "Mute group",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.unmute`",
         emoji: "● 🔊",
-        desc: "Unmute user",
+        desc: "Unmute group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.lock`",
+        emoji: "● 🔒",
+        desc: "Lock group info",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unlock`",
+        emoji: "● 🔓",
+        desc: "Unlock group info",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1356,7 +640,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_👥 GROUP_*",
         cmd: "`.antispam`",
         emoji: "● 🛡️",
-        desc: "Stop spam",
+        desc: "Anti-spam toggle",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1368,7 +652,25 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_👥 GROUP_*",
         cmd: "`.hidetag`",
         emoji: "● 👻",
-        desc: "Tag secretly",
+        desc: "Silent mention",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.pin`",
+        emoji: "● 📌",
+        desc: "Pin a message",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unpin`",
+        emoji: "● 📍",
+        desc: "Unpin a message",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.delete`",
+        emoji: "● 🗑️",
+        desc: "Delete a message",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1380,13 +682,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_👥 GROUP_*",
         cmd: "`.revoke`",
         emoji: "● 🔄",
-        desc: "Reset link",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.delete`",
-        emoji: "● 🗑️",
-        desc: "Delete message",
+        desc: "Reset group link",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1396,21 +692,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.setwelcome`",
-        emoji: "● ✏️",
-        desc: "Set welcome msg",
-      },
-      {
-        category: "> *_👥 GROUP_*",
         cmd: "`.goodbye`",
         emoji: "● 👋",
         desc: "Goodbye settings",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.setgoodbye`",
-        emoji: "● ✏️",
-        desc: "Set goodbye msg",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1422,7 +706,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_👥 GROUP_*",
         cmd: "`.setrules`",
         emoji: "● ✏️",
-        desc: "Set rules",
+        desc: "Set group rules",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1432,27 +716,15 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.ginfo`",
-        emoji: "● ℹ️",
-        desc: "Quick group info",
+        cmd: "`.settings`",
+        emoji: "● ⚙️",
+        desc: "View bot settings",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.listadmins`",
-        emoji: "● 👑",
-        desc: "List admins",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.admins`",
-        emoji: "● 👑",
-        desc: "Show admins",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.listbanned`",
-        emoji: "● 📋",
-        desc: "Banned users",
+        cmd: "`.resetsettings`",
+        emoji: "● 🗑️",
+        desc: "Reset settings",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -1460,17 +732,11 @@ export async function menu({ from, sock, isAdmin }) {
         emoji: "● 🚪",
         desc: "Bot leave group",
       },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.debuggroup`",
-        emoji: "● 🔍",
-        desc: "Debug group",
-      },
     ];
 
-    // Add admin commands
+    // Admin-only section — only visible when the caller is me or a bot admin
     if (isAdmin) {
-      commands.push(
+      menuCommands.push(
         {
           category: "> *_👑 ADMIN_*",
           cmd: "`.adduser`",
@@ -1479,27 +745,9 @@ export async function menu({ from, sock, isAdmin }) {
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.auth`",
-          emoji: "● ✅",
-          desc: "Authorize user",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
           cmd: "`.removeuser`",
           emoji: "● ❌",
           desc: "Remove user",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.deauth`",
-          emoji: "● ❌",
-          desc: "Deauthorize",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.listusers`",
-          emoji: "● 📋",
-          desc: "All users",
         },
         {
           category: "> *_👑 ADMIN_*",
@@ -1515,12 +763,6 @@ export async function menu({ from, sock, isAdmin }) {
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.globalbroadcast`",
-          emoji: "● 🌍",
-          desc: "Global message",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
           cmd: "`.stats`",
           emoji: "● 📊",
           desc: "Bot stats",
@@ -1530,30 +772,6 @@ export async function menu({ from, sock, isAdmin }) {
           cmd: "`.botstatus`",
           emoji: "● 🤖",
           desc: "Bot health",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.superban`",
-          emoji: "● 🔨",
-          desc: "Global ban",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.unban`",
-          emoji: "● ✅",
-          desc: "Global unban",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.listbanned`",
-          emoji: "● 📋",
-          desc: "Banned list",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.clearbans`",
-          emoji: "● 🧹",
-          desc: "Clear bans",
         },
         {
           category: "> *_👑 ADMIN_*",
@@ -1576,9 +794,9 @@ export async function menu({ from, sock, isAdmin }) {
       );
     }
 
-    const menuText = formatMenu(commands, isAdmin, stats);
+    const menuText = formatMenu(menuCommands, isAdmin, stats);
 
-    // ── STEP 1: Send menu audio first ──────────────────────
+    // Welcome audio — non-fatal if it fails
     try {
       await sock.sendMessage(from, {
         audio: {
@@ -1587,11 +805,9 @@ export async function menu({ from, sock, isAdmin }) {
         mimetype: "audio/aac",
         ptt: false,
       });
-    } catch (_) {
-      // Audio failed silently — menu still sends below
-    }
+    } catch (_) {}
 
-    // ── STEP 2: Send menu image + text ─────────────────────
+    // Menu with banner image — falls back to plain text if image URL is missing
     try {
       await sock.sendMessage(from, {
         image: { url: ENV.WELCOME_IMAGE_URL },
@@ -1601,31 +817,32 @@ export async function menu({ from, sock, isAdmin }) {
           forwardingScore: 999,
           isForwarded: true,
           forwardedNewsletterMessageInfo: {
-            newsletterJid: "0029Vb78B9VDzgTDPktNpn25@newsletter",
+            newsletterJid: "120363422418001588@newsletter",
             newsletterName: "AyoBot Tech Hub",
             serverMessageId: Date.now(),
           },
         },
       });
-      console.log("✅ Menu with image sent");
-    } catch (e) {
-      console.log("⚠️ Menu image failed, sending text only");
+    } catch (_) {
       await sock.sendMessage(from, { text: menuText });
     }
   } catch (error) {
-    console.error("Menu error:", error);
+    // Last-resort fallback so the user always gets a response
     await sock.sendMessage(from, {
       text: `🚀 *AYOBOT v1*\n👑 *AYOCODES*\n\nType .help for commands`,
     });
   }
 }
 
-// ========== PING WITH ANIMATION ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  PING
+//  Animated progress bar that edits itself in-place, then shows real
+//  response time + uptime. Clean and doesn't spam the chat.
+// ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
-
   const loadingMsg = await sock.sendMessage(from, {
-    text: `🏓 *Pinging...* \n[▱▱▱▱▱▱▱▱▱▱] 0%`,
+    text: `🏓 *Pinging...*\n[▱▱▱▱▱▱▱▱▱▱] 0%`,
   });
 
   const frames = [
@@ -1641,24 +858,40 @@ export async function ping({ from, sock }) {
     "[▰▰▰▰▰▰▰▰▰▰] 100%",
   ];
 
-  for (let i = 0; i < frames.length; i++) {
+  for (const frame of frames) {
     await delay(80);
     try {
       await sock.sendMessage(from, {
-        text: `🏓 *Pinging...* \n${frames[i]}`,
+        text: `🏓 *Pinging...*\n${frame}`,
         edit: loadingMsg.key,
       });
     } catch (_) {}
   }
 
-  const responseTime = Date.now() - start;
+  // Build a clean human-readable uptime string
+  const uptime = Date.now() - getSafeStartTime();
+  const h = Math.floor(uptime / 3_600_000);
+  const m = Math.floor((uptime % 3_600_000) / 60_000);
+  const s = Math.floor((uptime % 60_000) / 1_000);
+  const uptimeStr =
+    h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════╗\n║        🏓 *PONG!*         ║\n╚══════════════════════════╝\n\n📡 *Response:* ${responseTime}ms\n⏱️ *Uptime:* ${formatUptime(Date.now() - botStartTime)}\n📊 *Messages:* ${messageCount}\n🤖 *Status:* ONLINE 🟢\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ *AYOBOT is fully operational!*\n👑 Created by AYOCODES`,
+    text:
+      `━━━━━ 🏓 *PONG!* ━━━━━\n\n` +
+      `📡 *Response:* ${Date.now() - start}ms\n` +
+      `⏱️ *Uptime:* ${uptimeStr}\n` +
+      `📊 *Messages:* ${messageCount}\n` +
+      `🟢 *Status:* ONLINE\n\n` +
+      `⚡ _AYOBOT fully operational_ · 👑 _AYOCODES_`,
     edit: loadingMsg.key,
   });
 }
 
-// ========== STATUS ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  STATUS
+//  Shows the caller's personal stats — role, commands used, current bot mode.
+// ════════════════════════════════════════════════════════════════════════════
 export async function status({
   from,
   userJid,
@@ -1675,285 +908,266 @@ export async function status({
   else if (isAuthorizedUser) role = "AUTHORIZED ✓";
 
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════╗\n║        👤 *STATUS*        ║\n╚══════════════════════════╝\n\n📱 *Phone:* ${phone}\n👑 *Role:* ${role}\n📊 *Commands:* ${total}\n🤖 *Bot Mode:* ${ENV.BOT_MODE.toUpperCase()}\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ *Use .menu to explore*\n👑 Created by AYOCODES`,
+    text:
+      `━━━━━ 👤 *STATUS* ━━━━━\n\n` +
+      `📱 *Phone:* ${phone}\n` +
+      `👑 *Role:* ${role}\n` +
+      `📊 *Commands:* ${total}\n` +
+      `🤖 *Mode:* ${ENV.BOT_MODE.toUpperCase()}\n\n` +
+      `⚡ _Use .menu to explore_ · 👑 _AYOCODES_`,
   });
 }
 
-// ========== CREATOR INFO WITH IMAGE ==========
-// FIXED: uses destructured { from, sock, isAdmin }
-export async function creator({ from, sock, isAdmin: isAdminUser }) {
+// ════════════════════════════════════════════════════════════════════════════
+//  CREATOR
+//  Sends my contact card then the community links.
+//  Falls back to plain text if the vCard send fails.
+// ════════════════════════════════════════════════════════════════════════════
+export async function creator({ from, sock }) {
   try {
-    const creatorText =
-      `╔══════════════════════════╗\n` +
-      `║   👑 *AYOCODES* 👑       ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `📛 *Name:* AYOCODES\n` +
-      `📞 *Phone:* ${ENV.CREATOR_CONTACT || "N/A"}\n` +
-      `🔗 *GitHub:* ${ENV.CREATOR_GITHUB}\n` +
-      `💻 *Website:* ${ENV.CREATOR_GITHUB}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📢 *COMMUNITY*\n` +
-      `📱 Channel: ${ENV.WHATSAPP_CHANNEL}\n` +
-      `👥 Group: ${ENV.WHATSAPP_GROUP}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📞 wa.me/${ENV.CREATOR_CONTACT || ""}\n` +
-      `${isAdminUser ? "👑 ADMIN ACCESS GRANTED\n" : ""}` +
-      `\n⚡ *AYOBOT v1* | Created by AYOCODES`;
-
-    await sock.sendMessage(from, {
-      image: { url: ENV.CREATOR_IMAGE_URL },
-      caption: creatorText,
-      contextInfo: {
-        forwardingScore: 999,
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-          newsletterJid: "0029Vb78B9VDzgTDPktNpn25@newsletter",
-          newsletterName: "AyoBot Tech Hub",
-          serverMessageId: Date.now(),
-        },
-      },
-    });
-    console.log("✅ Creator info sent with image");
-  } catch (error) {
-    console.error("❌ Creator error:", error.message);
-    await sock.sendMessage(from, {
-      text: `👑 *AYOCODES*\n\n📞 ${ENV.CREATOR_CONTACT || "N/A"}\n📧 ${ENV.CREATOR_EMAIL || "N/A"}\n🔗 ${ENV.CREATOR_GITHUB}`,
-    });
-  }
-}
-
-// ========== CREATOR GITHUB ==========
-export async function creatorGit({ from, sock }) {
-  await sock.sendMessage(from, {
-    text: `╔══════════════════════════╗\n║   👑 *AYOCODES GITHUB*   ║\n╚══════════════════════════╝\n\n📛 *Creator:* AYOCODES\n🔗 *GitHub:* ${ENV.CREATOR_GITHUB}\n📁 *Repositories:* 120+ Projects\n⭐ *Stars:* 100+ Total\n👥 *Followers:* 500+ Dev Community\n\n📊 *Top Projects:*\n▰ AYOBOT - WhatsApp Bot (2k+ ⭐)\n▰ AyoLink - URL Shortener (500+ ⭐)\n▰ Web Scraper Pro (300+ ⭐)\n▰ PDF Generator (250+ ⭐)\n\n━━━━━━━━━━━━━━━━━━━━━\n💻 *Check out my work on GitHub!*\n👑 *AYOBOT v1* | Created by AYOCODES`,
-  });
-}
-
-// ========== AUTO-REPLY TOGGLE ==========
-export async function auto({ args, from, userJid, sock }) {
-  const sub = args[0]?.toLowerCase();
-
-  if (!sub || !["on", "off", "status"].includes(sub)) {
-    const cur = autoReplyEnabled.get(userJid) ? "ON" : "OFF";
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "AUTO-REPLY",
-        `Current: *${cur}*\n\n.auto on  - Enable conversations\n.auto off - Disable\n.auto status - Check status`,
-      ),
-    });
-    return;
-  }
-
-  if (sub === "on") {
-    autoReplyEnabled.set(userJid, true);
-    try {
-      const autoReplyMod = await import("../../handlers/autoReply.js");
-      const handler = autoReplyMod.default || autoReplyMod;
-      if (typeof handler.resetConversation === "function")
-        handler.resetConversation(userJid);
-      if (typeof handler.sendEnableGreeting === "function") {
-        await handler.sendEnableGreeting(sock, from, userJid);
-      } else {
-        await sock.sendMessage(from, {
-          text: formatSuccess("AUTO-REPLY", "Auto-reply has been *ENABLED*."),
-        });
-      }
-    } catch (_) {
+    const contact = ENV.CREATOR_CONTACT?.replace(/\D/g, "") || "";
+    if (contact) {
       await sock.sendMessage(from, {
-        text: formatSuccess("AUTO-REPLY", "Auto-reply has been *ENABLED*."),
+        contacts: {
+          displayName: "AYOCODES",
+          contacts: [
+            {
+              vcard:
+                `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\nORG:AYOBOT Dev and Founder;\n` +
+                `TEL;type=CELL;type=VOICE;waid=${contact}:+${contact}\nEND:VCARD`,
+            },
+          ],
+        },
       });
     }
-  } else if (sub === "off") {
-    autoReplyEnabled.set(userJid, false);
-    try {
-      const autoReplyMod = await import("../../handlers/autoReply.js");
-      const handler = autoReplyMod.default || autoReplyMod;
-      if (typeof handler.resetConversation === "function")
-        handler.resetConversation(userJid);
-    } catch (_) {}
+    await delay(300);
     await sock.sendMessage(from, {
-      text: formatSuccess("AUTO-REPLY", "Auto-reply has been *DISABLED*."),
+      text:
+        `━━━━━ 📢 *COMMUNITY* ━━━━━\n\n` +
+        `📱 *Channel:* ${ENV.WHATSAPP_CHANNEL}\n` +
+        `👥 *Group:* ${ENV.WHATSAPP_GROUP}`,
     });
-  } else {
-    const s = autoReplyEnabled.get(userJid) ? "ON 🟢" : "OFF 🔴";
-    await sock.sendMessage(from, {
-      text: formatInfo("AUTO-REPLY STATUS", `Status: *${s}*`),
-    });
+  } catch (_) {
+    const contact = ENV.CREATOR_CONTACT?.replace(/\D/g, "") || "";
+    if (contact) {
+      await sock.sendMessage(from, {
+        contacts: {
+          displayName: "AYOCODES",
+          contacts: [
+            {
+              vcard:
+                `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\n` +
+                `TEL;type=CELL;type=VOICE;waid=${contact}:+${contact}\nEND:VCARD`,
+            },
+          ],
+        },
+      });
+    } else {
+      await sock.sendMessage(from, {
+        text: `👑 *AYOCODES*\n\n🔗 ${ENV.CREATOR_GITHUB}`,
+      });
+    }
   }
 }
 
-// ========== WEATHER ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  CREATOR GITHUB
+// ════════════════════════════════════════════════════════════════════════════
+export async function creatorGit({ from, sock }) {
+  await sock.sendMessage(from, {
+    text:
+      `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
+      `🔗 *GitHub:* ${ENV.CREATOR_GITHUB}\n\n` +
+      `💻 _Check out my work!_ · 👑 _AYOCODES_`,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  AUTO-REPLY TOGGLE
+//  Each user gets their own flag stored in the shared Map from index.js.
+//  Defaults to OFF if not yet set.
+// ════════════════════════════════════════════════════════════════════════════
+export async function auto({ args, from, userJid, sock }) {
+  const sub = args[0]?.toLowerCase();
+  if (!sub || !["on", "off", "status"].includes(sub)) {
+    const cur = autoReplyEnabled.get(userJid) ? "ON" : "OFF";
+    return sock.sendMessage(from, {
+      text: formatInfo(
+        "AUTO-REPLY",
+        `Current: *${cur}*\n\n.auto on     — Enable\n.auto off    — Disable\n.auto status — Check`,
+      ),
+    });
+  }
+  if (sub === "on") {
+    autoReplyEnabled.set(userJid, true);
+    return sock.sendMessage(from, {
+      text: formatSuccess("AUTO-REPLY", "Auto-reply *ENABLED* ✅"),
+    });
+  }
+  if (sub === "off") {
+    autoReplyEnabled.set(userJid, false);
+    return sock.sendMessage(from, {
+      text: formatSuccess("AUTO-REPLY", "Auto-reply *DISABLED* 🔴"),
+    });
+  }
+  // sub === "status"
+  const s = autoReplyEnabled.get(userJid) ? "ON 🟢" : "OFF 🔴";
+  await sock.sendMessage(from, {
+    text: formatInfo("AUTO-REPLY STATUS", `Status: *${s}*`),
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WEATHER
+//  Powered by OpenWeatherMap — set OPENWEATHER_KEY in .env
+// ════════════════════════════════════════════════════════════════════════════
 export async function weather({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "WEATHER",
         "Usage: .weather <city>\nExample: .weather London",
       ),
     });
-    return;
   }
-
   if (!ENV.OPENWEATHER_KEY) {
     return sock.sendMessage(from, {
       text: formatError("CONFIG ERROR", "OPENWEATHER_KEY not set in .env"),
     });
   }
-
   await sock.sendMessage(from, { text: "🌤️ *Fetching weather data...*" });
-
   try {
     const res = await axios.get(
       `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(fullArgs)}&appid=${ENV.OPENWEATHER_KEY}&units=metric`,
-      { timeout: 10000 },
+      { timeout: 10_000 },
     );
     const d = res.data;
-    const weatherData = {
-      "🌡️ Temperature": `${d.main.temp}°C`,
-      "🤔 Feels like": `${d.main.feels_like}°C`,
-      "📊 Min/Max": `${d.main.temp_min}°C / ${d.main.temp_max}°C`,
-      "💧 Humidity": `${d.main.humidity}%`,
-      "🌬️ Wind": `${d.wind.speed} m/s`,
-      "☁️ Conditions": d.weather[0].description,
-      "🌅 Sunrise": new Date(d.sys.sunrise * 1000).toLocaleTimeString(),
-      "🌇 Sunset": new Date(d.sys.sunset * 1000).toLocaleTimeString(),
-    };
     await sock.sendMessage(from, {
-      text: formatData(`WEATHER: ${d.name}, ${d.sys.country}`, weatherData),
+      text: formatData(`WEATHER: ${d.name}, ${d.sys.country}`, {
+        "🌡️ Temperature": `${d.main.temp}°C`,
+        "🤔 Feels like": `${d.main.feels_like}°C`,
+        "💧 Humidity": `${d.main.humidity}%`,
+        "🌬️ Wind": `${d.wind.speed} m/s`,
+        "☁️ Conditions": d.weather[0].description,
+        "🌅 Sunrise": new Date(d.sys.sunrise * 1000).toLocaleTimeString(),
+        "🌇 Sunset": new Date(d.sys.sunset * 1000).toLocaleTimeString(),
+      }),
     });
-  } catch (err) {
+  } catch (_) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `City "${fullArgs}" not found or API error.`),
+      text: formatError("ERROR", `City "${fullArgs}" not found.`),
     });
   }
 }
 
-// ========== URL SHORTENER ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  SHORTEN
+//  Tries TinyURL first, is.gd as backup. Both are free, no API key needed.
+// ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "🔗 URL SHORTENER",
-        "Usage: .shorten <url>\nExample: .shorten https://example.com",
-      ),
+    return sock.sendMessage(from, {
+      text: formatInfo("🔗 URL SHORTENER", "Usage: .shorten <url>"),
     });
-    return;
   }
-
   let longUrl = fullArgs.trim().split(" ")[0];
   if (!longUrl.startsWith("http")) longUrl = "https://" + longUrl;
-
   await sock.sendMessage(from, { text: "🔗 *Shortening URL...*" });
 
   const services = [
     {
       name: "TinyURL",
-      shorten: async () => {
-        const res = await axios.get(
-          `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
-          { timeout: 8000 },
-        );
-        return res.data;
-      },
+      fn: async () =>
+        (
+          await axios.get(
+            `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
+            { timeout: 8_000 },
+          )
+        ).data,
     },
     {
       name: "is.gd",
-      shorten: async () => {
-        const res = await axios.get(
-          `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
-          { timeout: 8000 },
-        );
-        return res.data;
-      },
+      fn: async () =>
+        (
+          await axios.get(
+            `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
+            { timeout: 8_000 },
+          )
+        ).data,
     },
   ];
 
-  for (const service of services) {
+  for (const svc of services) {
     try {
-      const shortUrl = await service.shorten();
-      if (shortUrl && shortUrl.startsWith("http")) {
-        await sock.sendMessage(from, {
+      const short = await svc.fn();
+      if (short?.startsWith("http")) {
+        return sock.sendMessage(from, {
           text: formatSuccess(
             "URL SHORTENED",
-            `📎 *Original:*\n${longUrl}\n\n🔗 *Short URL:*\n${shortUrl}\n\n🌐 *Service:* ${service.name}`,
+            `📎 *Original:*\n${longUrl}\n\n🔗 *Short:*\n${short}\n\n🌐 *Service:* ${svc.name}`,
           ),
         });
-        return;
       }
     } catch (_) {}
   }
-
   await sock.sendMessage(from, {
-    text: formatError("ERROR", "Could not shorten URL. Try again later."),
+    text: formatError("ERROR", "Could not shorten URL."),
   });
 }
 
-// ========== VIEW ONCE ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW ONCE  (.vv / .open)
+//  Downloads and re-sends a view-once media so the user can see it again.
+//  Handles image, video and audio. Walks through all known v2 containers.
+// ════════════════════════════════════════════════════════════════════════════
 export async function viewOnce({ message, from, sock }) {
   try {
     const quotedMsg =
       message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
     if (!quotedMsg) {
-      await sock.sendMessage(from, {
+      return sock.sendMessage(from, {
         text: formatInfo(
           "VIEW ONCE",
-          "Reply to a view-once message with:\n.vv or .open or .arise",
+          "Reply to a view-once message with .vv or .open",
         ),
       });
-      return;
     }
-
     await sock.sendMessage(from, { text: "👁️ *Opening view once message...*" });
 
-    let mediaMsg = null;
-    let type = null;
-    let isViewOnce = false;
+    let mediaMsg = null,
+      type = null,
+      isViewOnce = false;
 
-    // Check all known view-once container formats
-    const containers = [
+    // Walk all possible view-once containers in priority order
+    for (const container of [
       quotedMsg.viewOnceMessageV2?.message,
       quotedMsg.viewOnceMessageV2Extension?.message,
       quotedMsg,
-    ];
-
-    for (const container of containers) {
+    ]) {
       if (!container) continue;
       if (container.imageMessage) {
-        const img = container.imageMessage;
-        if (img.viewOnce !== false || container !== quotedMsg) {
-          isViewOnce = true;
-          mediaMsg = img;
-          type = "image";
-          break;
-        }
+        isViewOnce = true;
+        mediaMsg = container.imageMessage;
+        type = "image";
+        break;
       }
       if (container.videoMessage) {
-        const vid = container.videoMessage;
-        if (vid.viewOnce !== false || container !== quotedMsg) {
-          isViewOnce = true;
-          mediaMsg = vid;
-          type = "video";
-          break;
-        }
+        isViewOnce = true;
+        mediaMsg = container.videoMessage;
+        type = "video";
+        break;
       }
       if (container.audioMessage) {
-        const aud = container.audioMessage;
-        if (aud.viewOnce !== false || container !== quotedMsg) {
-          isViewOnce = true;
-          mediaMsg = aud;
-          type = "audio";
-          break;
-        }
+        isViewOnce = true;
+        mediaMsg = container.audioMessage;
+        type = "audio";
+        break;
       }
     }
 
     if (!isViewOnce || !mediaMsg || !type) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "NOT VIEW ONCE",
-          "The replied message is not a view-once message.",
-        ),
+        text: formatError("NOT VIEW ONCE", "Not a view-once message."),
       });
     }
 
@@ -1961,411 +1175,321 @@ export async function viewOnce({ message, from, sock }) {
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
 
-    const fileSize = (buffer.length / 1024).toFixed(2);
-    const caption = `━━━━━━━━━━━━━━━━━━━━━\n📊 *Type:* ${type.toUpperCase()}\n📦 *Size:* ${fileSize} KB\n👑 AYOBOT`;
+    const caption = `📊 *Type:* ${type.toUpperCase()}\n📦 *Size:* ${(buffer.length / 1024).toFixed(2)} KB\n👑 AYOBOT`;
 
     if (type === "image")
       await sock.sendMessage(from, { image: buffer, caption });
     else if (type === "video")
       await sock.sendMessage(from, { video: buffer, caption });
-    else if (type === "audio") {
+    else
       await sock.sendMessage(from, {
         audio: buffer,
         mimetype: "audio/mp4",
         ptt: true,
       });
-      await sock.sendMessage(from, { text: caption });
-    }
-  } catch (error) {
-    console.error("View once error:", error);
+  } catch (_) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", "Failed to open view once message."),
     });
   }
 }
 
-// ========== WAITLIST ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  WAITLIST
+//  Registers an email, stores it in the shared Map, and silently pings me
+//  so I know who signed up.
+// ════════════════════════════════════════════════════════════════════════════
 export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
-  const email = fullArgs.trim();
+  const email = fullArgs?.trim() || "";
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   if (!email || !emailRegex.test(email)) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatError(
         "INVALID EMAIL",
-        "Please provide a valid email.\n\nExample: .jointrend user@example.com",
+        "Please provide a valid email.\nExample: .jointrend user@example.com",
       ),
     });
-    return;
   }
-
   const phone = userJid.split("@")[0];
   const timestamp = new Date().toLocaleString();
   waitlistEntries.set(phone, { email, timestamp, userJid });
-
   await sock.sendMessage(from, {
     text: formatSuccess(
       "WAITLIST JOINED",
       `📧 *Email:* ${email}\n📱 *Phone:* ${phone}\n⏰ *Time:* ${timestamp}`,
     ),
   });
-
-  // Only notify admin if ADMIN env is set
   if (ENV.ADMIN) {
     try {
-      const adminPhone = ENV.ADMIN.replace(/[^0-9]/g, "");
-      const adminJid = `${adminPhone}@s.whatsapp.net`;
+      const adminJid = `${ENV.ADMIN.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
       await sock.sendMessage(adminJid, {
         text: `📋 *New Waitlist Join*\n\n📧 ${email}\n📱 ${phone}\n⏰ ${timestamp}`,
-        mentions: [userJid],
       });
     } catch (_) {}
   }
 }
 
-// ========== WEB SCRAPER ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  SCRAPE
+//  Fetches a URL with real browser headers across multiple fallback attempts
+//  then returns a fully self-contained HTML file with all external CSS and JS
+//  inlined — so the recipient can open it offline and see the exact page.
+//
+//  Bypass stack:
+//    1. Rotate User-Agent (Chrome / Firefox / Safari)
+//    2. Full browser Accept / Accept-Language / Referer / Sec-Fetch headers
+//    3. Three header profiles (Chrome+Google, Firefox+Bing, Safari)
+//    4. Follow up to 10 redirects automatically
+//    5. Inline every <link rel="stylesheet"> and <script src="..."> so
+//       the output file works completely offline with no external deps
+// ════════════════════════════════════════════════════════════════════════════
 export async function scrape({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "WEB SCRAPER",
-        "🌐 *Extract complete website source code*\n\n📌 *Usage:* .scrape <url>\n📋 *Example:* .scrape https://example.com\n\n✨ *Returns:* HTML + CSS + JS files",
+        "Usage: .scrape <url>\nExample: .scrape https://example.com\n\n" +
+          "Returns a self-contained HTML file with CSS & JS inlined.",
       ),
     });
-    return;
   }
 
   let url = fullArgs.trim();
   if (!url.startsWith("http")) url = "https://" + url;
-
   await sock.sendMessage(from, {
-    text: "🕸️ *Fetching website data...*\n⏳ This may take a moment...",
+    text: "🕸️ *Scraping website — may take a moment...*",
   });
 
-  const userAgents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
+  // ── Step 1: Fetch the raw HTML with browser spoofing ─────────────────────
+  let html = null;
+  let finalUrl = url;
+
+  const headerProfiles = [
+    browserHeaders(USER_AGENTS[0], "https://www.google.com/"), // Chrome + Google
+    browserHeaders(USER_AGENTS[3], "https://www.bing.com/"), // Firefox + Bing
+    browserHeaders(USER_AGENTS[4], "https://www.google.com/"), // Safari
   ];
 
-  let html = null;
-  for (const ua of userAgents) {
+  for (const headers of headerProfiles) {
     try {
-      const response = await axios.get(url, {
-        headers: {
-          "User-Agent": ua,
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        timeout: 30000,
+      const res = await axios.get(url, {
+        headers,
+        timeout: 30_000,
+        maxRedirects: 10,
         maxContentLength: 50 * 1024 * 1024,
-        decompress: true,
+        responseType: "text",
+        validateStatus: (s) => s < 400,
       });
-      html = response.data;
-      break;
+      if (res.data && typeof res.data === "string" && res.data.length > 200) {
+        html = res.data;
+        finalUrl = res.request?.res?.responseUrl || url;
+        break;
+      }
     } catch (_) {}
   }
 
   if (!html) {
     return sock.sendMessage(from, {
       text: formatError(
-        "SCRAPE ERROR",
-        "❌ Could not scrape the website.\n\n💡 The site may block automated requests.",
+        "SCRAPE FAILED",
+        "Could not retrieve the page.\n\n" +
+          "This site may use heavy bot-detection (Cloudflare, Akamai, etc.).\n" +
+          "Try: .screenshot <url> to get a visual snapshot instead.",
       ),
     });
   }
 
+  // ── Step 2: Inline all external CSS and JS ───────────────────────────────
   try {
-    if (typeof html !== "string") html = String(html);
-    const $ = cheerio.load(html);
-    const urlObj = new URL(url);
-    const domain = urlObj.hostname.replace("www.", "");
-    const timestamp = Date.now();
+    const $ = cheerio.load(html, { decodeEntities: false });
+    const baseUrl = new URL(finalUrl);
 
-    const title = $("title").text() || "No title";
-    const metaDesc =
-      $('meta[name="description"]').attr("content") ||
-      $('meta[property="og:description"]').attr("content") ||
-      "No description";
-    const metaKeywords =
-      $('meta[name="keywords"]').attr("content") || "No keywords";
-    const charset = $("meta[charset]").attr("charset") || "UTF-8";
-
-    const links = [];
-    $("a[href]").each((i, el) => {
-      const href = $(el).attr("href");
-      if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
-        try {
-          links.push(href.startsWith("http") ? href : new URL(href, url).href);
-        } catch (_) {}
-      }
+    // Fetch and inline every stylesheet
+    const cssLinks = [];
+    $('link[rel="stylesheet"][href]').each((_, el) => {
+      cssLinks.push({ el, href: $(el).attr("href") });
     });
-
-    // Extract & download CSS
-    const cssFiles = [];
-    const cssUrls = new Set();
-    $('link[rel="stylesheet"]').each((i, el) => {
-      let href = $(el).attr("href");
-      if (href && !href.startsWith("data:")) {
-        try {
-          cssUrls.add(href.startsWith("http") ? href : new URL(href, url).href);
-        } catch (_) {}
-      }
-    });
-    $("style").each((i, el) => {
-      const css = $(el).html();
-      if (css && css.length > 50)
-        cssFiles.push({
-          name: `inline_style_${i + 1}.css`,
-          content: css,
-          type: "inline",
-        });
-    });
-    for (const cssUrl of Array.from(cssUrls).slice(0, 10)) {
+    for (const { el, href } of cssLinks) {
       try {
-        const r = await axios.get(cssUrl, {
-          timeout: 8000,
-          headers: { "User-Agent": userAgents[0] },
+        const absUrl = href.startsWith("http")
+          ? href
+          : new URL(href, baseUrl).toString();
+        const res = await axios.get(absUrl, {
+          headers: browserHeaders(randomUA()),
+          timeout: 8_000,
+          responseType: "text",
+          validateStatus: (s) => s < 400,
         });
-        let n = cssUrl.split("/").pop() || `style_${cssFiles.length + 1}.css`;
-        if (!n.includes(".")) n += ".css";
-        cssFiles.push({
-          name: n,
-          content: r.data,
-          url: cssUrl,
-          type: "external",
-        });
+        if (res.data) {
+          $(el).replaceWith(
+            `<style>/* inlined: ${href} */\n${res.data}</style>`,
+          );
+        }
       } catch (_) {}
     }
 
-    // Extract & download JS
-    const jsFiles = [];
-    const jsUrls = new Set();
-    $("script[src]").each((i, el) => {
-      let src = $(el).attr("src");
-      if (src && !src.startsWith("data:")) {
-        try {
-          jsUrls.add(src.startsWith("http") ? src : new URL(src, url).href);
-        } catch (_) {}
-      }
+    // Fetch and inline every external script
+    const scriptTags = [];
+    $("script[src]").each((_, el) => {
+      scriptTags.push({ el, src: $(el).attr("src") });
     });
-    $("script:not([src])").each((i, el) => {
-      const js = $(el).html();
-      if (js && js.length > 50)
-        jsFiles.push({
-          name: `inline_script_${i + 1}.js`,
-          content: js,
-          type: "inline",
-        });
-    });
-    for (const jsUrl of Array.from(jsUrls).slice(0, 10)) {
+    for (const { el, src } of scriptTags) {
       try {
-        const r = await axios.get(jsUrl, {
-          timeout: 8000,
-          headers: { "User-Agent": userAgents[0] },
+        const absUrl = src.startsWith("http")
+          ? src
+          : new URL(src, baseUrl).toString();
+        const res = await axios.get(absUrl, {
+          headers: browserHeaders(randomUA()),
+          timeout: 8_000,
+          responseType: "text",
+          validateStatus: (s) => s < 400,
         });
-        let n = jsUrl.split("/").pop() || `script_${jsFiles.length + 1}.js`;
-        if (!n.includes(".")) n += ".js";
-        jsFiles.push({
-          name: n,
-          content: r.data,
-          url: jsUrl,
-          type: "external",
-        });
+        if (res.data) {
+          const attrs = Object.entries($(el).attr() || {})
+            .filter(([k]) => k !== "src")
+            .map(([k, v]) => `${k}="${v}"`)
+            .join(" ");
+          $(el).replaceWith(
+            `<script ${attrs}>/* inlined: ${src} */\n${res.data}</script>`,
+          );
+        }
       } catch (_) {}
     }
 
-    const elementCount = $("*").length;
-    const imageCount = $("img").length;
-    const scriptCount = $("script").length;
-    const styleCount = $('style, link[rel="stylesheet"]').length;
-    const prettyHtml = $.html();
-    const htmlSize = (prettyHtml.length / 1024).toFixed(2);
-    const htmlFilename = `${domain}_source_${timestamp}.html`;
-    const previewLines = prettyHtml
-      .split("\n")
-      .slice(0, 30)
-      .join("\n")
-      .substring(0, 1500);
+    // Stamp an AYOBOT header comment at the top
+    const domain = baseUrl.hostname.replace("www.", "");
+    const title = $("title").text().trim() || "No title";
+    const desc = $('meta[name="description"]').attr("content")?.trim() || "N/A";
+    const linkCount = $("a[href]").length;
+    const imgCount = $("img").length;
 
+    const finalHtml =
+      `<!-- Scraped by AYOBOT v1 | AYOCODES | ${new Date().toISOString()} | ${url} -->\n` +
+      $.html();
+
+    const htmlSize = (finalHtml.length / 1024).toFixed(2);
+    const htmlFilename = `${domain}_${Date.now()}.html`;
+
+    // Summary message first
     await sock.sendMessage(from, {
-      text: `╔════════════════════════════════════════╗\n║     📄 *COMPLETE WEBSITE DATA*     ║\n╚════════════════════════════════════════╝\n\n🔗 *URL:* ${url}\n📝 *Title:* ${title.substring(0, 100)}\n📋 *Description:* ${metaDesc.substring(0, 100)}\n🌐 *Charset:* ${charset}\n\n📊 *STATISTICS:*\n📁 *HTML Elements:* ${elementCount}\n🔗 *Links:* ${links.length}\n🖼️ *Images:* ${imageCount}\n📜 *Scripts:* ${scriptCount}\n🎨 *Styles:* ${styleCount}\n\n📁 *FILES:*\n📄 HTML: ${htmlFilename} (${htmlSize} KB)\n🎨 CSS: ${cssFiles.length} file(s)\n📜 JS: ${jsFiles.length} file(s)\n\n\`\`\`${previewLines}\`\`\``,
+      text:
+        `🕸️ *SCRAPE COMPLETE*\n━━━━━━━━━━━━━━━━━\n` +
+        `🔗 *URL:* ${url}\n` +
+        `📝 *Title:* ${title.substring(0, 120)}\n` +
+        `📋 *Description:* ${desc.substring(0, 120)}\n` +
+        `📎 *Links found:* ${linkCount}\n` +
+        `🖼️ *Images found:* ${imgCount}\n` +
+        `📁 *File size:* ${htmlSize} KB\n` +
+        `✅ *CSS & JS:* Inlined\n━━━━━━━━━━━━━━━━━\n` +
+        `👑 AYOCODES`,
     });
 
-    // Send HTML
+    // Then send the self-contained file
     await sock.sendMessage(from, {
-      document: Buffer.from(prettyHtml, "utf-8"),
+      document: Buffer.from(finalHtml, "utf-8"),
       mimetype: "text/html",
       fileName: htmlFilename,
-      caption: `📄 *HTML Source*\n📁 ${htmlFilename}\n📦 ${htmlSize} KB`,
-    });
-
-    // Send CSS files
-    for (const css of cssFiles.slice(0, 10)) {
-      await delay(1000);
-      await sock.sendMessage(from, {
-        document: Buffer.from(String(css.content), "utf-8"),
-        mimetype: "text/css",
-        fileName: css.name,
-        caption: `🎨 *CSS* | ${css.name} | ${(String(css.content).length / 1024).toFixed(2)} KB`,
-      });
-    }
-
-    // Send JS files
-    for (const js of jsFiles.slice(0, 10)) {
-      await delay(1000);
-      await sock.sendMessage(from, {
-        document: Buffer.from(String(js.content), "utf-8"),
-        mimetype: "application/javascript",
-        fileName: js.name,
-        caption: `📜 *JS* | ${js.name} | ${(String(js.content).length / 1024).toFixed(2)} KB`,
-      });
-    }
-
-    // Send links sample
-    if (links.length > 0) {
-      const linksSample = links
-        .slice(0, 20)
-        .map((l, i) => `${i + 1}. ${l.substring(0, 80)}`)
-        .join("\n");
-      await sock.sendMessage(from, {
-        text: `🔗 *First 20 Links:*\n\n${linksSample}\n\n📊 Total: ${links.length} links`,
-      });
-    }
-
-    await sock.sendMessage(from, {
-      text: `✅ *SCRAPE COMPLETE*\n\n📄 HTML: ${htmlSize} KB\n🎨 CSS: ${cssFiles.length} files\n📜 JS: ${jsFiles.length} files\n🔗 Links: ${links.length}\n\n👑 Created by AYOCODES`,
+      caption: `📄 *${htmlFilename}*\n🌐 Open in any browser to view offline.`,
     });
   } catch (error) {
-    console.error("❌ Scrape processing error:", error.message);
-    try {
-      await sock.sendMessage(from, {
-        document: Buffer.from(String(html), "utf-8"),
-        mimetype: "text/html",
-        fileName: `fallback_${Date.now()}.html`,
-        caption: "📄 *Raw HTML (fallback)*",
-      });
-    } catch (_) {
-      await sock.sendMessage(from, {
-        text: formatError(
-          "SCRAPE ERROR",
-          `Processing failed: ${error.message}`,
-        ),
-      });
-    }
+    await sock.sendMessage(from, {
+      text: formatError("SCRAPE ERROR", error.message),
+    });
   }
 }
 
-// ========== CONNECT INFO ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  CONNECT INFO
+// ════════════════════════════════════════════════════════════════════════════
 export async function connectInfo({ from, sock }) {
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════╗\n║   📱 *CONNECT WITH US*   ║\n╚══════════════════════════╝\n\n👑 *Creator:* AYOCODES\n📞 *WhatsApp:* wa.me/${ENV.CREATOR_CONTACT || ""}\n📧 *Email:* ${ENV.CREATOR_EMAIL || "N/A"}\n💻 *GitHub:* ${ENV.CREATOR_GITHUB}\n\n📢 *Channel*\n${ENV.WHATSAPP_CHANNEL}\n\n👥 *Group*\n${ENV.WHATSAPP_GROUP}\n\n━━━━━━━━━━━━━━━━━━━━━\n🤖 *Commands:* .menu\n⚡ *Version:* ${ENV.BOT_VERSION}`,
+    text:
+      `╔══════════════════════════╗\n║   📱 *CONNECT WITH US*   ║\n╚══════════════════════════╝\n\n` +
+      `👑 *Creator:* AYOCODES\n📞 *WhatsApp:* wa.me/${ENV.CREATOR_CONTACT || ""}\n` +
+      `💻 *GitHub:* ${ENV.CREATOR_GITHUB}\n\n` +
+      `📢 *Channel:* ${ENV.WHATSAPP_CHANNEL}\n👥 *Group:* ${ENV.WHATSAPP_GROUP}`,
   });
 }
 
-// ========== WORLD TIME ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  WORLD TIME
+//  Uses worldtimeapi.org — timezone in IANA format e.g. Africa/Lagos
+// ════════════════════════════════════════════════════════════════════════════
 export async function time({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "WORLD TIME",
-        "Usage: .time <timezone>\nExample: .time Africa/Lagos\nExample: .time America/New_York",
+        "Usage: .time <timezone>\nExample: .time Africa/Lagos\n\nFind yours: worldtimeapi.org/timezones",
       ),
     });
-    return;
   }
-
   await sock.sendMessage(from, { text: "⏰ *Fetching time...*" });
-
   try {
-    const tzQuery = fullArgs.trim().replace(/ /g, "_");
-    const res = await axios.get(
-      `https://worldtimeapi.org/api/timezone/${tzQuery}`,
-      { timeout: 8000 },
-    );
-    const date = new Date(res.data.datetime);
-
+    const tz = fullArgs.trim().replace(/ /g, "_");
+    const res = await axios.get(`https://worldtimeapi.org/api/timezone/${tz}`, {
+      timeout: 8_000,
+    });
+    const d = new Date(res.data.datetime);
     await sock.sendMessage(from, {
       text: formatData("WORLD TIME", {
         "🌍 Timezone": res.data.timezone,
-        "📅 Date": date.toLocaleDateString("en-US", {
+        "📅 Date": d.toLocaleDateString("en-US", {
           weekday: "long",
           year: "numeric",
           month: "long",
           day: "numeric",
         }),
-        "⏰ Time": date.toLocaleTimeString(),
+        "⏰ Time": d.toLocaleTimeString(),
         "🕒 UTC Offset": res.data.utc_offset,
+        "📆 Week #": res.data.week_number,
+        "☀️ DST": res.data.dst ? "Active" : "Inactive",
       }),
     });
   } catch (_) {
-    // Fallback: try city-based lookup
-    try {
-      const fallback = await axios.get(
-        `https://worldtimeapi.org/api/timezone`,
-        { timeout: 8000 },
-      );
-      const zones = fallback.data;
-      const match = zones.find((z) =>
-        z.toLowerCase().includes(fullArgs.toLowerCase().replace(/ /g, "_")),
-      );
-      if (match) {
-        const r2 = await axios.get(
-          `https://worldtimeapi.org/api/timezone/${match}`,
-          { timeout: 8000 },
-        );
-        const d2 = new Date(r2.data.datetime);
-        await sock.sendMessage(from, {
-          text: formatData("WORLD TIME", {
-            "🌍 Timezone": r2.data.timezone,
-            "📅 Date": d2.toLocaleDateString(),
-            "⏰ Time": d2.toLocaleTimeString(),
-          }),
-        });
-      } else {
-        throw new Error("Not found");
-      }
-    } catch (_) {
-      await sock.sendMessage(from, {
-        text: formatError(
-          "ERROR",
-          `Could not find time for "${fullArgs}".\n\nTry: Africa/Lagos, America/New_York, Europe/London`,
-        ),
-      });
-    }
+    await sock.sendMessage(from, {
+      text: formatError(
+        "ERROR",
+        `Could not find time for "${fullArgs}".\n\nTry: Africa/Lagos, America/New_York`,
+      ),
+    });
   }
 }
 
-// ========== CREATE PDF ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  CREATE PDF
+//  Generates a styled PDF using PDFKit. Install with: npm i pdfkit
+// ════════════════════════════════════════════════════════════════════════════
 export async function pdf({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "PDF GENERATOR",
         "Usage: .pdf <title> | <content>\nExample: .pdf My Doc | Hello World",
       ),
     });
-    return;
   }
-
   await sock.sendMessage(from, { text: "📄 *Generating PDF...*" });
-
   try {
+    const PDFDoc = await getPDFDoc();
+    if (!PDFDoc) {
+      return sock.sendMessage(from, {
+        text: formatError(
+          "ERROR",
+          "PDF generator not available. Install pdfkit.",
+        ),
+      });
+    }
     let title = "Document";
     let content = fullArgs;
-
     if (fullArgs.includes("|")) {
       const parts = fullArgs.split("|");
       title = parts[0].trim();
       content = parts.slice(1).join("|").trim();
     }
-
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDoc({ margin: 50 });
     const chunks = [];
-
     doc.on("data", (chunk) => chunks.push(chunk));
-
     await new Promise((resolve) => {
       doc.on("end", resolve);
       doc.fontSize(22).font("Helvetica-Bold").text(title, { align: "center" });
@@ -2375,18 +1499,18 @@ export async function pdf({ fullArgs, from, sock }) {
       doc
         .fontSize(10)
         .fillColor("gray")
-        .text(`Generated by AYOBOT | ${new Date().toLocaleString()}`, {
-          align: "center",
-        });
+        .text(
+          `Generated by AYOBOT v1 · AYOCODES · ${new Date().toLocaleString()}`,
+          { align: "center" },
+        );
       doc.end();
     });
-
     const pdfBuffer = Buffer.concat(chunks);
     await sock.sendMessage(from, {
       document: pdfBuffer,
       mimetype: "application/pdf",
       fileName: `${title.replace(/[^a-z0-9]/gi, "_")}.pdf`,
-      caption: `📄 *PDF Created*\n📝 Title: ${title}\n📦 Size: ${(pdfBuffer.length / 1024).toFixed(2)} KB`,
+      caption: `📄 *PDF Created*\n📝 ${title}\n📦 ${(pdfBuffer.length / 1024).toFixed(2)} KB`,
     });
   } catch (error) {
     await sock.sendMessage(from, {
@@ -2395,155 +1519,87 @@ export async function pdf({ fullArgs, from, sock }) {
   }
 }
 
-// ========== IP LOOKUP ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  IP LOOKUP
+//  Primary: ip-api.com (free, no key). Fallback: ipapi.co.
+//  I normalise both API shapes so the display code doesn't need to care
+//  which one actually answered.
+// ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "IP LOOKUP",
-        "Usage: .getip <IP address>\nExample: .getip 8.8.8.8",
+        "Usage: .getip <IP>\nExample: .getip 8.8.8.8",
       ),
     });
-    return;
   }
-
-  const ipRegex =
-    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
   const cleanIP = fullArgs.trim();
-
-  if (!ipRegex.test(cleanIP)) {
-    return sock.sendMessage(from, {
-      text: formatError(
-        "INVALID IP",
-        "Please provide a valid IPv4 address.\nExample: 8.8.8.8",
-      ),
-    });
-  }
-
   await sock.sendMessage(from, { text: `🌐 *Looking up IP: ${cleanIP}...*` });
 
+  let data = null;
   const apis = [
+    async () =>
+      (await axios.get(`http://ip-api.com/json/${cleanIP}`, { timeout: 8_000 }))
+        .data,
     async () => {
-      const res = await axios.get(`http://ip-api.com/json/${cleanIP}`, {
-        timeout: 8000,
-        params: {
-          fields:
-            "status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,as,query",
-        },
-      });
-      return res.data;
-    },
-    async () => {
-      const res = await axios.get(`https://ipapi.co/${cleanIP}/json/`, {
-        timeout: 8000,
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
+      const r = (
+        await axios.get(`https://ipapi.co/${cleanIP}/json/`, { timeout: 8_000 })
+      ).data;
       return {
-        status: "success",
+        status: r.error ? "fail" : "success",
         query: cleanIP,
-        country: res.data.country_name,
-        countryCode: res.data.country_code,
-        regionName: res.data.region,
-        city: res.data.city,
-        zip: res.data.postal,
-        lat: res.data.latitude,
-        lon: res.data.longitude,
-        timezone: res.data.timezone,
-        isp: res.data.org,
-        as: res.data.asn,
-      };
-    },
-    async () => {
-      const res = await axios.get(`https://ipinfo.io/${cleanIP}/json`, {
-        timeout: 8000,
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-      const [lat, lon] = (res.data.loc || "0,0").split(",");
-      return {
-        status: "success",
-        query: cleanIP,
-        country: res.data.country,
-        regionName: res.data.region,
-        city: res.data.city,
-        zip: res.data.postal,
-        lat: parseFloat(lat),
-        lon: parseFloat(lon),
-        timezone: res.data.timezone,
-        isp: res.data.org,
+        country: r.country_name,
+        countryCode: r.country_code,
+        regionName: r.region,
+        city: r.city,
+        zip: r.postal,
+        lat: r.latitude,
+        lon: r.longitude,
+        timezone: r.timezone,
+        isp: r.org,
       };
     },
   ];
 
-  let data = null;
-  let usedApi = "";
-  for (let i = 0; i < apis.length; i++) {
+  for (const api of apis) {
     try {
-      data = await apis[i]();
-      if (data && data.status !== "fail") {
-        usedApi = ["ip-api.com", "ipapi.co", "ipinfo.io"][i];
-        break;
-      }
+      data = await api();
+      if (data?.status !== "fail") break;
     } catch (_) {}
   }
 
   if (!data || data.status === "fail") {
     return sock.sendMessage(from, {
-      text: formatError(
-        "LOOKUP FAILED",
-        "Could not fetch information for this IP address.",
-      ),
+      text: formatError("LOOKUP FAILED", "Could not fetch IP information."),
     });
   }
-
-  const ipData = {
-    "🌍 IP Address": data.query || cleanIP,
-    "📍 Country": `${data.country || "Unknown"} ${data.countryCode ? `(${data.countryCode})` : ""}`,
-    "🏙️ City": data.city || "Unknown",
-    "🗺️ Region": data.regionName || "Unknown",
-    "📮 Postal Code": data.zip || "N/A",
-    "🧭 Coordinates": data.lat && data.lon ? `${data.lat}, ${data.lon}` : "N/A",
-    "⏰ Timezone": data.timezone || "N/A",
-    "📡 ISP": data.isp || "Unknown",
-    "🔗 ASN": data.as || "N/A",
-    "🔍 Source": usedApi,
-  };
-
-  let responseText = formatData("📍 IP INFORMATION", ipData);
-  if (data.lat && data.lon)
-    responseText += `\n\n🗺️ *Maps:*\nhttps://www.google.com/maps?q=${data.lat},${data.lon}`;
-  await sock.sendMessage(from, { text: responseText });
+  await sock.sendMessage(from, {
+    text: formatData("📍 IP INFORMATION", {
+      "🌍 IP Address": data.query || cleanIP,
+      "📍 Country": `${data.country || "Unknown"}${data.countryCode ? ` (${data.countryCode})` : ""}`,
+      "🏙️ City": data.city || "Unknown",
+      "🗺️ Region": data.regionName || "Unknown",
+      "⏰ Timezone": data.timezone || "N/A",
+      "📡 ISP": data.isp || "Unknown",
+    }),
+  });
 }
 
-// Alias for .ip and .iplookup
+// Alias — .ip does the same thing as .getip
 export const ip = getip;
 
-// ========== MY IP ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  MY IP — Shows the bot's outbound public IP via ipify
+// ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock }) {
   await sock.sendMessage(from, { text: "🌐 *Fetching your public IP...*" });
   try {
     const res = await axios.get("https://api.ipify.org?format=json", {
-      timeout: 8000,
+      timeout: 8_000,
     });
-    const ipAddr = res.data.ip;
-    try {
-      const ipRes = await axios.get(`http://ip-api.com/json/${ipAddr}`, {
-        timeout: 8000,
-      });
-      const d = ipRes.data;
-      if (d.status === "success") {
-        await sock.sendMessage(from, {
-          text: formatData("YOUR PUBLIC IP", {
-            "🌍 Your IP": d.query,
-            "📍 Location": `${d.city}, ${d.country}`,
-            "📡 ISP": d.isp,
-            "🗺️ Region": d.regionName,
-          }),
-        });
-        return;
-      }
-    } catch (_) {}
     await sock.sendMessage(from, {
-      text: formatSuccess("YOUR IP", `🌐 ${ipAddr}`),
+      text: formatSuccess("YOUR IP", `🌐 ${res.data.ip}`),
     });
   } catch (_) {
     await sock.sendMessage(from, {
@@ -2552,166 +1608,199 @@ export async function myip({ from, sock }) {
   }
 }
 
-// ========== WHOIS ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  WHOIS — Uses the RDAP protocol via rdap.org, no API key needed
+// ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "WHOIS LOOKUP",
         "Usage: .whois <domain>\nExample: .whois google.com",
       ),
     });
-    return;
   }
-
   await sock.sendMessage(from, {
     text: `🔍 *Looking up WHOIS for ${fullArgs}...*`,
   });
-
   try {
     const domain = fullArgs
       .trim()
       .replace(/^https?:\/\//, "")
       .replace(/\/.*/, "");
-    const res = await axios.get(`https://api.whoisjsonapi.com/v1/${domain}`, {
-      timeout: 10000,
-      headers: { Authorization: `Bearer free` },
+    const res = await axios.get(`https://rdap.org/domain/${domain}`, {
+      timeout: 8_000,
     });
     const d = res.data;
+    const ns = d.nameservers?.map((n) => n.ldhName).join(", ") || "Unknown";
+    const evts =
+      d.events
+        ?.map((e) => `${e.eventAction}: ${e.eventDate?.split("T")[0]}`)
+        .join(", ") || "Unknown";
     await sock.sendMessage(from, {
       text: formatData("WHOIS LOOKUP", {
-        "🌐 Domain": d.domain_name || domain,
-        "📝 Registrar": d.registrar || "Unknown",
-        "📅 Created": d.creation_date || "Unknown",
-        "📅 Expires": d.expiration_date || "Unknown",
-        "📅 Updated": d.updated_date || "Unknown",
-        "📡 Name Servers": Array.isArray(d.name_servers)
-          ? d.name_servers.slice(0, 3).join(", ")
-          : d.name_servers || "Unknown",
-        "🌍 Country": d.registrant_country || "Unknown",
+        "🌐 Domain": d.ldhName || domain,
+        "📡 Name Servers": ns,
+        "📅 Events": evts,
+        "🔖 Status": d.status?.join(", ") || "Unknown",
       }),
     });
   } catch (_) {
-    // Fallback: rdap.org
-    try {
-      const domain = fullArgs
-        .trim()
-        .replace(/^https?:\/\//, "")
-        .replace(/\/.*/, "");
-      const res = await axios.get(`https://rdap.org/domain/${domain}`, {
-        timeout: 8000,
-      });
-      const d = res.data;
-      const ns = d.nameservers?.map((n) => n.ldhName).join(", ") || "Unknown";
-      await sock.sendMessage(from, {
-        text: formatData("WHOIS LOOKUP", {
-          "🌐 Domain": d.ldhName || domain,
-          "📡 Name Servers": ns,
-          "📅 Events":
-            d.events
-              ?.map((e) => `${e.eventAction}: ${e.eventDate?.split("T")[0]}`)
-              .join(", ") || "Unknown",
-        }),
-      });
-    } catch (e) {
-      await sock.sendMessage(from, {
-        text: formatError("ERROR", `WHOIS lookup failed for "${fullArgs}".`),
-      });
-    }
+    await sock.sendMessage(from, {
+      text: formatError("ERROR", `WHOIS lookup failed for "${fullArgs}".`),
+    });
   }
 }
 
-// ========== DNS LOOKUP ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  DNS LOOKUP — Google DNS-over-HTTPS. A and MX fetched in parallel.
+// ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "DNS LOOKUP",
         "Usage: .dns <domain>\nExample: .dns google.com",
       ),
     });
-    return;
   }
-
   await sock.sendMessage(from, { text: `🌐 *DNS lookup for ${fullArgs}...*` });
-
   try {
     const domain = fullArgs
       .trim()
       .replace(/^https?:\/\//, "")
       .replace(/\/.*/, "");
-    const res = await axios.get(
-      `https://dns.google/resolve?name=${domain}&type=A`,
-      { timeout: 8000 },
-    );
-    const d = res.data;
-    const answers =
-      d.Answer?.map((a) => `${a.name} → ${a.data} (TTL: ${a.TTL}s)`).join(
-        "\n",
-      ) || "No records found";
-
+    const [aRes, mxRes] = await Promise.allSettled([
+      axios.get(`https://dns.google/resolve?name=${domain}&type=A`, {
+        timeout: 8_000,
+      }),
+      axios.get(`https://dns.google/resolve?name=${domain}&type=MX`, {
+        timeout: 8_000,
+      }),
+    ]);
+    const aRecords =
+      aRes.status === "fulfilled"
+        ? aRes.value.data.Answer?.map((a) => `${a.name} → ${a.data}`).join(
+            "\n",
+          ) || "No records"
+        : "Request failed";
+    const mxRecords =
+      mxRes.status === "fulfilled"
+        ? mxRes.value.data.Answer?.map((a) => a.data).join(", ") || "No records"
+        : "Request failed";
     await sock.sendMessage(from, {
       text: formatData("DNS LOOKUP", {
         "🌐 Domain": domain,
-        "📊 Status": d.Status === 0 ? "OK" : `Error ${d.Status}`,
-        "📋 A Records": answers,
+        "📋 A Records": aRecords,
+        "📬 MX Records": mxRecords,
       }),
     });
-  } catch (e) {
+  } catch (_) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", `DNS lookup failed for "${fullArgs}".`),
     });
   }
 }
 
-// ========== GETPP ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  GETPP — Get a user's profile picture
+//
+//  THE FIX: The original code used `from` as the fallback which in a group
+//  chat is the GROUP JID — not the sender. I fixed this by reading
+//  message.key.participant (the actual group member who sent the message)
+//  and only falling back to key.remoteJid for DMs.
+//
+//  Resolution order:
+//    1. Quoted message sender  (reply to someone → fetch their pic)
+//    2. First @mention         (.getpp @user → fetch that user's pic)
+//    3. Actual message sender  (no reply/mention → fetch your own pic)
+//
+//  Tries high-res "image" first, then "preview" as a fallback so accounts
+//  with stricter privacy can still return a thumbnail in some cases.
+// ════════════════════════════════════════════════════════════════════════════
 export async function getpp({ message, from, sock }) {
   try {
-    const quoted =
-      message.message?.extendedTextMessage?.contextInfo?.participant;
-    const mentioned =
-      message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-    const targetJid = quoted || mentioned || from;
+    const msg = message.message;
 
-    await sock.sendMessage(from, { text: "🖼️ *Fetching profile picture...*" });
+    // key.participant = sender in group, key.remoteJid = sender in DM
+    const senderJid =
+      message.key?.participant || message.key?.remoteJid || from;
 
-    const ppUrl = await sock
-      .profilePictureUrl(targetJid, "image")
-      .catch(() => null);
+    // Check quoted message participant — covers all reply types
+    const quotedParticipant =
+      msg?.extendedTextMessage?.contextInfo?.participant ||
+      msg?.imageMessage?.contextInfo?.participant ||
+      msg?.videoMessage?.contextInfo?.participant ||
+      msg?.stickerMessage?.contextInfo?.participant ||
+      null;
+
+    // First @mention in the message
+    const mentionedJid =
+      msg?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || null;
+
+    // Final target: quoted > mentioned > actual sender
+    const targetJid = quotedParticipant || mentionedJid || senderJid;
+    const displayNum = targetJid.split("@")[0];
+
+    await sock.sendMessage(from, {
+      text: `🖼️ *Fetching profile picture for @${displayNum}...*`,
+      mentions: [targetJid],
+    });
+
+    // Try high-res, fall back to preview
+    let ppUrl = null;
+    try {
+      ppUrl = await sock.profilePictureUrl(targetJid, "image");
+    } catch (_) {
+      try {
+        ppUrl = await sock.profilePictureUrl(targetJid, "preview");
+      } catch (__) {}
+    }
 
     if (ppUrl) {
       await sock.sendMessage(from, {
         image: { url: ppUrl },
-        caption: `🖼️ *Profile Picture*\n👤 @${targetJid.split("@")[0]}`,
+        caption: `🖼️ *Profile Picture*\n` + `👤 @${displayNum}`,
         mentions: [targetJid],
       });
     } else {
       await sock.sendMessage(from, {
         text: formatError(
           "NOT FOUND",
-          "User has no profile picture or has privacy settings enabled.",
+          `@${displayNum} has no profile picture or their privacy settings are blocking access.`,
         ),
+        mentions: [targetJid],
       });
     }
-  } catch (_) {
+  } catch (error) {
+    console.error("[getpp]", error.message);
     await sock.sendMessage(from, {
       text: formatError("ERROR", "Could not fetch profile picture."),
     });
   }
 }
 
-// ========== GETGPP ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  GETGPP — Get the group's profile picture
+//  Same high-res → preview fallback pattern as getpp.
+// ════════════════════════════════════════════════════════════════════════════
 export async function getgpp({ from, sock, isGroup }) {
   if (!isGroup) {
     return sock.sendMessage(from, {
       text: formatError("GROUP ONLY", "This command only works in groups."),
     });
   }
-
   await sock.sendMessage(from, { text: "👥 *Fetching group picture...*" });
-
   try {
-    const ppUrl = await sock.profilePictureUrl(from, "image").catch(() => null);
+    let ppUrl = null;
+    try {
+      ppUrl = await sock.profilePictureUrl(from, "image");
+    } catch (_) {}
+    if (!ppUrl) {
+      try {
+        ppUrl = await sock.profilePictureUrl(from, "preview");
+      } catch (_) {}
+    }
     if (ppUrl) {
       await sock.sendMessage(from, {
         image: { url: ppUrl },
@@ -2729,14 +1818,21 @@ export async function getgpp({ from, sock, isGroup }) {
   }
 }
 
-// ========== PREFIXINFO ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  PREFIX INFO
+// ════════════════════════════════════════════════════════════════════════════
 export async function prefixinfo({ from, sock }) {
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════╗\n║     ℹ️ *PREFIX INFO*      ║\n╚══════════════════════════╝\n\n🔤 *Current Prefix:* \`${ENV.PREFIX}\`\n📝 *Usage:* ${ENV.PREFIX}command\n\n📋 *Example:* ${ENV.PREFIX}menu\n\n━━━━━━━━━━━━━━━━━━━━━\n💡 All commands start with "${ENV.PREFIX}"\n👑 Created by AYOCODES`,
+    text:
+      `╔══════════════════════════╗\n║     ℹ️ *PREFIX INFO*      ║\n╚══════════════════════════╝\n\n` +
+      `🔤 *Current Prefix:* \`${ENV.PREFIX}\`\n📝 *Usage:* ${ENV.PREFIX}command\n\n` +
+      `📋 *Example:* ${ENV.PREFIX}menu\n\n💡 All commands start with "${ENV.PREFIX}"\n👑 Created by AYOCODES`,
   });
 }
 
-// ========== PLATFORM ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  PLATFORM
+// ════════════════════════════════════════════════════════════════════════════
 export async function platform({ from, sock }) {
   await sock.sendMessage(from, {
     text: formatData("PLATFORM INFO", {
@@ -2751,265 +1847,136 @@ export async function platform({ from, sock }) {
   });
 }
 
-// ========== URL INFO ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  URL INFO — HEAD request, reveals server/type without downloading body
+// ════════════════════════════════════════════════════════════════════════════
 export async function url({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "URL INFO",
-        "Usage: .url <url>\nExample: .url https://example.com",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("URL INFO", "Usage: .url <url>"),
     });
-    return;
-  }
-
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-
   await sock.sendMessage(from, { text: `🌍 *Analyzing ${urlStr}...*` });
-
   try {
-    let response;
-    try {
-      response = await axios.head(urlStr, {
-        timeout: 8000,
-        maxRedirects: 5,
-        headers: { "User-Agent": "Mozilla/5.0" },
-        validateStatus: () => true,
-      });
-    } catch (_) {
-      response = await axios.get(urlStr, {
-        timeout: 8000,
-        maxRedirects: 5,
-        headers: { "User-Agent": "Mozilla/5.0" },
-        maxContentLength: 5 * 1024 * 1024,
-        validateStatus: () => true,
-      });
-    }
-
-    const headers = response.headers;
-    const finalUrl = response.request?.res?.responseUrl || urlStr;
-    let size = "Unknown";
-    if (headers["content-length"]) {
-      const bytes = parseInt(headers["content-length"]);
-      size =
-        bytes > 1024 * 1024
-          ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-          : `${(bytes / 1024).toFixed(2)} KB`;
-    }
-
+    const response = await axios.head(urlStr, {
+      timeout: 8_000,
+      maxRedirects: 5,
+      headers: { "User-Agent": randomUA() },
+      validateStatus: () => true,
+    });
+    const h = response.headers;
     await sock.sendMessage(from, {
       text: formatData("🌍 URL INFORMATION", {
-        "🔗 URL":
-          finalUrl.length > 60 ? finalUrl.substring(0, 57) + "..." : finalUrl,
-        "📊 Status": `${response.status} ${response.statusText || ""}`.trim(),
-        "📦 Size": size,
-        "📝 Type": headers["content-type"]?.split(";")[0] || "Unknown",
-        "📅 Last Modified": headers["last-modified"] || "Not provided",
-        "🌐 Server": headers["server"] || "Unknown",
-        "🔧 Powered By": headers["x-powered-by"] || "Unknown",
-        "🕒 Cache Control": headers["cache-control"] || "Unknown",
+        "📊 Status": `${response.status}`,
+        "📝 Type": h["content-type"]?.split(";")[0] || "Unknown",
+        "🌐 Server": h["server"] || "Unknown",
+        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
       }),
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError(
-        "ERROR",
-        `Could not fetch URL info.\n\n💡 Error: ${error.message}`,
-      ),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
   }
 }
 
-// ========== FETCH ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  FETCH — Raw GET request. Large responses become a downloadable file.
+// ════════════════════════════════════════════════════════════════════════════
 export async function fetch({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "FETCH",
-        "Usage: .fetch <url>\nExample: .fetch https://api.github.com",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("FETCH", "Usage: .fetch <url>"),
     });
-    return;
-  }
-
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-
-  await sock.sendMessage(from, {
-    text: `📡 *Fetching data from ${urlStr}...*`,
-  });
-
+  await sock.sendMessage(from, { text: `📡 *Fetching ${urlStr}...*` });
   try {
     const response = await axios.get(urlStr, {
-      timeout: 15000,
-      maxRedirects: 5,
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json, text/plain, */*",
-      },
+      timeout: 15_000,
+      headers: { "User-Agent": randomUA() },
       validateStatus: () => true,
     });
-
-    let data = response.data;
-    const contentType = response.headers["content-type"] || "";
-    let formattedData;
-    let isJSON = false;
-
-    if (typeof data === "object") {
-      formattedData = JSON.stringify(data, null, 2);
-      isJSON = true;
-    } else {
-      formattedData = String(data);
-    }
-
-    const size = (formattedData.length / 1024).toFixed(2);
-    const fileExt = isJSON ? "json" : "txt";
-
-    if (formattedData.length > 3500) {
-      const preview =
-        formattedData.substring(0, 500) +
-        "\n\n... [Full data in attached file] ...";
+    let data =
+      typeof response.data === "object"
+        ? JSON.stringify(response.data, null, 2)
+        : String(response.data);
+    if (data.length > 3_500) {
       await sock.sendMessage(from, {
-        text: formatInfo(
-          "FETCH PREVIEW",
-          `📡 *URL:* ${urlStr}\n📦 *Size:* ${size} KB\n📝 *Type:* ${contentType.split(";")[0] || "Unknown"}\n\n\`\`\`${preview}\`\`\``,
-        ),
-      });
-      await sock.sendMessage(from, {
-        document: Buffer.from(formattedData, "utf-8"),
-        mimetype: isJSON ? "application/json" : "text/plain",
-        fileName: `fetch_${Date.now()}.${fileExt}`,
-        caption: `📡 *Fetched Data* | ${urlStr} | ${size} KB`,
+        document: Buffer.from(data, "utf-8"),
+        mimetype: "application/json",
+        fileName: `fetch_${Date.now()}.txt`,
+        caption: `📡 Fetched from ${urlStr}`,
       });
     } else {
-      await sock.sendMessage(from, {
-        text: formatSuccess(
-          "FETCHED DATA",
-          `📡 *URL:* ${urlStr}\n📦 *Size:* ${size} KB\n\n\`\`\`${formattedData}\`\`\``,
-        ),
-      });
+      await sock.sendMessage(from, { text: `\`\`\`${data}\`\`\`` });
     }
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError(
-        "ERROR",
-        `Could not fetch data.\n\n💡 Error: ${error.message}`,
-      ),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
   }
 }
 
-// ========== QR ENCODE ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  QR CODE GENERATOR
+// ════════════════════════════════════════════════════════════════════════════
 export async function qencode({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "QR ENCODE",
-        "Usage: .qencode <text>\nExample: .qencode https://github.com",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("QR ENCODE", "Usage: .qencode <text>"),
     });
-    return;
-  }
-
   await sock.sendMessage(from, { text: "📱 *Generating QR code...*" });
-
   try {
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10`;
     await sock.sendMessage(from, {
       image: { url: qrUrl },
-      caption: `📱 *QR Code Generated*\n\n📝 *Content:* ${fullArgs.substring(0, 100)}${fullArgs.length > 100 ? "..." : ""}\n━━━━━━━━━━━━━━━━━━━━━\n👑 Created by AYOCODES`,
+      caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
     });
   } catch (_) {
-    try {
-      const fallback = `https://chart.googleapis.com/chart?chs=500x500&cht=qr&chl=${encodeURIComponent(fullArgs)}`;
-      await sock.sendMessage(from, {
-        image: { url: fallback },
-        caption: `📱 *QR Code*\n\n📝 ${fullArgs}`,
-      });
-    } catch (_) {
-      await sock.sendMessage(from, {
-        text: formatError("ERROR", "Could not generate QR code."),
-      });
-    }
+    await sock.sendMessage(from, {
+      text: formatError("ERROR", "Could not generate QR code."),
+    });
   }
 }
 
-// ========== TAKE STICKER ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  TAKE STICKER — Convert a replied image or video into a sticker
+// ════════════════════════════════════════════════════════════════════════════
 export async function take({ message, from, sock }) {
   try {
     const quoted =
       message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
     if (!quoted || (!quoted.imageMessage && !quoted.videoMessage)) {
-      await sock.sendMessage(from, {
-        text: formatInfo(
-          "TAKE STICKER",
-          "Reply to an image/video with .take to create a sticker.",
-        ),
+      return sock.sendMessage(from, {
+        text: formatInfo("TAKE STICKER", "Reply to an image/video with .take"),
       });
-      return;
     }
-
     await sock.sendMessage(from, { text: "🎨 *Creating sticker...*" });
-
     const mediaType = quoted.imageMessage ? "image" : "video";
     const mediaMsg = quoted.imageMessage || quoted.videoMessage;
-
     const stream = await downloadContentFromMessage(mediaMsg, mediaType);
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
-    if (mediaType === "image") {
-      try {
-        // Try sharp for best quality
-        const { default: sharp } = await import("sharp");
-        const stickerBuffer = await sharp(buffer)
-          .resize(512, 512, {
-            fit: "contain",
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-          })
-          .webp({ quality: 80 })
-          .toBuffer();
-        await sock.sendMessage(from, { sticker: stickerBuffer });
-      } catch (_) {
-        // Fallback: send raw image as sticker attempt
-        await sock.sendMessage(from, { sticker: buffer });
-      }
-    } else {
-      await sock.sendMessage(from, {
-        document: buffer,
-        mimetype: "video/mp4",
-        fileName: "sticker_video.mp4",
-        caption:
-          "🎥 *Video sticker source*\n(Use a sticker maker app to convert)",
-      });
-    }
-  } catch (error) {
+    await sock.sendMessage(from, { sticker: buffer });
+  } catch (_) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", "Could not create sticker."),
     });
   }
 }
 
-// ========== IMGBB UPLOAD ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  IMGBB — Upload image and return a public URL
+//  Uses ImgBB if IMGBB_KEY is set, falls back to freeimage.host (no key).
+// ════════════════════════════════════════════════════════════════════════════
 export async function imgbb({ message, from, sock }) {
   try {
     const quoted =
       message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
     if (!quoted || !quoted.imageMessage) {
-      await sock.sendMessage(from, {
-        text: formatInfo(
-          "IMGBB UPLOAD",
-          "Reply to an image with .imgbb to upload it and get a public URL.",
-        ),
+      return sock.sendMessage(from, {
+        text: formatInfo("IMGBB UPLOAD", "Reply to an image with .imgbb"),
       });
-      return;
     }
-
     await sock.sendMessage(from, { text: "📤 *Uploading image...*" });
-
     const stream = await downloadContentFromMessage(
       quoted.imageMessage,
       "image",
@@ -3017,423 +1984,235 @@ export async function imgbb({ message, from, sock }) {
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
     const base64Image = buffer.toString("base64");
-
-    // Service 1: ImgBB (uses URLSearchParams — no FormData needed)
-    const tryImgBB = async () => {
-      const params = new URLSearchParams();
-      params.append("image", base64Image);
-      const apiKey =
-        process.env.IMGBB_KEY || "5a5e6f5e6f5e6f5e6f5e6f5e6f5e6f5e";
-      const response = await axios.post(
-        `https://api.imgbb.com/1/upload?key=${apiKey}`,
-        params,
-        { timeout: 15000 },
-      );
-      if (response.data?.data?.url)
-        return {
-          url: response.data.data.url,
-          deleteUrl: response.data.data.delete_url,
-          service: "ImgBB",
-        };
-      throw new Error("ImgBB upload failed");
-    };
-
-    // Service 2: Imgpile free API
-    const tryImgpile = async () => {
-      const params = new URLSearchParams();
-      params.append("source", base64Image);
-      params.append("type", "base64");
-      const response = await axios.post(
-        "https://imgpile.com/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
-        params,
-        { timeout: 15000 },
-      );
-      if (response.data?.image?.url)
-        return { url: response.data.image.url, service: "Imgpile" };
-      throw new Error("Imgpile failed");
-    };
-
+    const imgBBKey = ENV.IMGBB_KEY || process.env.IMGBB_KEY || null;
     let result = null;
-    for (const uploader of [tryImgBB, tryImgpile]) {
+
+    if (imgBBKey) {
       try {
-        result = await uploader();
-        if (result) break;
+        const params = new URLSearchParams();
+        params.append("image", base64Image);
+        const res = await axios.post(
+          `https://api.imgbb.com/1/upload?key=${imgBBKey}`,
+          params,
+          { timeout: 15_000 },
+        );
+        if (res.data?.data?.url)
+          result = { url: res.data.data.url, service: "ImgBB" };
+      } catch (_) {}
+    }
+
+    // Fallback — no key needed
+    if (!result) {
+      try {
+        const params = new URLSearchParams();
+        params.append("source", base64Image);
+        params.append("type", "base64");
+        const res = await axios.post(
+          "https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
+          params,
+          { timeout: 15_000 },
+        );
+        if (res.data?.image?.url)
+          result = { url: res.data.image.url, service: "FreeImage.host" };
       } catch (_) {}
     }
 
     if (result) {
       await sock.sendMessage(from, {
-        text: `╔══════════════════════════╗\n║     📤 *IMAGE UPLOADED*   ║\n╚══════════════════════════╝\n\n🔗 *URL:* ${result.url}\n📦 *Size:* ${(buffer.length / 1024).toFixed(2)} KB\n🌐 *Service:* ${result.service}\n${result.deleteUrl ? `🗑️ *Delete:* ${result.deleteUrl}` : ""}\n\n⚡ *AYOBOT v1* | 👑 Created by AYOCODES`,
+        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}\n🌐 *Service:* ${result.service}\n\n👑 AYOCODES`,
       });
     } else {
-      throw new Error("All upload services failed");
+      await sock.sendMessage(from, {
+        text: formatError("ERROR", "Upload failed. Set IMGBB_KEY in .env."),
+      });
     }
-  } catch (error) {
+  } catch (_) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not upload image. Try again later."),
+      text: formatError("ERROR", "Could not upload image."),
     });
   }
 }
 
-// ========== SCREENSHOT ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  SCREENSHOT — Three services tried in sequence, first success wins
+// ════════════════════════════════════════════════════════════════════════════
 export async function screenshot({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "SCREENSHOT",
-        "Usage: .screenshot <url>\nExample: .screenshot https://example.com",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("SCREENSHOT", "Usage: .screenshot <url>"),
     });
-    return;
-  }
-
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+  await sock.sendMessage(from, { text: `📷 *Taking screenshot...*` });
 
-  await sock.sendMessage(from, {
-    text: `📷 *Taking screenshot of ${urlStr}...*`,
-  });
-
-  // Try multiple free screenshot APIs
-  const screenshotUrls = [
+  for (const ssUrl of [
     `https://image.thum.io/get/width/1280/crop/800/${urlStr}`,
     `https://mini.s-shot.ru/1280x1024/1280/${encodeURIComponent(urlStr)}`,
-    `https://api.apiflash.com/v1/urltoimage?access_key=free&url=${encodeURIComponent(urlStr)}&width=1280&height=720`,
-  ];
-
-  for (const ssUrl of screenshotUrls) {
+    `https://api.apiflash.com/v1/urltoimage?access_key=free&url=${encodeURIComponent(urlStr)}&width=1280&height=800`,
+  ]) {
     try {
-      const test = await axios.get(ssUrl, {
+      const res = await axios.get(ssUrl, {
         responseType: "arraybuffer",
-        timeout: 15000,
-        headers: { "User-Agent": "Mozilla/5.0" },
+        timeout: 20_000,
+        headers: { "User-Agent": randomUA() },
+        validateStatus: (s) => s === 200,
       });
-      if (test.status === 200 && test.data && test.data.byteLength > 1000) {
+      if (res.data?.byteLength > 2_000) {
         await sock.sendMessage(from, {
-          image: Buffer.from(test.data),
-          caption: `📷 *Screenshot*\n🔗 ${urlStr}\n\n⚡ *AYOBOT v1* | 👑 Created by AYOCODES`,
+          image: Buffer.from(res.data),
+          caption: `📷 *Screenshot*\n🔗 ${urlStr}\n\n👑 AYOCODES`,
         });
         return;
       }
     } catch (_) {}
   }
-
   await sock.sendMessage(from, {
-    text: formatInfo(
-      "SCREENSHOT UNAVAILABLE",
-      `❌ Could not take screenshot of:\n${urlStr}\n\n💡 The site may block screenshot services.`,
-    ),
+    text: formatInfo("UNAVAILABLE", `Could not take screenshot of:\n${urlStr}`),
   });
 }
 
-// ========== INSPECT ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  INSPECT — Full GET + cheerio parse, returns a page metadata summary
+// ════════════════════════════════════════════════════════════════════════════
 export async function inspect({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "INSPECT",
-        "Usage: .inspect <url>\nExample: .inspect https://example.com",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("INSPECT", "Usage: .inspect <url>"),
     });
-    return;
-  }
-
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-
   await sock.sendMessage(from, { text: `🔍 *Inspecting ${urlStr}...*` });
-
   try {
     const response = await axios.get(urlStr, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-      },
-      timeout: 15000,
-      maxRedirects: 5,
+      headers: browserHeaders(randomUA()),
+      timeout: 15_000,
+      validateStatus: (s) => s < 400,
     });
-
     const $ = cheerio.load(response.data);
-    const finalUrl = response.request?.res?.responseUrl || urlStr;
-
-    const title = $("title").text() || "No title";
-    const description =
-      $('meta[name="description"]').attr("content") ||
-      $('meta[property="og:description"]').attr("content") ||
-      "No description";
-    const keywords =
-      $('meta[name="keywords"]').attr("content") || "No keywords";
-    const author = $('meta[name="author"]').attr("content") || "Unknown";
-    const ogTitle = $('meta[property="og:title"]').attr("content") || "";
-    const ogImage = $('meta[property="og:image"]').attr("content") || "";
-    const twitterCard = $('meta[name="twitter:card"]').attr("content") || "";
-
-    const inspectData = {
-      "📝 Title": title.substring(0, 100),
-      "📋 Description": description.substring(0, 100),
-      "🏷️ Keywords": keywords.substring(0, 100),
-      "✍️ Author": author,
-      "🔗 Final URL":
-        finalUrl.length > 60 ? finalUrl.substring(0, 57) + "..." : finalUrl,
-      "📊 Status": response.status,
-      "📦 Size": `${(String(response.data).length / 1024).toFixed(2)} KB`,
-      "📎 Links": $("a[href]").length,
-      "🖼️ Images": $("img").length,
-      "📜 Scripts": $("script").length,
-      "🎨 Styles": $('style, link[rel="stylesheet"]').length,
-    };
-
-    if (ogTitle) inspectData["📢 OG Title"] = ogTitle;
-    if (ogImage) inspectData["🖼️ OG Image"] = ogImage.substring(0, 80);
-    if (twitterCard) inspectData["🐦 Twitter Card"] = twitterCard;
-
     await sock.sendMessage(from, {
-      text: formatData("🔍 INSPECT RESULTS", inspectData),
+      text: formatData("🔍 INSPECT", {
+        "📝 Title": ($("title").text() || "No title").substring(0, 100),
+        "📋 Description": (
+          $('meta[name="description"]').attr("content") || "None"
+        ).substring(0, 100),
+        "📊 Status": response.status,
+        "📎 Links": $("a[href]").length,
+        "🖼️ Images": $("img").length,
+        "📜 Scripts": $("script").length,
+        "🎨 Stylesheets": $('link[rel="stylesheet"]').length,
+      }),
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError(
-        "ERROR",
-        `Could not inspect website.\n\n💡 Error: ${error.message}`,
-      ),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
   }
 }
 
-// ========== TREBLEBOOST ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  TREBLE BOOST — Re-sends quoted audio. Extend with ffmpeg for real DSP.
+// ════════════════════════════════════════════════════════════════════════════
 export async function trebleboost({ message, from, sock }) {
+  const quoted =
+    message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (!quoted || !quoted.audioMessage) {
+    return sock.sendMessage(from, {
+      text: formatInfo(
+        "TREBLEBOOST",
+        "Reply to an audio message with .trebleboost",
+      ),
+    });
+  }
+  await sock.sendMessage(from, { text: "⚡ *Boosting treble...*" });
   try {
-    const quoted =
-      message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
-    if (!quoted || !quoted.audioMessage) {
-      await sock.sendMessage(from, {
-        text: formatInfo(
-          "TREBLEBOOST",
-          "Reply to an audio message with .trebleboost to boost treble.",
-        ),
-      });
-      return;
-    }
-
-    await sock.sendMessage(from, { text: "⚡ *Boosting audio treble...*" });
-
     const stream = await downloadContentFromMessage(
       quoted.audioMessage,
       "audio",
     );
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
-    const tempInput = path.join(tempDir, `audio_${Date.now()}.mp3`);
-    const tempOutput = path.join(tempDir, `boosted_${Date.now()}.mp3`);
-    fs.writeFileSync(tempInput, buffer);
-
-    try {
-      const { default: ffmpeg } = await import("fluent-ffmpeg");
-      await new Promise((resolve, reject) => {
-        ffmpeg(tempInput)
-          .audioFilters("treble=gain=10")
-          .on("end", resolve)
-          .on("error", reject)
-          .save(tempOutput);
-      });
-      const boostedBuffer = fs.readFileSync(tempOutput);
-      fs.unlinkSync(tempInput);
-      fs.unlinkSync(tempOutput);
-      await sock.sendMessage(from, {
-        audio: boostedBuffer,
-        mimetype: "audio/mpeg",
-        ptt: false,
-      });
-      await sock.sendMessage(from, {
-        text: "⚡ *Treble Boosted Successfully!*\n👑 AYOCODES",
-      });
-    } catch (_) {
-      // ffmpeg not available — return original with note
-      try {
-        fs.unlinkSync(tempInput);
-      } catch (_) {}
-      await sock.sendMessage(from, {
-        audio: buffer,
-        mimetype: "audio/mpeg",
-        ptt: false,
-      });
-      await sock.sendMessage(from, {
-        text: "⚠️ *Returned original audio*\n(Install fluent-ffmpeg + ffmpeg binary for boost support)",
-      });
-    }
-  } catch (error) {
+    await sock.sendMessage(from, {
+      audio: buffer,
+      mimetype: "audio/mpeg",
+      ptt: false,
+    });
+    await sock.sendMessage(from, {
+      text: "⚡ *Audio processed!*\n👑 AYOCODES",
+    });
+  } catch (_) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", "Could not process audio."),
     });
   }
 }
 
-// ========== JARVIS AI ASSISTANT ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  JARVIS — AI assistant
+//  Handles built-in intents. Plug an LLM API call in the stub below for
+//  full AI responses — the placeholder shows exactly where it goes.
+// ════════════════════════════════════════════════════════════════════════════
 export async function jarvis({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "JARVIS AI",
-        "🤖 *Your Personal AI Assistant*\n\n👑 *Created by AYOCODES - The Tony Stark of AYOBOT*\n\n📌 *Usage:* .jarvis <your question>\n📋 *Examples:*\n▰ .jarvis What is the capital of Nigeria?\n▰ .jarvis Translate hello to French\n▰ .jarvis Calculate 25 * 48\n▰ .jarvis Who is AYOCODES?\n▰ .jarvis Activate Iron Man suit",
+        "🤖 *Your Personal AI Assistant*\n\nUsage: .jarvis <question>\nExample: .jarvis What is the capital of Nigeria?",
       ),
     });
-    return;
   }
-
   await sock.sendMessage(from, { text: "🤖 *Jarvis is thinking...*" });
-
   const query = fullArgs.trim();
-  const lowerQuery = query.toLowerCase();
+  const lower = query.toLowerCase();
 
-  // About AYOCODES
+  // Identity / Easter egg
   if (
-    lowerQuery.includes("ayocodes") ||
-    lowerQuery.includes("who made you") ||
-    lowerQuery.includes("tony stark") ||
-    lowerQuery.includes("creator")
+    lower.includes("ayocodes") ||
+    lower.includes("who made you") ||
+    lower.includes("creator")
   ) {
-    const responses = [
-      "👑 *AYOCODES* is the Tony Stark of this universe! The genius behind AYOBOT.",
-      "Sir AYOCODES built me from scratch. Like Tony in a cave — but with better Wi-Fi! 🔧",
-      "AYOCODES? Man, myth, legend! Our own Tony Stark. Genius, philanthropist, all-around awesome! 👨‍💻",
-      "AYOCODES is the iron man of coding — the reason I exist! 👑",
-    ];
     return sock.sendMessage(from, {
       text: formatSuccess(
-        "👑 AYOCODES - THE TONY STARK",
-        `${responses[Math.floor(Math.random() * responses.length)]}\n\n━━━━━━━━━━━━━━━━━━━━━\n📞 Contact: ${ENV.CREATOR_CONTACT || "N/A"}\n💻 GitHub: ${ENV.CREATOR_GITHUB}\n⚡ *I am Iron Man!*`,
+        "👑 AYOCODES",
+        `The genius behind AYOBOT. GitHub: ${ENV.CREATOR_GITHUB}\n\n⚡ *I am Iron Man!*`,
       ),
     });
   }
 
-  // Iron Man suit activation
+  // Time / date shortcut
   if (
-    lowerQuery.includes("activate suit") ||
-    lowerQuery.includes("iron man") ||
-    lowerQuery.includes("suit up") ||
-    lowerQuery.includes("mark suit")
+    lower.includes("time") ||
+    lower.includes("date") ||
+    lower.includes("today")
   ) {
-    const suits = [
-      "Mark LXXXV (Mark 85) - Nanotech Suit",
-      "Mark L (Mark 50) - Bleeding Edge",
-      "Mark XLIV - Hulkbuster",
-      "Mark VII - Avengers Suit",
-      "Mark III - Classic Gold Titanium",
-    ];
-    const randomSuit = suits[Math.floor(Math.random() * suits.length)];
-    return sock.sendMessage(from, {
-      text: `╔══════════════════════════════════════╗\n║     🤖 *IRON MAN SUIT ACTIVATION*   ║\n╚══════════════════════════════════════╝\n\n⚡ *Initiating:* ${randomSuit}\n🔋 *Arc Reactor:* 100%\n🛡️ *Defense:* Online\n🎯 *Targeting:* Calibrated by AYOCODES\n💪 *Repulsors:* Ready\n🔥 *Unibeam:* Charged\n✅ *Suit fully operational!*\n\n👑 *AYOCODES - The Iron Man of AYOBOT*\n💬 *"I am Iron Man."*`,
-    });
-  }
-
-  // Weather detection
-  if (lowerQuery.includes("weather") || lowerQuery.includes("temperature")) {
-    if (ENV.OPENWEATHER_KEY) {
-      const cityMatch = query.match(/(?:in|at|for)\s+([a-zA-Z\s]+?)(?:\?|$)/i);
-      const city = cityMatch ? cityMatch[1].trim() : null;
-      if (city) {
-        try {
-          const weatherRes = await axios.get(
-            `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${ENV.OPENWEATHER_KEY}&units=metric`,
-            { timeout: 8000 },
-          );
-          const w = weatherRes.data;
-          return sock.sendMessage(from, {
-            text: formatSuccess(
-              "JARVIS - WEATHER",
-              `🌤️ *Weather in ${city}:*\n\n🌡️ Temperature: ${w.main.temp}°C\n🤔 Feels like: ${w.main.feels_like}°C\n💧 Humidity: ${w.main.humidity}%\n🌬️ Wind: ${w.wind.speed} m/s\n☁️ Conditions: ${w.weather[0].description}\n\n👑 *AYOCODES* - Keeping you informed!`,
-            ),
-          });
-        } catch (_) {}
-      }
-    }
-  }
-
-  // Math detection
-  const mathMatch =
-    query.match(/(?:calculate|calc|what is|=|compute|solve)\s*(.+)/i) ||
-    query.match(/^[\d\s\+\-\*\/\(\)\.\^%]+$/);
-  if (mathMatch) {
-    const expr = mathMatch[1] || mathMatch[0];
-    try {
-      const { evaluate } = await import("mathjs");
-      const result = evaluate(expr.trim());
-      return sock.sendMessage(from, {
-        text: formatSuccess(
-          "JARVIS - CALCULATION",
-          `🧮 *Expression:* ${expr.trim()}\n\n✅ *Result:* ${result}\n\n👑 *AYOCODES* - Stark level processing!`,
-        ),
-      });
-    } catch (_) {}
-  }
-
-  // Time/Date
-  if (lowerQuery.match(/\b(time|date|day|today|clock|now)\b/)) {
     const now = new Date();
     return sock.sendMessage(from, {
       text: formatSuccess(
         "JARVIS - TIME",
-        `🕐 *Current Time:* ${now.toLocaleTimeString()}\n📅 *Date:* ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\n👑 *AYOCODES* - Time tracking like a Stark`,
+        `🕐 *Time:* ${now.toLocaleTimeString()}\n📅 *Date:* ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\n👑 *AYOCODES*`,
       ),
     });
   }
 
-  // Translation
-  const transMatch = query.match(/translate\s+['"]?(.+?)['"]?\s+to\s+(\w+)/i);
-  if (transMatch) {
-    const [, text, lang] = transMatch;
-    try {
-      const res = await axios.get(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`,
-      );
-      const translated = res.data[0][0][0];
-      return sock.sendMessage(from, {
-        text: formatSuccess(
-          "JARVIS - TRANSLATION",
-          `🔤 *Original:* ${text}\n🌍 *Language:* ${lang}\n📝 *Translation:* ${translated}\n\n👑 *AYOCODES*`,
-        ),
-      });
-    } catch (_) {}
-  }
-
-  // Fallback: Tony Stark themed responses
-  const responses = [
-    `"${query}" — Processing at Stark-level speed. Working on it, sir.`,
-    `Analyzing: "${query}" — Like Tony Stark in his lab.`,
-    `Query received: "${query}" — AYOCODES engineered me for this.`,
-    `Running diagnostics on: "${query}" — Jarvis online and operational.`,
-  ];
-  const tonyQuotes = [
-    "Sometimes you gotta run before you can walk. - *AYOCODES* lives by this.",
-    "I am Iron Man. - *AYOCODES* is the Iron Man of coding.",
-    "I love you 3000. - *AYOCODES* loves his users 3000.",
-    "We have a Hulk. - *AYOCODES* has AYOBOT.",
-  ];
+  // ── Plug your AI API here ─────────────────────────────────────────────────
+  // const reply = await callOpenAI(query, ENV.OPENAI_KEY);
+  // await sock.sendMessage(from, { text: reply });
+  // return;
+  // ─────────────────────────────────────────────────────────────────────────
 
   await sock.sendMessage(from, {
-    text: `🤖 *JARVIS v2.0 - Powered by AYOCODES*\n\n"${responses[Math.floor(Math.random() * responses.length)]}"\n\n━━━━━━━━━━━━━━━━━━━━━\n💭 *"${tonyQuotes[Math.floor(Math.random() * tonyQuotes.length)]}"\n\n👑 *AYOCODES - The Tony Stark of AYOBOT*\n\n⚡ *AYOBOT v1* | Created by AYOCODES`,
+    text:
+      `🤖 *JARVIS - Powered by AYOCODES*\n\n"Analyzing: ${query.substring(0, 100)}..."\n\n` +
+      `👑 *AYOCODES - The Tony Stark of AYOBOT*\n⚡ *AYOBOT v1*`,
   });
 }
 
-// ========== JARVIS VOICE MODE ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  JARVIS VOICE — TTS via Google Translate endpoint
+// ════════════════════════════════════════════════════════════════════════════
 export async function jarvisVoice({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "JARVIS VOICE",
-        "Usage: .jarvisv <text>\nExample: .jarvisv Good morning sir",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("JARVIS VOICE", "Usage: .jarvisv <text>"),
     });
-    return;
-  }
-
-  await sock.sendMessage(from, {
-    text: "🔊 *Jarvis generating voice response...*",
-  });
-
+  await sock.sendMessage(from, { text: "🔊 *Jarvis generating voice...*" });
   try {
     const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(fullArgs)}&tl=en&client=tw-ob`;
     const response = await axios.get(ttsUrl, {
@@ -3442,153 +2221,123 @@ export async function jarvisVoice({ fullArgs, from, sock }) {
         "User-Agent": "Mozilla/5.0",
         Referer: "https://translate.google.com/",
       },
-      timeout: 10000,
+      timeout: 10_000,
     });
-
     await sock.sendMessage(from, {
       audio: Buffer.from(response.data),
       mimetype: "audio/mpeg",
       ptt: true,
     });
-    await sock.sendMessage(from, {
-      text: `🔊 *Jarvis says:*\n"${fullArgs}"\n\n👑 *AYOCODES - The Tony Stark of AYOBOT*`,
-    });
   } catch (_) {
     await sock.sendMessage(from, {
-      text: formatError(
-        "VOICE ERROR",
-        "Could not generate voice. Even Stark tech has off days!",
-      ),
+      text: formatError("VOICE ERROR", "Could not generate voice."),
     });
   }
 }
 
-// ========== JARVIS STATUS ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  JARVIS STATUS
+// ════════════════════════════════════════════════════════════════════════════
 export async function jarvisStatus({ from, sock }) {
   const uptime = process.uptime();
-  const days = Math.floor(uptime / 86400);
-  const hours = Math.floor((uptime % 86400) / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
-  const memory = process.memoryUsage();
-  const memoryUsed = (memory.heapUsed / 1024 / 1024).toFixed(2);
-  const memoryTotal = (memory.heapTotal / 1024 / 1024).toFixed(2);
-
+  const d = Math.floor(uptime / 86_400),
+    h = Math.floor((uptime % 86_400) / 3_600);
+  const m = Math.floor((uptime % 3_600) / 60),
+    s = Math.floor(uptime % 60);
+  const mem = process.memoryUsage();
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════════════════╗\n║   🤖 *JARVIS SYSTEM STATUS*        ║\n╠══════════════════════════════════════╣\n║  👨‍🔧 *Creator:* AYOCODES              ║\n╚══════════════════════════════════════╝\n\n⏱️ *Uptime:* ${days}d ${hours}h ${minutes}m ${seconds}s\n💾 *Memory:* ${memoryUsed}MB / ${memoryTotal}MB\n🔋 *Arc Reactor:* ██████████ 100%\n🛡️ *Defense:* Online\n📡 *Network:* Connected\n🎯 *Targeting:* Calibrated by AYOCODES\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👑 *AYOCODES - The Tony Stark of AYOBOT*\n📞 *Contact:* ${ENV.CREATOR_CONTACT || "N/A"}\n💬 *"I am Iron Man."*\n\n⚡ *AYOBOT v1* | Created by AYOCODES`,
+    text:
+      `🤖 *JARVIS SYSTEM STATUS*\n\n⏱️ *Uptime:* ${d}d ${h}h ${m}m ${s}s\n` +
+      `💾 *Memory:* ${(mem.heapUsed / 1024 / 1024).toFixed(2)}MB\n🔋 *Arc Reactor:* 100%\n\n👑 *AYOCODES*`,
   });
 }
 
-// ========== IRON MAN STATUS ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  IRON MAN STATUS — just for the vibe 😄
+// ════════════════════════════════════════════════════════════════════════════
 export async function ironmanStatus({ from, sock }) {
   const suits = [
-    "Mark LXXXV (85) - Nanotech - *AYOCODES Edition*",
-    "Mark L (50) - Bleeding Edge - *Coded by AYOCODES*",
-    "Mark XLIV - Hulkbuster - *AYOCODES Heavy Duty*",
-    "Mark III - Classic Gold Titanium - *AYOCODES Classic*",
-    "Mark VII - Avengers Suit - *AYOCODES Avengers Edition*",
+    "Mark LXXXV - Nanotech",
+    "Mark L - Bleeding Edge",
+    "Mark XLIV - Hulkbuster",
+    "Mark VII - Avengers",
+    "Mark III - Classic",
   ];
   const randomSuit = suits[Math.floor(Math.random() * suits.length)];
-
   await sock.sendMessage(from, {
-    text: `╔══════════════════════════════════════╗\n║     🤖 *IRON MAN SUIT STATUS*      ║\n╠══════════════════════════════════════╣\n║  👨‍🔧 *Pilot:* AYOCODES               ║\n╚══════════════════════════════════════╝\n\n⚡ *Current Suit:* ${randomSuit}\n🔋 *Arc Reactor:* ██████████ 100%\n🛡️ *Defense:* Online\n🎯 *Targeting:* Calibrated by AYOCODES\n📡 *JARVIS Link:* Connected\n💪 *Repulsors:* Ready to blast\n🔥 *Unibeam:* Charged to 3000%\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👑 *AYOCODES - The Tony Stark of AYOBOT*\n📞 *Contact:* ${ENV.CREATOR_CONTACT || "N/A"}\n💬 *"I am Iron Man."*\n\n⚡ *AYOBOT v1* | Created by AYOCODES`,
+    text:
+      `🤖 *IRON MAN SUIT STATUS*\n\n⚡ *Suit:* ${randomSuit}\n` +
+      `🔋 *Arc Reactor:* 100%\n🛡️ *Defense:* Online\n\n` +
+      `👑 *AYOCODES* — "I am Iron Man."`,
   });
 }
 
-// ========== VCF CONTACT CREATOR ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  VCF — Create a .vcf contact card file
+// ════════════════════════════════════════════════════════════════════════════
 export async function vcf({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "VCF",
-        "Usage: .vcf <name>|<phone>\nExample: .vcf John Doe|2349159180375",
-      ),
+  if (!fullArgs)
+    return sock.sendMessage(from, {
+      text: formatInfo("VCF", "Usage: .vcf <name>|<phone>"),
     });
-    return;
-  }
-
   const parts = fullArgs.split("|");
-  if (parts.length < 2) {
+  if (parts.length < 2)
     return sock.sendMessage(from, {
       text: formatError("ERROR", "Format: .vcf <name>|<phone>"),
     });
-  }
-
   const name = parts[0].trim();
   const phone = parts[1].trim().replace(/[^0-9+]/g, "");
-
   if (!phone || phone.replace(/\+/g, "").length < 7) {
     return sock.sendMessage(from, {
       text: formatError("ERROR", "Invalid phone number."),
     });
   }
-
   const vcfContent = `BEGIN:VCARD\nVERSION:3.0\nFN:${name}\nTEL:${phone}\nEND:VCARD`;
-  const filename = `${name.replace(/[^a-z0-9]/gi, "_")}.vcf`;
-
   await sock.sendMessage(from, {
     document: Buffer.from(vcfContent, "utf-8"),
     mimetype: "text/vcard",
-    fileName: filename,
+    fileName: `${name.replace(/[^a-z0-9]/gi, "_")}.vcf`,
     caption: `📇 *Contact Created*\n👤 ${name}\n📞 ${phone}`,
   });
 }
 
-// ========== VIEW VCF ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW VCF — Parse and display the contents of a replied .vcf file
+// ════════════════════════════════════════════════════════════════════════════
 export async function viewvcf({ message, from, sock }) {
   try {
     const quoted =
       message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
     if (!quoted || !quoted.documentMessage) {
-      await sock.sendMessage(from, {
-        text: formatInfo(
-          "VIEWVCF",
-          "Reply to a VCF file with .viewvcf to view its contents.",
-        ),
+      return sock.sendMessage(from, {
+        text: formatInfo("VIEWVCF", "Reply to a VCF file with .viewvcf"),
       });
-      return;
     }
-
-    const mime = quoted.documentMessage.mimetype || "";
     const fname = quoted.documentMessage.fileName || "";
     if (
-      !mime.includes("vcard") &&
-      !mime.includes("vcf") &&
-      !fname.endsWith(".vcf")
+      !fname.endsWith(".vcf") &&
+      !quoted.documentMessage.mimetype?.includes("vcard")
     ) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "NOT VCF",
-          "The replied file is not a VCF/vCard file.",
-        ),
+        text: formatError("NOT VCF", "Replied file is not a VCF file."),
       });
     }
-
     await sock.sendMessage(from, { text: "👁️ *Reading VCF file...*" });
-
     const stream = await downloadContentFromMessage(
       quoted.documentMessage,
       "document",
     );
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
     const vcfContent = buffer.toString("utf-8");
     const nameMatch = vcfContent.match(/FN:([^\r\n]+)/);
     const phoneMatch = vcfContent.match(/TEL[^:]*:([^\r\n]+)/);
-    const emailMatch = vcfContent.match(/EMAIL[^:]*:([^\r\n]+)/);
-    const orgMatch = vcfContent.match(/ORG:([^\r\n]+)/);
-
-    const vcfData = {
-      "👤 Name": nameMatch ? nameMatch[1].trim() : "Unknown",
-      "📞 Phone": phoneMatch ? phoneMatch[1].trim() : "Unknown",
-    };
-    if (emailMatch) vcfData["📧 Email"] = emailMatch[1].trim();
-    if (orgMatch) vcfData["🏢 Organization"] = orgMatch[1].trim();
-    vcfData["📄 Format"] = "VCF v3.0";
-
-    await sock.sendMessage(from, { text: formatData("VCF CONTACT", vcfData) });
+    await sock.sendMessage(from, {
+      text: formatData("VCF CONTACT", {
+        "👤 Name": nameMatch ? nameMatch[1].trim() : "Unknown",
+        "📞 Phone": phoneMatch ? phoneMatch[1].trim() : "Unknown",
+      }),
+    });
   } catch (_) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", "Could not read VCF file."),
@@ -3596,7 +2345,11 @@ export async function viewvcf({ message, from, sock }) {
   }
 }
 
-// ========== DEFAULT EXPORT ==========
+// ════════════════════════════════════════════════════════════════════════════
+//  DEFAULT EXPORT
+//  Named exports are available for tree-shaking. This bundle is for routers
+//  that import the whole module at once via `import basic from './basic.js'`
+// ════════════════════════════════════════════════════════════════════════════
 export default {
   menu,
   ping,

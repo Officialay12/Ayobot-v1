@@ -1,672 +1,962 @@
+// commands/group/settings.js - AYOBOT v1 | Created by AYOCODES
+// All group configuration commands. Uses validateGroupCommand() from validators.js
+// as the single source of truth for permission checks. — AYOCODES
+
+import { groupSettings, isAdmin, saveGroupSettings } from "../../index.js";
+
 import {
-  groupMetadataCache,
-  groupSettings,
-  isAdmin,
-  saveGroupSettings,
-} from "../../index.js";
-import {
-  formatGroupError,
-  formatGroupInfo,
-  formatGroupSuccess,
-} from "../../utils/formatters.js";
-import {
+  clearGroupCache,
   getGroupMetadataCached,
   isBotGroupAdminCached,
+  normalizeNum,
   validateGroupCommand,
 } from "../../utils/validators.js";
 
-// ========== MUTE GROUP ==========
+// ─── Formatters ───────────────────────────────────────────────────────────────
+function fmt(icon, title, body) {
+  return `${icon} *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n${body}\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+}
+const gSuccess = (t, b) => fmt("✅", t, b);
+const gError = (t, b) => fmt("❌", t, b);
+const gInfo = (t, b) => fmt("ℹ️", t, b);
+
+function phone(jid) {
+  return normalizeNum(jid);
+}
+
+// ─── Extract reply context from any message type ──────────────────────────────
+// Baileys stores contextInfo in different places depending on message type.
+// We try all known locations so .tagall, .pin, .delete work on any reply. — AYOCODES
+function getReplyContext(message) {
+  const msg = message?.message;
+  if (!msg) return null;
+  return (
+    msg.extendedTextMessage?.contextInfo ||
+    msg.imageMessage?.contextInfo ||
+    msg.videoMessage?.contextInfo ||
+    msg.audioMessage?.contextInfo ||
+    msg.documentMessage?.contextInfo ||
+    msg.stickerMessage?.contextInfo ||
+    msg.buttonsResponseMessage?.contextInfo ||
+    null
+  );
+}
+
+// Build a forwardable key+message object from contextInfo. — AYOCODES
+function buildQuotedMsg(from, ctx, sock) {
+  if (!ctx?.stanzaId || !ctx?.quotedMessage) return null;
+  return {
+    key: {
+      remoteJid: from,
+      fromMe: normalizeNum(ctx.participant) === normalizeNum(sock.user?.id),
+      id: ctx.stanzaId,
+      participant: ctx.participant,
+    },
+    message: ctx.quotedMessage,
+  };
+}
+
+// ─── MUTE ─────────────────────────────────────────────────────────────────────
 export async function mute({ from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(
-      from,
-      userJid,
-      sock,
-      "botAdmin",
-    );
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     await sock.groupSettingUpdate(from, "announcement");
 
-    const settings = groupSettings.get(from) || {};
-    settings.muted = true;
-    settings.mutedBy = userJid;
-    settings.mutedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.muted = true;
+    s.mutedBy = userJid;
+    s.mutedAt = Date.now();
+    groupSettings.set(from, s);
     saveGroupSettings();
-
-    groupMetadataCache.delete(from);
+    clearGroupCache(from);
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "MUTED",
-        `🔇 *Group muted*\nOnly admins can now send messages.\n👑 By: @${userJid.split("@")[0]}`,
+      text: gSuccess(
+        "GROUP MUTED",
+        `🔇 Only admins can now send messages.\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatGroupError("MUTE FAILED", error.message),
-    });
+  } catch (err) {
+    await sock.sendMessage(from, { text: gError("MUTE FAILED", err.message) });
   }
 }
 
-// ========== UNMUTE GROUP ==========
+// ─── UNMUTE ───────────────────────────────────────────────────────────────────
 export async function unmute({ from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(
-      from,
-      userJid,
-      sock,
-      "botAdmin",
-    );
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     await sock.groupSettingUpdate(from, "not_announcement");
 
-    const settings = groupSettings.get(from) || {};
-    settings.muted = false;
-    settings.unmutedBy = userJid;
-    settings.unmutedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.muted = false;
+    s.unmutedBy = userJid;
+    s.unmutedAt = Date.now();
+    groupSettings.set(from, s);
     saveGroupSettings();
-
-    groupMetadataCache.delete(from);
+    clearGroupCache(from);
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "UNMUTED",
-        `🔊 *Group unmuted*\nAll members can now send messages.\n👑 By: @${userJid.split("@")[0]}`,
+      text: gSuccess(
+        "GROUP UNMUTED",
+        `🔊 All members can now send messages.\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("UNMUTE FAILED", error.message),
+      text: gError("UNMUTE FAILED", err.message),
     });
   }
 }
 
-// ========== TOGGLE ANTI-LINK ==========
+// ─── FIXED: LOCK (restrict group-info edits to admins only) ─────────────────────────
+export async function lock({ from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    // FIXED: Correct Baileys value for restricting group info edits
+    await sock.groupSettingUpdate(from, "locked");
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "GROUP LOCKED",
+        `🔒 Group info editing (name, icon, description) is now restricted to admins only.\n👑 By: @${phone(userJid)}`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    await sock.sendMessage(from, { text: gError("LOCK FAILED", err.message) });
+  }
+}
+
+// ─── FIXED: UNLOCK (allow all members to edit group info) ────────────────────────────
+export async function unlock({ from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    // FIXED: Correct Baileys value for allowing all members to edit group info
+    await sock.groupSettingUpdate(from, "unlocked");
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "GROUP UNLOCKED",
+        `🔓 All members can now edit group info.\n👑 By: @${phone(userJid)}`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("UNLOCK FAILED", err.message),
+    });
+  }
+}
+
+// ─── ANTI-LINK ────────────────────────────────────────────────────────────────
 export async function antiLink({ args, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     const action = args[0]?.toLowerCase();
     if (!action || !["on", "off"].includes(action)) {
-      const current = groupSettings.get(from)?.antilink ? "ON" : "OFF";
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      const cur = groupSettings.get(from)?.antilink ? "ON ✅" : "OFF ❌";
+      return sock.sendMessage(from, {
+        text: gInfo(
           "ANTI-LINK",
-          `Current: ${current}\n\n.antilink on\n.antilink off`,
+          `Current: *${cur}*\n\n.antilink on  — Enable\n.antilink off — Disable`,
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.antilink = action === "on";
-    settings.antilinkUpdatedBy = userJid;
-    settings.antilinkUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.antilink = action === "on";
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
+      text: gSuccess(
         "ANTI-LINK",
-        `🔗 Anti-link ${action === "on" ? "ENABLED" : "DISABLED"}\n👑 By: @${userJid.split("@")[0]}`,
+        `🔗 Anti-link ${action === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not toggle anti-link."),
+      text: gError("ERROR", "Could not toggle anti-link."),
     });
   }
 }
 
-// ========== TOGGLE ANTI-SPAM ==========
+// ─── ANTI-SPAM ────────────────────────────────────────────────────────────────
 export async function antiSpam({ args, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     const action = args[0]?.toLowerCase();
     if (!action || !["on", "off"].includes(action)) {
-      const current = groupSettings.get(from)?.antispam ? "ON" : "OFF";
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      const cur = groupSettings.get(from)?.antispam ? "ON ✅" : "OFF ❌";
+      return sock.sendMessage(from, {
+        text: gInfo(
           "ANTI-SPAM",
-          `Current: ${current}\n\n.antispam on\n.antispam off`,
+          `Current: *${cur}*\n\n.antispam on  — Enable\n.antispam off — Disable`,
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.antispam = action === "on";
-    settings.antispamUpdatedBy = userJid;
-    settings.antispamUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.antispam = action === "on";
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
+      text: gSuccess(
         "ANTI-SPAM",
-        `🚫 Anti-spam ${action === "on" ? "ENABLED" : "DISABLED"}\n👑 By: @${userJid.split("@")[0]}`,
+        `🚫 Anti-spam ${action === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not toggle anti-spam."),
+      text: gError("ERROR", "Could not toggle anti-spam."),
     });
   }
 }
 
-// ========== TOGGLE WELCOME ==========
+// ─── WELCOME TOGGLE ───────────────────────────────────────────────────────────
 export async function welcomeToggle({ args, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     const action = args[0]?.toLowerCase();
     if (!action || !["on", "off"].includes(action)) {
-      const current = groupSettings.get(from)?.welcome ? "ON" : "OFF";
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      const cur = groupSettings.get(from)?.welcome ? "ON ✅" : "OFF ❌";
+      const msg = groupSettings.get(from)?.welcomeMessage || "Default";
+      return sock.sendMessage(from, {
+        text: gInfo(
           "WELCOME",
-          `Current: ${current}\n\n.welcome on\n.welcome off`,
+          `Current: *${cur}*\n📝 Message: ${msg}\n\n.welcome on/off\n.setwelcome <msg>\n\nVars: @user @group @count @date @time`,
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.welcome = action === "on";
-    settings.welcomeUpdatedBy = userJid;
-    settings.welcomeUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.welcome = action === "on";
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
+      text: gSuccess(
         "WELCOME",
-        `👋 Welcome messages ${action === "on" ? "ENABLED" : "DISABLED"}\n👑 By: @${userJid.split("@")[0]}`,
+        `👋 Welcome ${action === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not toggle welcome."),
+      text: gError("ERROR", "Could not toggle welcome."),
     });
   }
 }
 
-// ========== SET WELCOME MESSAGE ==========
+// ─── SET WELCOME MESSAGE ──────────────────────────────────────────────────────
 export async function setWelcome({ fullArgs, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     if (!fullArgs) {
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      return sock.sendMessage(from, {
+        text: gInfo(
           "SET WELCOME",
-          "Usage: .setwelcome <message>\nVariables: @user, @group, @count\nExample: .setwelcome Welcome @user!",
+          "📌 *Usage:* .setwelcome <message>\n\n" +
+            "📋 *Variables:*\n@user @group @count @date @time\n\n" +
+            "📋 *Example:*\n.setwelcome Hey @user! Welcome to @group 🎉",
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.welcomeMessage = fullArgs;
-    settings.welcomeUpdatedBy = userJid;
-    settings.welcomeUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.welcomeMessage = fullArgs;
+    s.welcome = true;
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "WELCOME UPDATED",
-        `👋 New welcome message:\n"${fullArgs}"`,
+      text: gSuccess(
+        "WELCOME SET",
+        `👋 Welcome message saved & *enabled*.\n\n` +
+          `📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n` +
+          `💡 Disable anytime: .welcome off`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not set welcome message."),
+      text: gError("ERROR", "Could not set welcome message."),
     });
   }
 }
 
-// ========== TOGGLE GOODBYE ==========
+// ─── GOODBYE TOGGLE ───────────────────────────────────────────────────────────
 export async function goodbyeToggle({ args, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     const action = args[0]?.toLowerCase();
     if (!action || !["on", "off"].includes(action)) {
-      const current = groupSettings.get(from)?.goodbye ? "ON" : "OFF";
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      const cur = groupSettings.get(from)?.goodbye ? "ON ✅" : "OFF ❌";
+      const msg = groupSettings.get(from)?.goodbyeMessage || "Default";
+      return sock.sendMessage(from, {
+        text: gInfo(
           "GOODBYE",
-          `Current: ${current}\n\n.goodbye on\n.goodbye off`,
+          `Current: *${cur}*\n📝 Message: ${msg}\n\n.goodbye on/off\n.setgoodbye <msg>\n\nVars: @user @group @date @time`,
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.goodbye = action === "on";
-    settings.goodbyeUpdatedBy = userJid;
-    settings.goodbyeUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.goodbye = action === "on";
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
+      text: gSuccess(
         "GOODBYE",
-        `👋 Goodbye messages ${action === "on" ? "ENABLED" : "DISABLED"}\n👑 By: @${userJid.split("@")[0]}`,
+        `👋 Goodbye ${action === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not toggle goodbye."),
+      text: gError("ERROR", "Could not toggle goodbye."),
     });
   }
 }
 
-// ========== SET GOODBYE MESSAGE ==========
+// ─── SET GOODBYE MESSAGE ──────────────────────────────────────────────────────
 export async function setGoodbye({ fullArgs, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
     if (!fullArgs) {
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+      return sock.sendMessage(from, {
+        text: gInfo(
           "SET GOODBYE",
-          "Usage: .setgoodbye <message>\nVariables: @user, @group\nExample: .setgoodbye Goodbye @user!",
+          "📌 *Usage:* .setgoodbye <message>\n\n" +
+            "📋 *Variables:*\n@user @group @date @time\n\n" +
+            "📋 *Example:*\n.setgoodbye Goodbye @user 👋 We'll miss you!",
         ),
       });
     }
 
-    const settings = groupSettings.get(from) || {};
-    settings.goodbyeMessage = fullArgs;
-    settings.goodbyeUpdatedBy = userJid;
-    settings.goodbyeUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.goodbyeMessage = fullArgs;
+    s.goodbye = true;
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "GOODBYE UPDATED",
-        `👋 New goodbye message:\n"${fullArgs}"`,
+      text: gSuccess(
+        "GOODBYE SET",
+        `👋 Goodbye message saved & *enabled*.\n\n` +
+          `📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n` +
+          `💡 Disable anytime: .goodbye off`,
       ),
       mentions: [userJid],
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not set goodbye message."),
+      text: gError("ERROR", "Could not set goodbye message."),
     });
   }
 }
 
-// ========== GROUP INFO ==========
-export async function groupInfo({ from, sock }) {
+// ─── GROUP INFO ───────────────────────────────────────────────────────────────
+export async function groupInfo({ from, userJid, sock }) {
   try {
-    if (!from.endsWith("@g.us")) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError(
-          "GROUP ONLY",
-          "This command only works in groups.",
-        ),
+    if (!from.endsWith("@g.us"))
+      return sock.sendMessage(from, {
+        text: gError("GROUP ONLY", "This command only works in groups."),
       });
-    }
 
     const metadata = await getGroupMetadataCached(from, sock);
-    if (!metadata) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError("ERROR", "Could not fetch group information."),
+    if (!metadata)
+      return sock.sendMessage(from, {
+        text: gError("ERROR", "Could not fetch group info."),
       });
-    }
 
-    const totalMembers = metadata.participants.length;
+    const total = metadata.participants.length;
     const admins = metadata.participants.filter((p) => p.admin).length;
-    const superAdmins = metadata.participants.filter(
+    const superAdm = metadata.participants.filter(
       (p) => p.admin === "superadmin",
     ).length;
-    const creationDate = metadata.creation
+    const created = metadata.creation
       ? new Date(metadata.creation * 1000).toLocaleString()
       : "Unknown";
+    const s = groupSettings.get(from) || {};
 
-    const settings = groupSettings.get(from) || {};
-
-    const infoMsg =
+    const body =
       `📛 *Group:* ${metadata.subject}\n` +
-      `👥 *Members:* ${totalMembers}\n` +
+      `🆔 *ID:* ${from.split("@")[0]}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⭐ *Admins:* ${admins} (${superAdmins} super)\n` +
+      `👥 *Members:* ${total}\n` +
+      `⭐ *Admins:* ${admins} (${superAdm} super)\n` +
+      `👑 *Owner:* ${phone(metadata.owner) || "Unknown"}\n` +
+      `📅 *Created:* ${created}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🔒 *Restrict:* ${metadata.restrict ? "✅ Yes" : "❌ No"}\n` +
-      `🔇 *Announce:* ${metadata.announce ? "✅ Yes" : "❌ No"}\n` +
+      `🔒 *Edit-Info Restrict:* ${metadata.restrict ? "✅ Admins only" : "❌ All members"}\n` +
+      `🔇 *Announce (Muted):* ${metadata.announce ? "✅ Yes" : "❌ No"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👑 *Owner:* ${metadata.owner?.split("@")[0] || "Unknown"}\n` +
-      `📅 *Created:* ${creationDate}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚙️ *Settings*\n` +
-      `├─ 🔗 AntiLink: ${settings.antilink ? "✅" : "❌"}\n` +
-      `├─ 🚫 AntiSpam: ${settings.antispam ? "✅" : "❌"}\n` +
-      `├─ 👋 Welcome: ${settings.welcome ? "✅" : "❌"}\n` +
-      `└─ 👋 Goodbye: ${settings.goodbye ? "✅" : "❌"}`;
+      `⚙️ *Bot Settings*\n` +
+      `├─ 🔗 AntiLink: ${s.antilink ? "✅ ON" : "❌ OFF"}\n` +
+      `├─ 🚫 AntiSpam: ${s.antispam ? "✅ ON" : "❌ OFF"}\n` +
+      `├─ 👋 Welcome:  ${s.welcome ? "✅ ON" : "❌ OFF"}\n` +
+      `└─ 👋 Goodbye:  ${s.goodbye ? "✅ ON" : "❌ OFF"}`;
 
+    await sock.sendMessage(from, { text: gSuccess("GROUP INFO", body) });
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupSuccess("GROUP INFORMATION", infoMsg),
-    });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not fetch group information."),
+      text: gError("ERROR", "Could not fetch group info."),
     });
   }
 }
 
-// ========== GROUP RULES ==========
+// ─── GROUP RULES ──────────────────────────────────────────────────────────────
 export async function rules({ from, sock }) {
   try {
-    if (!from.endsWith("@g.us")) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError(
-          "GROUP ONLY",
-          "This command only works in groups.",
-        ),
+    if (!from.endsWith("@g.us"))
+      return sock.sendMessage(from, {
+        text: gError("GROUP ONLY", "This command only works in groups."),
       });
-    }
 
-    const settings = groupSettings.get(from) || {};
-    const rules = settings.rules || "No rules have been set yet.";
-
+    const s = groupSettings.get(from) || {};
+    const text = s.rules || "No rules set.\n\nAdmins: .setrules <rules>";
     await sock.sendMessage(from, {
-      text: formatGroupSuccess("GROUP RULES", `📜 *Rules*\n\n${rules}`),
+      text: gInfo("GROUP RULES", `📜\n\n${text}`),
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not fetch rules."),
+      text: gError("ERROR", "Could not fetch rules."),
     });
   }
 }
 
-// ========== SET GROUP RULES ==========
+// ─── SET RULES ────────────────────────────────────────────────────────────────
 export async function setRules({ fullArgs, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
-    if (!fullArgs) {
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
+    if (!fullArgs)
+      return sock.sendMessage(from, {
+        text: gInfo(
           "SET RULES",
-          "Usage: .setrules <rules>\nExample: .setrules 1. Be respectful\n2. No spamming",
+          "Usage: .setrules <rules>\n\nExample:\n.setrules 1. Be respectful\n2. No spam",
         ),
       });
-    }
 
-    const settings = groupSettings.get(from) || {};
-    settings.rules = fullArgs;
-    settings.rulesUpdatedBy = userJid;
-    settings.rulesUpdatedAt = Date.now();
-    groupSettings.set(from, settings);
+    const s = groupSettings.get(from) || {};
+    s.rules = fullArgs;
+    groupSettings.set(from, s);
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "RULES UPDATED",
-        `📜 New rules set.\n\n${fullArgs}`,
-      ),
-      mentions: [userJid],
+      text: gSuccess("RULES UPDATED", `📜\n\n${fullArgs}`),
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not set rules."),
+      text: gError("ERROR", "Could not set rules."),
     });
   }
 }
 
-// ========== GET GROUP LINK ==========
+// ─── GROUP LINK ───────────────────────────────────────────────────────────────
 export async function link({ from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
-    const botIsAdmin = await isBotGroupAdminCached(from, sock);
-    let link;
+    let groupLink = null;
 
-    if (botIsAdmin) {
-      const code = await sock.groupInviteCode(from);
-      link = `https://chat.whatsapp.com/${code}`;
+    // Try fetching invite code (requires bot admin). — AYOCODES
+    const botAdmin = await isBotGroupAdminCached(from, sock);
+    if (botAdmin) {
+      try {
+        const code = await sock.groupInviteCode(from);
+        if (code) groupLink = `https://chat.whatsapp.com/${code}`;
+      } catch (_) {}
+    }
+
+    // Fallback to metadata inviteCode if available. — AYOCODES
+    if (!groupLink) {
+      const meta = v.metadata || (await getGroupMetadataCached(from, sock));
+      if (meta?.inviteCode)
+        groupLink = `https://chat.whatsapp.com/${meta.inviteCode}`;
+    }
+
+    if (!groupLink)
+      return sock.sendMessage(from, {
+        text: gError(
+          "LINK UNAVAILABLE",
+          "Could not get the group link.\nMake sure I'm promoted to admin.",
+        ),
+      });
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "GROUP LINK",
+        `🔗 ${groupLink}\n\n👑 Requested by: @${phone(userJid)}`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("ERROR", "Could not get group link."),
+    });
+  }
+}
+
+// ─── REVOKE LINK ──────────────────────────────────────────────────────────────
+export async function revoke({ from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    await sock.groupRevokeInvite(from);
+    clearGroupCache(from);
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "LINK REVOKED",
+        `🔄 Invite link has been reset.\n👑 By: @${phone(userJid)}\n\n💡 Use .link to get the new link.`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("ERROR", "Could not revoke link."),
+    });
+  }
+}
+
+// ─── TAG ALL ──────────────────────────────────────────────────────────────────
+// Usage:
+//   .tagall                → tag everyone
+//   .tagall admins         → tag only admins
+//   .tagall members        → tag only non-admins
+//   .tagall <message>      → tag everyone with a custom announcement
+//   (reply) .tagall        → forwards the replied-to message, then tags
+//   (reply) .tagall admins → forwards replied message, then tags admins only
+// — AYOCODES
+export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    if (!v.metadata)
+      return sock.sendMessage(from, {
+        text: gError("ERROR", "Could not fetch group members."),
+      });
+
+    const allParticipants = v.metadata.participants;
+
+    // ── Determine filter target ──────────────────────────────────────────────
+    const sub = args[0]?.toLowerCase();
+    let targets, targetLabel, customMsg;
+
+    if (sub === "admins") {
+      targets = allParticipants
+        .filter((p) => p.admin)
+        .map((p) => p.id)
+        .filter(Boolean);
+      targetLabel = `👑 Admins tagged: *${targets.length}*`;
+      customMsg = args.slice(1).join(" ") || null;
+    } else if (sub === "members") {
+      targets = allParticipants
+        .filter((p) => !p.admin)
+        .map((p) => p.id)
+        .filter(Boolean);
+      targetLabel = `👥 Members tagged: *${targets.length}*`;
+      customMsg = args.slice(1).join(" ") || null;
     } else {
-      const metadata = await getGroupMetadataCached(from, sock);
-      if (metadata?.inviteCode) {
-        link = `https://chat.whatsapp.com/${metadata.inviteCode}`;
-      } else {
-        return await sock.sendMessage(from, {
-          text: formatGroupError(
-            "BOT NOT ADMIN",
-            "I need to be an admin to get the group link.",
-          ),
+      targets = allParticipants.map((p) => p.id).filter(Boolean);
+      targetLabel = `👥 Everyone tagged: *${targets.length}*`;
+      customMsg = fullArgs || null;
+    }
+
+    if (targets.length === 0)
+      return sock.sendMessage(from, {
+        text: gError("TAG ALL", "No matching members found."),
+      });
+
+    // ── If this is a reply, forward the quoted message first ─────────────────
+    const ctx = getReplyContext(message);
+    const quotedMsg = buildQuotedMsg(from, ctx, sock);
+
+    if (quotedMsg) {
+      try {
+        await sock.sendMessage(from, {
+          forward: quotedMsg,
+          mentions: targets,
         });
+      } catch (_) {
+        // Some exotic message types can't be forwarded — skip silently. — AYOCODES
       }
     }
 
-    await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "GROUP LINK",
-        `🔗 ${link}\n\n👑 Requested by: @${userJid.split("@")[0]}`,
-      ),
-      mentions: [userJid],
-    });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not get group link."),
-    });
-  }
-}
-
-// ========== REVOKE GROUP LINK ==========
-export async function revoke({ from, userJid, sock }) {
-  try {
-    const validation = await validateGroupCommand(
-      from,
-      userJid,
-      sock,
-      "botAdmin",
-    );
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
-
-    await sock.groupRevokeInvite(from);
-    groupMetadataCache.delete(from);
+    // ── Send the tag announcement ────────────────────────────────────────────
+    const announcement =
+      `📢 *Announcement*\n\n` +
+      `${customMsg ? `${customMsg}\n\n` : ""}` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `${targetLabel}\n` +
+      `📣 By: @${phone(userJid)}\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
     await sock.sendMessage(from, {
-      text: formatGroupSuccess(
-        "LINK REVOKED",
-        `🔄 Group link has been reset.\n👑 By: @${userJid.split("@")[0]}\n\nUse .link to get the new link.`,
-      ),
-      mentions: [userJid],
+      text: announcement,
+      mentions: targets,
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not revoke link."),
+      text: gError("ERROR", "Could not tag members."),
     });
   }
 }
 
-// ========== TAG ALL ==========
-export async function tagAll({ fullArgs, from, userJid, sock }) {
+// ─── HIDDEN TAG ───────────────────────────────────────────────────────────────
+// Silently pings everyone with an invisible message.
+// If used as a reply, the quoted message is forwarded first. — AYOCODES
+export async function hideTag({ fullArgs, message, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
-    const metadata = validation.metadata;
-    const participants = metadata.participants.map((p) => p.id);
-    const messageText = fullArgs || "📢 *Attention everyone!*";
+    if (!v.metadata)
+      return sock.sendMessage(from, {
+        text: gError("ERROR", "Could not fetch group members."),
+      });
 
-    const tagMsg = `📢 *Group Announcement*\n\n${messageText}\n\n━━━━━━━━━━━━━━━━━━━━━\n👥 *Total:* ${participants.length} members\n👑 *By:* @${userJid.split("@")[0]}`;
+    const participants = v.metadata.participants
+      .map((p) => p.id)
+      .filter(Boolean);
 
+    // Forward quoted message if this is a reply. — AYOCODES
+    const ctx = getReplyContext(message);
+    const quotedMsg = buildQuotedMsg(from, ctx, sock);
+
+    if (quotedMsg) {
+      try {
+        await sock.sendMessage(from, {
+          forward: quotedMsg,
+          mentions: participants,
+        });
+      } catch (_) {}
+    }
+
+    // Send invisible tag. — AYOCODES
     await sock.sendMessage(from, {
-      text: tagMsg,
+      text: fullArgs || "\u200b", // zero-width space = invisible text
       mentions: participants,
     });
-  } catch (error) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not tag all members."),
+      text: gError("ERROR", "Could not send hidden tag."),
     });
   }
 }
 
-// ========== HIDDEN TAG ==========
-export async function hideTag({ fullArgs, from, userJid, sock }) {
+// ─── FIXED: PIN MESSAGE ──────────────────────────────────────────────────────────────
+// Reply to any message with .pin to pin it in the group. Bot must be admin. — AYOCODES
+export async function pin({ message, from, userJid, sock }) {
   try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
 
-    const metadata = validation.metadata;
-    const participants = metadata.participants.map((p) => p.id);
-
-    await sock.sendMessage(from, {
-      text: fullArgs || ".",
-      mentions: participants,
-    });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatGroupError("ERROR", "Could not send hidden tag."),
-    });
-  }
-}
-
-// ========== DELETE MESSAGE ==========
-export async function deleteMsg({ message, from, userJid, sock }) {
-  try {
-    if (!from.endsWith("@g.us")) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError(
-          "GROUP ONLY",
-          "This command only works in groups.",
+    const ctx = getReplyContext(message);
+    if (!ctx?.stanzaId) {
+      return sock.sendMessage(from, {
+        text: gInfo(
+          "PIN",
+          "Reply to a message with *.pin* to pin it in the group.",
         ),
       });
     }
 
-    const isGroupAdminUser = await isGroupAdminCached(from, userJid, sock);
-    const isGlobalAdmin = isAdmin(userJid);
-
-    if (!isGroupAdminUser && !isGlobalAdmin) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError(
-          "ADMIN ONLY",
-          "Only group admins can delete messages.",
-        ),
-      });
-    }
-
-    const quoted = message.message?.extendedTextMessage?.contextInfo;
-    if (!quoted || !quoted.stanzaId) {
-      return await sock.sendMessage(from, {
-        text: formatGroupInfo(
-          "DELETE",
-          "Reply to a message with .delete to delete it.",
-        ),
-      });
-    }
-
-    const deleteKey = {
+    // FIXED: Proper Baileys pin API syntax
+    const key = {
       remoteJid: from,
-      fromMe: quoted.participant === sock.user.id,
-      id: quoted.stanzaId,
-      participant: quoted.participant,
+      fromMe: ctx.participant
+        ? normalizeNum(ctx.participant) === normalizeNum(sock.user?.id)
+        : false,
+      id: ctx.stanzaId,
     };
 
-    await sock.sendMessage(from, { delete: deleteKey });
-  } catch (error) {
+    // Add participant only if it exists (for messages not sent by bot)
+    if (ctx.participant) {
+      key.participant = ctx.participant;
+    }
+
     await sock.sendMessage(from, {
-      text: formatGroupError("DELETE FAILED", error.message),
+      pin: {
+        key: key,
+        type: 1, // 1 = pin
+        time: 604800, // 7 days in seconds
+      },
     });
-  }
-}
-
-// ========== LEAVE GROUP ==========
-export async function leave({ from, userJid, sock }) {
-  try {
-    const validation = await validateGroupCommand(from, userJid, sock, "admin");
-    if (!validation.success)
-      return await sock.sendMessage(from, { text: validation.error });
 
     await sock.sendMessage(from, {
-      text: `👋 *Goodbye everyone!*\n\nLeaving as requested by @${userJid.split("@")[0]}\n\nThanks for having me! 🤖`,
+      text: gSuccess(
+        "MESSAGE PINNED",
+        `📌 Message pinned for 7 days.\n👑 By: @${phone(userJid)}`,
+      ),
       mentions: [userJid],
     });
-
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    await sock.groupLeave(from);
-  } catch (error) {
-    console.error("Leave error:", error);
+  } catch (err) {
+    console.error("Pin error:", err);
+    await sock.sendMessage(from, {
+      text: gError(
+        "PIN FAILED",
+        `${err.message}\n\nMake sure I am a group admin and the message exists.`,
+      ),
+    });
   }
 }
 
-// ========== DEBUG GROUP ==========
-export async function debug({ from, userJid, sock }) {
+// ─── FIXED: UNPIN MESSAGE ────────────────────────────────────────────────────────────
+// Reply to a pinned message with .unpin to remove the pin. — AYOCODES
+export async function unpin({ message, from, userJid, sock }) {
   try {
-    if (!from.endsWith("@g.us")) {
-      return await sock.sendMessage(from, {
-        text: formatGroupError(
-          "GROUP ONLY",
-          "This command only works in groups.",
+    const v = await validateGroupCommand(from, userJid, sock, "botAdmin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    const ctx = getReplyContext(message);
+    if (!ctx?.stanzaId) {
+      return sock.sendMessage(from, {
+        text: gInfo(
+          "UNPIN",
+          "Reply to a pinned message with *.unpin* to remove the pin.",
         ),
       });
     }
 
-    const metadata = await getGroupMetadataCached(from, sock);
-    const botJid = sock.user.id;
-    const botParticipant = metadata?.participants.find((p) => p.id === botJid);
-    const userParticipant = metadata?.participants.find(
-      (p) => p.id === userJid,
-    );
-    const settings = groupSettings.get(from) || {};
+    // FIXED: Proper Baileys unpin syntax
+    const key = {
+      remoteJid: from,
+      fromMe: ctx.participant
+        ? normalizeNum(ctx.participant) === normalizeNum(sock.user?.id)
+        : false,
+      id: ctx.stanzaId,
+    };
 
-    const debugMsg =
-      `🔍 *Group Debug*\n\n` +
+    // Add participant only if it exists
+    if (ctx.participant) {
+      key.participant = ctx.participant;
+    }
+
+    await sock.sendMessage(from, {
+      pin: {
+        key: key,
+        type: 0, // 0 = unpin
+        time: 0,
+      },
+    });
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "MESSAGE UNPINNED",
+        `📌 Message unpinned.\n👑 By: @${phone(userJid)}`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    console.error("Unpin error:", err);
+    await sock.sendMessage(from, {
+      text: gError(
+        "UNPIN FAILED",
+        `${err.message}\n\nMake sure I am a group admin and the message is pinned.`,
+      ),
+    });
+  }
+}
+
+// ─── DELETE MESSAGE ───────────────────────────────────────────────────────────
+export async function deleteMsg({ message, from, userJid, sock }) {
+  try {
+    if (!from.endsWith("@g.us"))
+      return sock.sendMessage(from, {
+        text: gError("GROUP ONLY", "This command only works in groups."),
+      });
+
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    const ctx = getReplyContext(message);
+    if (!ctx?.stanzaId)
+      return sock.sendMessage(from, {
+        text: gInfo("DELETE", "Reply to a message with .delete to remove it."),
+      });
+
+    const key = {
+      remoteJid: from,
+      fromMe: ctx.participant
+        ? normalizeNum(ctx.participant) === normalizeNum(sock.user?.id)
+        : false,
+      id: ctx.stanzaId,
+      participant: ctx.participant,
+    };
+
+    await sock.sendMessage(from, {
+      delete: key,
+    });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("DELETE FAILED", err.message),
+    });
+  }
+}
+
+// ─── SETTINGS OVERVIEW ───────────────────────────────────────────────────────
+// Prints a full dashboard of all current bot settings for this group. — AYOCODES
+export async function settingsOverview({ from, sock }) {
+  try {
+    if (!from.endsWith("@g.us"))
+      return sock.sendMessage(from, {
+        text: gError("GROUP ONLY", "This command only works in groups."),
+      });
+
+    const s = groupSettings.get(from) || {};
+    const metadata = await getGroupMetadataCached(from, sock);
+    const name = metadata?.subject || "This Group";
+
+    const on = (val) => (val ? "✅ ON " : "❌ OFF");
+    const msg = (val) =>
+      val
+        ? `"${String(val).substring(0, 60)}${String(val).length > 60 ? "…" : ""}"`
+        : "_Not set_";
+
+    const body =
+      `📛 *${name}*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔇 *Mute:*     ${on(s.muted)}\n` +
+      `🔗 *AntiLink:* ${on(s.antilink)}\n` +
+      `🚫 *AntiSpam:* ${on(s.antispam)}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👋 *Welcome:*  ${on(s.welcome)}\n` +
+      `   └─ Msg: ${msg(s.welcomeMessage)}\n` +
+      `👋 *Goodbye:*  ${on(s.goodbye)}\n` +
+      `   └─ Msg: ${msg(s.goodbyeMessage)}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📜 *Rules:*    ${s.rules ? "✅ Set" : "❌ Not set"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 Use .groupinfo for full group & member details.`;
+
+    await sock.sendMessage(from, { text: gInfo("BOT SETTINGS", body) });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("ERROR", "Could not fetch settings."),
+    });
+  }
+}
+
+// ─── RESET SETTINGS ───────────────────────────────────────────────────────────
+// Clears all bot settings for the group back to factory defaults. — AYOCODES
+export async function resetSettings({ from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    groupSettings.set(from, {});
+    saveGroupSettings();
+
+    await sock.sendMessage(from, {
+      text: gSuccess(
+        "SETTINGS RESET",
+        `🗑️ All bot settings for this group have been cleared.\n\n` +
+          `AntiLink: ❌ OFF\n` +
+          `AntiSpam: ❌ OFF\n` +
+          `Welcome:  ❌ OFF\n` +
+          `Goodbye:  ❌ OFF\n` +
+          `Rules:    cleared\n\n` +
+          `👑 By: @${phone(userJid)}`,
+      ),
+      mentions: [userJid],
+    });
+  } catch (err) {
+    await sock.sendMessage(from, {
+      text: gError("ERROR", "Could not reset settings."),
+    });
+  }
+}
+
+// ─── LEAVE GROUP ──────────────────────────────────────────────────────────────
+export async function leave({ from, userJid, sock }) {
+  try {
+    const v = await validateGroupCommand(from, userJid, sock, "admin");
+    if (!v.success) return sock.sendMessage(from, { text: v.error });
+
+    await sock.sendMessage(from, {
+      text: `👋 *Goodbye everyone!*\n\nLeaving as requested by @${phone(userJid)} 🤖\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      mentions: [userJid],
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+    await sock.groupLeave(from);
+  } catch (err) {
+    console.error("leave error:", err.message);
+  }
+}
+
+// ─── DEBUG ────────────────────────────────────────────────────────────────────
+export async function debug({ from, userJid, sock }) {
+  try {
+    if (!from.endsWith("@g.us"))
+      return sock.sendMessage(from, {
+        text: gError("GROUP ONLY", "This command only works in groups."),
+      });
+
+    const metadata = await getGroupMetadataCached(from, sock);
+    const botNum = normalizeNum(sock.user?.id || "");
+    const userNum = normalizeNum(userJid);
+    const botPart = metadata?.participants?.find(
+      (p) => normalizeNum(p.id) === botNum,
+    );
+    const userPart = metadata?.participants?.find(
+      (p) => normalizeNum(p.id) === userNum,
+    );
+    const s = groupSettings.get(from) || {};
+
+    const body =
       `📛 *Group:* ${metadata?.subject || "Unknown"}\n` +
-      `👥 *Members:* ${metadata?.participants.length || 0}\n` +
+      `👥 *Members:* ${metadata?.participants?.length || 0}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🤖 *BOT*\n` +
-      `├─ Admin: ${botParticipant?.admin ? "✅" : "❌"}\n` +
-      `└─ Role: ${botParticipant?.admin || "Member"}\n` +
+      `🤖 *BOT (${botNum})*\n` +
+      `├─ Admin: ${botPart?.admin ? "✅ Yes" : "❌ No"}\n` +
+      `└─ Role:  ${botPart?.admin || "Member"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👤 *YOU*\n` +
-      `├─ Admin: ${userParticipant?.admin ? "✅" : "❌"}\n` +
-      `└─ Global Admin: ${isAdmin(userJid) ? "✅" : "❌"}\n` +
+      `👤 *YOU (${userNum})*\n` +
+      `├─ Group admin:  ${userPart?.admin ? "✅ Yes" : "❌ No"}\n` +
+      `├─ Global owner: ${isAdmin(userJid) ? "✅ Yes" : "❌ No"}\n` +
+      `└─ Raw JID:      ${userJid}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `⚙️ *Settings*\n` +
-      `├─ AntiLink: ${settings.antilink ? "✅" : "❌"}\n` +
-      `├─ AntiSpam: ${settings.antispam ? "✅" : "❌"}\n` +
-      `├─ Welcome: ${settings.welcome ? "✅" : "❌"}\n` +
-      `└─ Goodbye: ${settings.goodbye ? "✅" : "❌"}`;
+      `├─ AntiLink: ${s.antilink ? "✅" : "❌"}\n` +
+      `├─ AntiSpam: ${s.antispam ? "✅" : "❌"}\n` +
+      `├─ Welcome:  ${s.welcome ? "✅" : "❌"}\n` +
+      `└─ Goodbye:  ${s.goodbye ? "✅" : "❌"}`;
 
-    await sock.sendMessage(from, {
-      text: formatGroupSuccess("DEBUG INFO", debugMsg),
-    });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatGroupError("DEBUG ERROR", error.message),
-    });
+    await sock.sendMessage(from, { text: gSuccess("DEBUG", body) });
+  } catch (err) {
+    await sock.sendMessage(from, { text: gError("DEBUG ERROR", err.message) });
   }
 }

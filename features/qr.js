@@ -1,6 +1,5 @@
-import axios from "axios";
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
 import QRCode from "qrcode";
+import { formatError, formatInfo } from "../utils/formatters.js";
 
 export async function qr({ fullArgs, from, sock }) {
   if (!fullArgs) {

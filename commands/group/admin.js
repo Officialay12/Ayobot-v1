@@ -1,4 +1,4 @@
-// commands/group/admin.js - COMPLETE FIXED VERSION
+// commands/group/admin.js — AYOBOT v1 | Created by AYOCODES
 import path from "path";
 import { fileURLToPath } from "url";
 import {
@@ -247,13 +247,12 @@ ${fullArgs}
           mentions: [userJid],
         });
         groupsSent++;
-        // Progress update every 10 groups
         if (groupsSent % 10 === 0) {
           await sock.sendMessage(from, {
             text: `📊 Progress: ${groupsSent}/${groupList.length} groups done...`,
           });
         }
-        await new Promise((r) => setTimeout(r, 1200)); // Avoid spam ban
+        await new Promise((r) => setTimeout(r, 1200));
       } catch (_) {
         groupsFailed++;
       }
@@ -273,7 +272,6 @@ ${fullArgs}
 }
 
 // ========== STATS ==========
-// ✅ FIX: Added userJid to destructured params (was missing, caused crash)
 export async function stats({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) {
     return sock.sendMessage(from, {
@@ -338,7 +336,6 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
     });
   }
 
-  // Protect yourself from banning you
   if (phone === userJid.split("@")[0] || phone === ENV.ADMIN) {
     return sock.sendMessage(from, {
       text: formatError("INVALID ACTION", "You cannot ban the bot owner."),
@@ -353,7 +350,6 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
     });
   }
 
-  // Remove from authorized if present
   authorizedUsers.delete(targetJid);
   authorizedUsers.delete(phone);
 
@@ -412,7 +408,6 @@ export async function unban({ fullArgs, from, sock, isAdmin }) {
     unbanned = true;
   }
 
-  // Also check any partial matches
   for (const key of bannedUsers.keys()) {
     if (key.includes(phone)) {
       bannedUsers.delete(key);
@@ -459,7 +454,6 @@ export async function listBanned({ from, sock, isAdmin }) {
 
   bannedList += `━━━━━━━━━━━━━━━━━━━━━\n📊 *Total banned:* ${bannedUsers.size}\n👑 AYOCODES`;
 
-  // Split into chunks to avoid WhatsApp message size limits
   if (bannedList.length > 4000) {
     const chunks = bannedList.match(/[\s\S]{1,4000}/g) || [];
     for (const chunk of chunks) {
@@ -513,7 +507,6 @@ export async function restart({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  // Save all data before exit
   try {
     saveWarnings();
   } catch (_) {}
@@ -562,7 +555,6 @@ export async function shutdown({ from, userJid, sock, isAdmin }) {
 }
 
 // ========== BOT STATUS ==========
-// ✅ FIX: Added userJid to destructured params (was missing, caused crash)
 export async function botStatus({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 

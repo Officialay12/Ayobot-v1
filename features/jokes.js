@@ -1,5 +1,5 @@
 import axios from "axios";
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
+import { formatSuccess } from "../utils/formatters.js";
 
 // ========== JOKE ==========
 export async function joke({ from, sock }) {

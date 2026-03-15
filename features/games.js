@@ -1,5 +1,5 @@
 import axios from "axios";
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
+import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
 
 // Track active trivia games
 global.activeTrivia = global.activeTrivia || new Map();

@@ -1,3 +1,5 @@
+// features/translation.js - AYOBOT v1 | Created by AYOCODES
+
 import axios from "axios";
 import {
   formatSuccess,
@@ -5,7 +7,9 @@ import {
   formatInfo,
   formatData,
 } from "../utils/formatters.js";
+import { ENV } from "../index.js";
 
+// ========== LANGUAGE MAP ==========
 const LANGUAGES = {
   af: "Afrikaans",
   sq: "Albanian",
@@ -119,7 +123,6 @@ const LANGUAGES = {
   zu: "Zulu",
 };
 
-// Language aliases for common names
 const LANGUAGE_ALIASES = {
   "chinese simplified": "zh-CN",
   "chinese traditional": "zh-TW",
@@ -154,301 +157,380 @@ const LANGUAGE_ALIASES = {
   malay: "ms",
   filipino: "tl",
   tagalog: "tl",
+  yoruba: "yo",
+  igbo: "ig",
+  hausa: "ha",
+  swahili: "sw",
+  somali: "so",
+  amharic: "am",
+  afrikaans: "af",
 };
 
-// ========== GET LANGUAGE CODE ==========
+// ========== HELPERS ==========
 function getLanguageCode(lang) {
-  const lowerLang = lang.toLowerCase();
-
-  // Check if it's already a code
-  if (LANGUAGES[lowerLang]) return lowerLang;
-
-  // Check aliases
-  if (LANGUAGE_ALIASES[lowerLang]) return LANGUAGE_ALIASES[lowerLang];
-
-  // Search by name
+  if (!lang) return null;
+  const lower = lang.toLowerCase().trim();
+  // Direct code match (e.g. "en", "fr")
+  if (LANGUAGES[lower]) return lower;
+  // Alias match (e.g. "english", "french")
+  if (LANGUAGE_ALIASES[lower]) return LANGUAGE_ALIASES[lower];
+  // Partial name match
   for (const [code, name] of Object.entries(LANGUAGES)) {
     if (
-      name.toLowerCase() === lowerLang ||
-      name.toLowerCase().includes(lowerLang) ||
-      lowerLang.includes(name.toLowerCase())
+      name.toLowerCase() === lower ||
+      name.toLowerCase().includes(lower) ||
+      lower.includes(name.toLowerCase())
     ) {
       return code;
+    }
+  }
+  return null;
+}
+
+function getLanguageName(code) {
+  return LANGUAGES[code] || (code ? code.toUpperCase() : "Unknown");
+}
+
+// ========== PARSE INPUT ==========
+// Supports all these formats:
+//   .translate bonjour to english
+//   .translate bonjour to en
+//   .translate How are you? to French
+//   .translate en bonjour           (legacy: code first)
+// Returns { sourceText, targetCode, targetName } or null. — AYOCODES
+function parseTranslateInput(fullArgs) {
+  if (!fullArgs) return null;
+  const input = fullArgs.trim();
+
+  // ── Format 1: "<text> to <language>" ─────────────────────────────────────
+  // Find the LAST occurrence of " to " so sentences like
+  // "I want to go to Paris to French" work correctly. — AYOCODES
+  const toIdx = input.toLowerCase().lastIndexOf(" to ");
+  if (toIdx !== -1) {
+    const sourceText = input.slice(0, toIdx).trim();
+    const targetLang = input.slice(toIdx + 4).trim();
+    if (sourceText && targetLang) {
+      const targetCode = getLanguageCode(targetLang);
+      if (targetCode) {
+        return {
+          sourceText,
+          targetCode,
+          targetName: getLanguageName(targetCode),
+        };
+      }
+    }
+  }
+
+  // ── Format 2: "<langcode> <text>" (e.g. ".translate en bonjour") ──────────
+  const parts = input.split(/\s+/);
+  if (parts.length >= 2) {
+    const maybeCode = parts[0];
+    const maybeTarget = getLanguageCode(maybeCode);
+    if (maybeTarget) {
+      const sourceText = parts.slice(1).join(" ").trim();
+      if (sourceText) {
+        return {
+          sourceText,
+          targetCode: maybeTarget,
+          targetName: getLanguageName(maybeTarget),
+        };
+      }
     }
   }
 
   return null;
 }
 
-// ========== FORMAT LANGUAGE NAME ==========
-function getLanguageName(code) {
-  return LANGUAGES[code] || code.toUpperCase();
+// ========== TRANSLATION ENGINE 1: GROQ (Primary) ==========
+async function translateWithGroq(text, targetCode, targetName) {
+  const key = ENV.GROQ_API_KEY || process.env.GROQ_API_KEY;
+  if (!key) throw new Error("No GROQ_API_KEY");
+
+  const res = await axios.post(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      model: "llama3-70b-8192",
+      messages: [
+        {
+          role: "system",
+          content:
+            `You are a professional translator. Translate the user's text to ${targetName}. ` +
+            `Return ONLY the translated text — no explanation, no quotes, no preamble. ` +
+            `Preserve formatting, line breaks, and emojis exactly as given.`,
+        },
+        { role: "user", content: text },
+      ],
+      temperature: 0.1,
+      max_tokens: 2048,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 15000,
+    },
+  );
+
+  const translated = res.data?.choices?.[0]?.message?.content?.trim();
+  if (!translated) throw new Error("Empty Groq response");
+  return { text: translated, service: "Groq (Llama3-70b)" };
 }
 
-// ========== TRANSLATE FUNCTION - ULTIMATE VERSION ==========
+// ========== TRANSLATION ENGINE 2: GEMINI ==========
+async function translateWithGemini(text, targetCode, targetName) {
+  const key = ENV.GEMINI_KEY || process.env.GEMINI_KEY;
+  if (!key) throw new Error("No GEMINI_KEY");
+
+  const res = await axios.post(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${key}`,
+    {
+      contents: [
+        {
+          parts: [
+            {
+              text:
+                `Translate the following text to ${targetName}. ` +
+                `Return ONLY the translated text, nothing else:\n\n${text}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+    },
+    { timeout: 15000 },
+  );
+
+  const translated =
+    res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!translated) throw new Error("Empty Gemini response");
+  return { text: translated, service: "Gemini Pro" };
+}
+
+// ========== TRANSLATION ENGINE 3: OPENROUTER ==========
+async function translateWithOpenRouter(text, targetCode, targetName) {
+  const key = ENV.OPENROUTER_KEY || process.env.OPENROUTER_KEY;
+  if (!key) throw new Error("No OPENROUTER_KEY");
+
+  const res = await axios.post(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      model: "mistralai/mistral-7b-instruct:free",
+      messages: [
+        {
+          role: "system",
+          content: `Translate to ${targetName}. Return ONLY the translation, nothing else.`,
+        },
+        { role: "user", content: text },
+      ],
+      max_tokens: 2048,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ayobot.onrender.com",
+        "X-Title": "AYOBOT",
+      },
+      timeout: 15000,
+    },
+  );
+
+  const translated = res.data?.choices?.[0]?.message?.content?.trim();
+  if (!translated) throw new Error("Empty OpenRouter response");
+  return { text: translated, service: "OpenRouter (Mistral-7B)" };
+}
+
+// ========== TRANSLATION ENGINE 4: GOOGLE TRANSLATE (free, no key needed) ==========
+async function translateWithGoogle(text, targetCode) {
+  const res = await axios.get(
+    `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetCode}&dt=t&q=${encodeURIComponent(text)}`,
+    {
+      timeout: 10000,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    },
+  );
+
+  let translated = "";
+  if (Array.isArray(res.data?.[0])) {
+    for (const segment of res.data[0]) {
+      if (Array.isArray(segment) && segment[0]) translated += segment[0];
+    }
+  }
+
+  if (!translated) throw new Error("Empty Google response");
+
+  const detectedCode = res.data?.[2] || null;
+  return {
+    text: translated,
+    service: "Google Translate",
+    detectedSource: detectedCode,
+  };
+}
+
+// ========== TRANSLATION ENGINE 5: MYMEMORY ==========
+async function translateWithMyMemory(text, targetCode, detectedSourceCode) {
+  // BUG FIX: MyMemory rejects "auto" as source language — must use a real
+  // ISO code. We use the detected source from Google if available, else
+  // default to "en" as a safe fallback. — AYOCODES
+  const sourceLang = detectedSourceCode || "en";
+  const langpair = `${sourceLang}|${targetCode}`;
+
+  const res = await axios.get(
+    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langpair)}`,
+    { timeout: 10000 },
+  );
+
+  const translated = res.data?.responseData?.translatedText;
+  if (!translated || translated === text) throw new Error("MyMemory failed");
+  return { text: translated, service: "MyMemory" };
+}
+
+// ========== TRANSLATION ENGINE 6: LINGVA ==========
+async function translateWithLingva(text, targetCode) {
+  const res = await axios.get(
+    `https://lingva.ml/api/v1/auto/${targetCode}/${encodeURIComponent(text)}`,
+    { timeout: 10000 },
+  );
+
+  const translated = res.data?.translation;
+  if (!translated) throw new Error("Lingva failed");
+  return { text: translated, service: "Lingva" };
+}
+
+// ========== MAIN TRANSLATE COMMAND ==========
 export async function translate({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    // Show first 30 languages as sample
-    const langSample = Object.entries(LANGUAGES)
-      .slice(0, 30)
-      .map(([code, name]) => `${code}: ${name}`)
-      .join("\n");
-
     await sock.sendMessage(from, {
       text: formatInfo(
         "TRANSLATE",
         "🌐 *Universal Translator*\n\n" +
-          "📌 *Usage:* .translate <text> to <language>\n" +
+          "📌 *Usage:* .translate <text> to <language>\n\n" +
           "📋 *Examples:*\n" +
+          "▰ .translate bonjour to english\n" +
           "▰ .translate Hello to Spanish\n" +
           "▰ .translate How are you? to French\n" +
-          "▰ .translate Good morning to German\n\n" +
-          "📚 *Supported Languages (Sample):*\n" +
-          `${langSample}\n` +
-          `... and ${Object.keys(LANGUAGES).length - 30} more`,
+          "▰ .translate Good morning to German\n" +
+          "▰ .translate en bonjour\n\n" +
+          `📚 *${Object.keys(LANGUAGES).length} languages supported*\n` +
+          "Use .languages to see the full list",
       ),
     });
     return;
   }
 
-  await sock.sendMessage(from, { text: "🌐 *Translating...*" });
+  // ── Parse the input ───────────────────────────────────────────────────────
+  const parsed = parseTranslateInput(fullArgs);
 
-  // Parse the input
-  const match = fullArgs.match(/\s+to\s+([a-zA-Z\s-]+)$/i);
-  if (!match) {
-    return await sock.sendMessage(from, {
+  if (!parsed) {
+    return sock.sendMessage(from, {
       text: formatError(
-        "ERROR",
-        "❌ Please specify target language using 'to'.\n\n" +
-          "✅ *Example:* .translate Hello to Spanish",
+        "FORMAT ERROR",
+        "❌ Could not understand that format.\n\n" +
+          "✅ *Try:* .translate bonjour to english\n" +
+          "✅ *Or:*  .translate en bonjour",
       ),
     });
   }
 
-  const targetLang = match[1].trim();
-  const sourceText = fullArgs.replace(/\s+to\s+[a-zA-Z\s-]+$/i, "").trim();
+  const { sourceText, targetCode, targetName } = parsed;
 
-  if (!sourceText) {
-    return await sock.sendMessage(from, {
-      text: formatError("ERROR", "❌ Please provide text to translate."),
-    });
-  }
+  await sock.sendMessage(from, {
+    text: `🌐 *Translating to ${targetName}...*`,
+  });
 
-  // Get language code
-  const targetCode = getLanguageCode(targetLang);
-
-  if (!targetCode) {
-    return await sock.sendMessage(from, {
-      text: formatError(
-        "INVALID LANGUAGE",
-        `❌ Language "${targetLang}" not recognized.\n\n` +
-          "💡 *Try:* Use language code or full name\n" +
-          "✅ *Examples:* .translate Hello to es\n" +
-          "✅ .translate Hello to Spanish",
-      ),
-    });
-  }
-
-  const targetName = getLanguageName(targetCode);
-
+  // ── Try each engine in priority order ────────────────────────────────────
+  // We run Google first in detection-only mode to get the source language
+  // code, which MyMemory needs (it rejects "auto"). — AYOCODES
+  let detectedSourceCode = null;
   try {
-    let translatedText = null;
-    let detectedSource = null;
-    let serviceUsed = "";
+    const detectRes = await axios.get(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(sourceText)}`,
+      { timeout: 6000, headers: { "User-Agent": "Mozilla/5.0" } },
+    );
+    detectedSourceCode = detectRes.data?.[2] || null;
+  } catch (_) {}
 
-    // ===== METHOD 1: Google Translate API =====
+  const engines = [
+    () => translateWithGroq(sourceText, targetCode, targetName),
+    () => translateWithGemini(sourceText, targetCode, targetName),
+    () => translateWithOpenRouter(sourceText, targetCode, targetName),
+    () => translateWithGoogle(sourceText, targetCode),
+    () => translateWithMyMemory(sourceText, targetCode, detectedSourceCode),
+    () => translateWithLingva(sourceText, targetCode),
+  ];
+
+  let result = null;
+  let lastError = "";
+
+  for (const engine of engines) {
     try {
-      console.log(`🌐 Trying Google Translate to ${targetCode}...`);
-      const response = await axios.get(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetCode}&dt=t&q=${encodeURIComponent(sourceText)}`,
-        { timeout: 10000 },
-      );
-
-      // Parse Google Translate response correctly
-      if (response.data && Array.isArray(response.data)) {
-        // The translation is in response.data[0][0][0]
-        if (response.data[0] && response.data[0][0] && response.data[0][0][0]) {
-          translatedText = response.data[0][0][0];
-        }
-
-        // Detected source language is in response.data[2]
-        if (response.data[2]) {
-          detectedSource = response.data[2];
-        }
-      }
-
-      if (translatedText) {
-        serviceUsed = "Google Translate";
-        console.log(`✅ Google Translate successful`);
-      } else {
-        throw new Error("Invalid Google Translate response");
-      }
+      result = await engine();
+      if (result?.text && result.text.trim() !== sourceText.trim()) break;
+      result = null; // Same text = translation didn't happen — try next
     } catch (e) {
-      console.log("Google Translate failed:", e.message);
+      lastError = e.message;
     }
+  }
 
-    // ===== METHOD 2: LibreTranslate =====
-    if (!translatedText) {
-      try {
-        console.log(`🌐 Trying LibreTranslate to ${targetCode}...`);
-        const response = await axios.post(
-          "https://libretranslate.de/translate",
-          {
-            q: sourceText,
-            source: "auto",
-            target: targetCode,
-          },
-          {
-            timeout: 10000,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-
-        if (response.data && response.data.translatedText) {
-          translatedText = response.data.translatedText;
-          serviceUsed = "LibreTranslate";
-          console.log(`✅ LibreTranslate successful`);
-        }
-      } catch (e) {
-        console.log("LibreTranslate failed:", e.message);
-      }
-    }
-
-    // ===== METHOD 3: MyMemory Translate =====
-    if (!translatedText) {
-      try {
-        console.log(`🌐 Trying MyMemory Translate...`);
-        const response = await axios.get(
-          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sourceText)}&langpair=auto|${targetCode}`,
-          { timeout: 10000 },
-        );
-
-        if (
-          response.data &&
-          response.data.responseData &&
-          response.data.responseData.translatedText
-        ) {
-          translatedText = response.data.responseData.translatedText;
-          serviceUsed = "MyMemory Translate";
-          console.log(`✅ MyMemory successful`);
-        }
-      } catch (e) {
-        console.log("MyMemory failed:", e.message);
-      }
-    }
-
-    // ===== METHOD 4: Lingva Translate =====
-    if (!translatedText) {
-      try {
-        console.log(`🌐 Trying Lingva Translate...`);
-        const response = await axios.get(
-          `https://lingva.ml/api/v1/auto/${targetCode}/${encodeURIComponent(sourceText)}`,
-          { timeout: 10000 },
-        );
-
-        if (response.data && response.data.translation) {
-          translatedText = response.data.translation;
-          serviceUsed = "Lingva Translate";
-          console.log(`✅ Lingva successful`);
-        }
-      } catch (e) {
-        console.log("Lingva failed:", e.message);
-      }
-    }
-
-    // ===== METHOD 5: Simple fallback with character replacement =====
-    if (!translatedText) {
-      // Just return the original as a last resort
-      translatedText = sourceText;
-      serviceUsed = "No translation (original)";
-      console.log(`⚠️ Using original text as fallback`);
-    }
-
-    // Format the response
-    const sourceLangName = detectedSource
-      ? getLanguageName(detectedSource)
-      : "Auto-detected";
-
-    const translationResult = `╔══════════════════════════╗
-║     🌐 *TRANSLATION*     ║
-╚══════════════════════════╝
-
-🔤 *Original:*
-${sourceText}
-
-🌍 *Translated to ${targetName}:*
-${translatedText}
-
-━━━━━━━━━━━━━━━━━━━━━
-📊 *Details:*
-• Source Language: ${sourceLangName}
-• Service: ${serviceUsed}
-• Time: ${new Date().toLocaleTimeString()}
-
-⚡ *AYOBOT v1* | 👑 Created by AYOCODES`;
-
-    await sock.sendMessage(from, {
-      text: translationResult,
-    });
-  } catch (error) {
-    console.error("Translation error:", error);
-
-    // Ultimate fallback
-    await sock.sendMessage(from, {
+  if (!result?.text) {
+    return sock.sendMessage(from, {
       text: formatError(
         "TRANSLATION FAILED",
-        `❌ Could not translate text.\n\n` +
+        `❌ All translation services failed.\n\n` +
           `📝 *Original:* ${sourceText}\n` +
           `🌍 *Target:* ${targetName}\n\n` +
-          `💡 *Try:*\n` +
-          `• Using a different language\n` +
-          `• Shorter text\n` +
-          `• Checking your internet connection`,
+          `⚠️ *Last error:* ${lastError}\n\n` +
+          `💡 Add GROQ_API_KEY or GEMINI_KEY to .env for best results.\n` +
+          `Google Translate (no key needed) may be rate-limited.`,
       ),
     });
   }
+
+  const sourceLangName = result.detectedSource
+    ? getLanguageName(result.detectedSource)
+    : "Auto-detected";
+
+  await sock.sendMessage(from, {
+    text:
+      `🌐 *TRANSLATION*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔤 *Original (${sourceLangName}):* ${sourceText}\n` +
+      `🌍 *${targetName}:* ${result.text}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔧 ${result.service} | ⏰ ${new Date().toLocaleTimeString()}\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+  });
 }
 
-// ========== LIST ALL LANGUAGES ==========
+// ========== LIST LANGUAGES ==========
 export async function languages({ from, sock }) {
-  const languagesByLetter = {};
-
-  // Group languages by first letter
+  const grouped = {};
   for (const [code, name] of Object.entries(LANGUAGES)) {
-    const firstLetter = name[0].toUpperCase();
-    if (!languagesByLetter[firstLetter]) {
-      languagesByLetter[firstLetter] = [];
-    }
-    languagesByLetter[firstLetter].push(`${code}: ${name}`);
+    const letter = name[0].toUpperCase();
+    if (!grouped[letter]) grouped[letter] = [];
+    grouped[letter].push(`${code}: ${name}`);
   }
 
-  let langText = `╔══════════════════════════╗
-║   📚 *SUPPORTED LANGUAGES* ║
-╚══════════════════════════╝\n\n`;
+  let text = `📚 *Supported Languages*\n` + `━━━━━━━━━━━━━━━━━━━━━\n`;
 
-  // Add languages by letter
-  const sortedLetters = Object.keys(languagesByLetter).sort();
-  for (const letter of sortedLetters) {
-    langText += `*${letter}*\n`;
-    langText += languagesByLetter[letter].slice(0, 5).join("\n") + "\n";
-    if (languagesByLetter[letter].length > 5) {
-      langText += `  ... and ${languagesByLetter[letter].length - 5} more\n`;
-    }
-    langText += "\n";
+  for (const letter of Object.keys(grouped).sort()) {
+    text += `*${letter}*\n`;
+    text += grouped[letter].join("\n") + "\n\n";
   }
 
-  langText += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  langText += `📌 *Total:* ${Object.keys(LANGUAGES).length} languages\n`;
-  langText += `⚡ *Usage:* .translate Hello to Spanish\n`;
-  langText += `👑 Created by AYOCODES`;
+  text +=
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `📊 ${Object.keys(LANGUAGES).length} languages | .translate <text> to <lang>\n` +
+    `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
-  await sock.sendMessage(from, { text: langText });
+  await sock.sendMessage(from, { text });
 }
 
 // ========== DETECT LANGUAGE ==========
 export async function detect({ fullArgs, from, sock }) {
   if (!fullArgs) {
-    await sock.sendMessage(from, {
+    return sock.sendMessage(from, {
       text: formatInfo(
         "DETECT LANGUAGE",
         "🔍 *Detect the language of any text*\n\n" +
@@ -456,42 +538,78 @@ export async function detect({ fullArgs, from, sock }) {
           "📋 *Example:* .detect Bonjour le monde",
       ),
     });
-    return;
   }
 
   await sock.sendMessage(from, { text: "🔍 *Detecting language...*" });
 
   try {
-    // Try Google Translate detection
-    const response = await axios.get(
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(fullArgs)}`,
-      { timeout: 8000 },
-    );
+    const groqKey = ENV.GROQ_API_KEY || process.env.GROQ_API_KEY;
+    let detectedName = null;
+    let detectedCode = null;
+    let service = "";
 
-    if (response.data && response.data[2]) {
-      const detectedCode = response.data[2];
-      const detectedName = getLanguageName(detectedCode);
-      const confidence = "High";
+    if (groqKey) {
+      try {
+        const res = await axios.post(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            model: "llama3-70b-8192",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Detect the language of the given text. " +
+                  'Respond with ONLY a JSON object: {"code": "<ISO 639-1 code>", "name": "<English language name>"}. ' +
+                  "Nothing else.",
+              },
+              { role: "user", content: fullArgs },
+            ],
+            temperature: 0,
+            max_tokens: 50,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${groqKey}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 10000,
+          },
+        );
 
-      const result = `╔══════════════════════════╗
-║     🔍 *LANGUAGE DETECTED* ║
-╚══════════════════════════╝
-
-📝 *Text:* ${fullArgs.substring(0, 100)}${fullArgs.length > 100 ? "..." : ""}
-
-🌍 *Language:* ${detectedName} (${detectedCode})
-📊 *Confidence:* ${confidence}
-
-━━━━━━━━━━━━━━━━━━━━━
-⚡ *AYOBOT v1* | 👑 Created by AYOCODES`;
-
-      await sock.sendMessage(from, { text: result });
-    } else {
-      throw new Error("Could not detect language");
+        const raw = res.data?.choices?.[0]?.message?.content?.trim() || "";
+        const jsonStr = raw.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(jsonStr);
+        detectedCode = parsed.code;
+        detectedName = parsed.name;
+        service = "Groq (Llama3-70b)";
+      } catch (_) {}
     }
+
+    if (!detectedCode) {
+      const res = await axios.get(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(fullArgs)}`,
+        { timeout: 8000, headers: { "User-Agent": "Mozilla/5.0" } },
+      );
+      detectedCode = res.data?.[2] || null;
+      detectedName = detectedCode ? getLanguageName(detectedCode) : null;
+      service = "Google Translate";
+    }
+
+    if (!detectedCode || !detectedName) throw new Error("Detection failed");
+
+    await sock.sendMessage(from, {
+      text:
+        `🔍 *Language Detected*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📝 *Text:* ${fullArgs.substring(0, 100)}${fullArgs.length > 100 ? "..." : ""}\n` +
+        `🌍 *Language:* ${detectedName} (${detectedCode})\n` +
+        `🔧 *Engine:* ${service}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `💡 .translate <text> to <lang> | ⚡ _AYOCODES_`,
+    });
   } catch (error) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not detect language."),
+      text: formatError("ERROR", "Could not detect language. Try again."),
     });
   }
 }

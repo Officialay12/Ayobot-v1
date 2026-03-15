@@ -1,4 +1,4 @@
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
+import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
 
 // Global storage
 global.userData = global.userData || new Map();

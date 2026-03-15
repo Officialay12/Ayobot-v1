@@ -1,9 +1,9 @@
 import axios from "axios";
 import {
-  formatSuccess,
+  formatData,
   formatError,
   formatInfo,
-  formatData,
+  formatSuccess,
 } from "../utils/formatters.js";
 
 // ========== IP LOOKUP - ULTIMATE VERSION ==========

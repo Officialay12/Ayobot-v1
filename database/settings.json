@@ -1,1 +1,13 @@
-{}
+{
+  "120363422848490651@g.us": {
+    "muted": false,
+    "mutedBy": "223175560437838@s.whatsapp.net",
+    "mutedAt": 1773562027413,
+    "unmutedBy": "223175560437838@s.whatsapp.net",
+    "unmutedAt": 1773562035313,
+    "welcomeMessage": "hello nigga",
+    "welcome": true,
+    "goodbyeMessage": "adios amigo",
+    "goodbye": true
+  }
+}

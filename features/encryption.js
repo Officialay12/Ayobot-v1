@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import { ENV } from "../index.js";
 import {
-  formatSuccess,
+  formatData,
   formatError,
   formatInfo,
-  formatData,
+  formatSuccess,
 } from "../utils/formatters.js";
 
 // ========== ENCRYPT TEXT ==========

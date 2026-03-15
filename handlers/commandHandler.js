@@ -1,4 +1,5 @@
-// handlers/commandHandler.js - AYOBOT v1 | Created by AYOCODES
+// handlers/commandHandler.js — AYOBOT v1 | Created by AYOCODES
+
 import {
   autoReplyEnabled,
   commandUsage,
@@ -7,6 +8,7 @@ import {
   groupSettings,
   isAdmin,
   isAuthorized,
+  normalizePhone,
   userConversations,
   userCooldown,
 } from "../index.js";
@@ -20,10 +22,6 @@ import {
   isSpam,
 } from "../utils/validators.js";
 
-import * as group from "../commands/group/index.js";
-console.log("✅ group imported:", Object.keys(group));
-if (group.core) console.log("✅ group.core:", Object.keys(group.core));
-
 import {
   formatError,
   formatGroupError,
@@ -31,1308 +29,1212 @@ import {
 } from "../utils/formatters.js";
 import { handleRuleViolation } from "./ruleHandler.js";
 
-// ========== FEATURE MODULE IMPORTS ==========
-let admin = {},
-  basic = {},
-  ai = {},
-  calculator = {},
-  crypto = {},
-  dictionary = {},
-  downloader = {},
-  encryption = {},
-  games = {},
-  imageTools = {},
-  ipLookup = {},
-  jokes = {},
-  movies = {},
-  music = {},
-  news = {},
-  notes = {},
-  qr = {},
-  quotes = {},
-  reminder = {},
-  security = {},
-  stocks = {},
-  translation = {},
-  tts = {},
-  unitConverter = {},
-  tools = {},
-  entertainment = {},
-  media = {},
-  utils = {};
-
-const moduleLoad = async (name, modulePath, target) => {
-  try {
-    const mod = await import(modulePath);
-    Object.assign(target, mod);
-    console.log(`✅ ${name} module loaded`);
-    return true;
-  } catch (e) {
-    console.log(`⚠️ ${name} module not loaded: ${e.message.substring(0, 80)}`);
-    return false;
-  }
+// ========== TERMINAL HELPERS ==========
+const log = {
+  ok: (m) => console.log(`✅ ${m}`),
+  err: (m) => console.log(`❌ ${m}`),
+  warn: (m) => console.log(`⚠️  ${m}`),
+  info: (m) => console.log(`ℹ️  ${m}`),
+  cmd: (m) => console.log(`⚡ ${m}`),
 };
 
-await moduleLoad("Admin", "../commands/group/admin.js", admin);
-await moduleLoad("Basic", "../commands/group/basic.js", basic);
-await moduleLoad("AI", "../features/ai.js", ai);
-await moduleLoad("Calculator", "../features/calculator.js", calculator);
-await moduleLoad("Crypto", "../features/crypto.js", crypto);
-await moduleLoad("Dictionary", "../features/dictionary.js", dictionary);
-await moduleLoad("Downloader", "../features/downloader.js", downloader);
-await moduleLoad("Encryption", "../features/encryption.js", encryption);
-await moduleLoad("Games", "../features/games.js", games);
-await moduleLoad("ImageTools", "../features/imageTools.js", imageTools);
-await moduleLoad("IPLookup", "../features/ipLookup.js", ipLookup);
-await moduleLoad("Jokes", "../features/jokes.js", jokes);
-await moduleLoad("Movies", "../features/movies.js", movies);
-await moduleLoad("Music", "../features/music.js", music);
-await moduleLoad("News", "../features/news.js", news);
-await moduleLoad("Notes", "../features/notes.js", notes);
-await moduleLoad("QR", "../features/qr.js", qr);
-await moduleLoad("Quotes", "../features/quotes.js", quotes);
-await moduleLoad("Reminder", "../features/reminder.js", reminder);
-await moduleLoad("Security", "../features/security.js", security);
-await moduleLoad("Stocks", "../features/stocks.js", stocks);
-await moduleLoad("Translation", "../features/translation.js", translation);
-await moduleLoad("TTS", "../features/tts.js", tts);
-await moduleLoad(
-  "UnitConverter",
-  "../features/unitConverter.js",
-  unitConverter,
-);
-await moduleLoad("Tools", "../features/tools.js", tools);
-await moduleLoad(
-  "Entertainment",
-  "../features/entertainment.js",
-  entertainment,
-);
-await moduleLoad("Media", "../features/media.js", media);
-await moduleLoad("Utils", "../features/utils.js", utils);
+// ========== IMPORT ALL MODULES ==========
+console.log("\n📦 LOADING ALL MODULES...");
 
-// ========== AUTO-REPLY HANDLER ==========
+let admin = {};
+try {
+  const mod = await import("../commands/group/admin.js");
+  admin = mod;
+  log.ok("Admin module loaded");
+} catch (e) {
+  log.warn(`Admin module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let basic = {};
+try {
+  const mod = await import("../commands/group/basic.js");
+  basic = mod;
+  log.ok("Basic module loaded");
+} catch (e) {
+  log.warn(`Basic module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let ai = {};
+try {
+  const mod = await import("../features/ai.js");
+  ai = mod;
+  log.ok("AI module loaded");
+} catch (e) {
+  log.warn(`AI module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let calculator = {};
+try {
+  const mod = await import("../features/calculator.js");
+  calculator = mod;
+  log.ok("Calculator module loaded");
+} catch (e) {
+  log.warn(`Calculator module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let crypto = {};
+try {
+  const mod = await import("../features/crypto.js");
+  crypto = mod;
+  log.ok("Crypto module loaded");
+} catch (e) {
+  log.warn(`Crypto module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let dictionary = {};
+try {
+  const mod = await import("../features/dictionary.js");
+  dictionary = mod;
+  log.ok("Dictionary module loaded");
+} catch (e) {
+  log.warn(`Dictionary module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let downloader = {};
+try {
+  const mod = await import("../features/downloader.js");
+  downloader = mod;
+  log.ok("Downloader module loaded");
+} catch (e) {
+  log.warn(`Downloader module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let encryption = {};
+try {
+  const mod = await import("../features/encryption.js");
+  encryption = mod;
+  log.ok("Encryption module loaded");
+} catch (e) {
+  log.warn(`Encryption module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let games = {};
+try {
+  const mod = await import("../features/games.js");
+  games = mod;
+  log.ok("Games module loaded");
+} catch (e) {
+  log.warn(`Games module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let imageTools = {};
+try {
+  const mod = await import("../features/imageTools.js");
+  imageTools = mod;
+  log.ok("ImageTools module loaded");
+} catch (e) {
+  log.warn(`ImageTools module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let ipLookup = {};
+try {
+  const mod = await import("../features/ipLookup.js");
+  ipLookup = mod;
+  log.ok("IPLookup module loaded");
+} catch (e) {
+  log.warn(`IPLookup module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let jokes = {};
+try {
+  const mod = await import("../features/jokes.js");
+  jokes = mod;
+  log.ok("Jokes module loaded");
+} catch (e) {
+  log.warn(`Jokes module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let movies = {};
+try {
+  const mod = await import("../features/movies.js");
+  movies = mod;
+  log.ok("Movies module loaded");
+} catch (e) {
+  log.warn(`Movies module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let music = {};
+try {
+  const mod = await import("../features/music.js");
+  music = mod;
+  log.ok("Music module loaded");
+} catch (e) {
+  log.warn(`Music module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let news = {};
+try {
+  const mod = await import("../features/news.js");
+  news = mod;
+  log.ok("News module loaded");
+} catch (e) {
+  log.warn(`News module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let notes = {};
+try {
+  const mod = await import("../features/notes.js");
+  notes = mod;
+  log.ok("Notes module loaded");
+} catch (e) {
+  log.warn(`Notes module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let qr = {};
+try {
+  const mod = await import("../features/qr.js");
+  qr = mod;
+  log.ok("QR module loaded");
+} catch (e) {
+  log.warn(`QR module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let quotes = {};
+try {
+  const mod = await import("../features/quotes.js");
+  quotes = mod;
+  log.ok("Quotes module loaded");
+} catch (e) {
+  log.warn(`Quotes module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+// ── REMINDER — full module with reminder, listReminders, cancelReminder — AYOCODES
+let reminder = {};
+try {
+  const mod = await import("../features/reminder.js");
+  reminder = mod;
+  log.ok("Reminder module loaded");
+} catch (e) {
+  log.warn(`Reminder module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let security = {};
+try {
+  const mod = await import("../features/security.js");
+  security = mod;
+  log.ok("Security module loaded");
+} catch (e) {
+  log.warn(`Security module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let stocks = {};
+try {
+  const mod = await import("../features/stocks.js");
+  stocks = mod;
+  log.ok("Stocks module loaded");
+} catch (e) {
+  log.warn(`Stocks module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let translation = {};
+try {
+  const mod = await import("../features/translation.js");
+  translation = mod;
+  log.ok("Translation module loaded");
+} catch (e) {
+  log.warn(`Translation module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let tts = {};
+try {
+  const mod = await import("../features/tts.js");
+  tts = mod;
+  log.ok("TTS module loaded");
+} catch (e) {
+  log.warn(`TTS module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let unitConverter = {};
+try {
+  const mod = await import("../features/unitConverter.js");
+  unitConverter = mod;
+  log.ok("UnitConverter module loaded");
+} catch (e) {
+  log.warn(`UnitConverter module not loaded: ${e.message.substring(0, 80)}`);
+}
+
+let group = { core: null, moderation: null, settings: null };
+try {
+  group.core = await import("../commands/group/core.js");
+  log.ok("Group Core module loaded");
+} catch (e) {
+  log.warn(`Group Core not loaded: ${e.message.substring(0, 80)}`);
+}
+try {
+  group.moderation = await import("../commands/group/moderation.js");
+  log.ok("Group Moderation module loaded");
+} catch (e) {
+  log.warn(`Group Moderation not loaded: ${e.message.substring(0, 80)}`);
+}
+try {
+  group.settings = await import("../commands/group/settings.js");
+  log.ok("Group Settings module loaded");
+} catch (e) {
+  log.warn(`Group Settings not loaded: ${e.message.substring(0, 80)}`);
+}
+
 let autoReplyHandler = {
   handleReply: async () => false,
   init: () => {},
   isUserActive: () => false,
-  sendEnableGreeting: async () => {},
-  resetConversation: () => {},
 };
-
 try {
-  const autoReply = await import("./autoReply.js");
-  autoReplyHandler = autoReply.default || autoReply;
-  if (typeof autoReplyHandler.init === "function") {
-    autoReplyHandler.init();
-  }
-} catch (e) {
-  console.log("⚠️ Auto-reply handler not loaded:", e.message);
+  const ar = await import("./autoReply.js");
+  autoReplyHandler = ar.default || ar;
+  if (typeof autoReplyHandler.init === "function") autoReplyHandler.init();
+  log.ok("Auto-reply handler loaded");
+} catch (_) {
+  log.warn("Auto-reply handler not loaded");
 }
 
 // ========== COMMAND REGISTRY ==========
 const commands = new Map();
 const commandStats = new Map();
 
-function registerCommand(name, handler, options = {}) {
-  if (typeof handler !== "function") return;
-  const key = name.toLowerCase();
-  commands.set(key, { handler, name: key, ...options });
-}
-
 function reg(name, handler, options = {}) {
-  registerCommand(name, handler, options);
+  if (typeof handler !== "function") return;
+  commands.set(name.toLowerCase(), {
+    handler,
+    name: name.toLowerCase(),
+    ...options,
+  });
 }
 
-// ========== DOWNLOADER FALLBACK ==========
-// Used when the downloader module fails to load so .dl always works
-function makeDownloadFallback(specificUrl) {
+function dlFallback() {
   return async ({ fullArgs, from, sock }) => {
-    if (!fullArgs) {
+    const url = fullArgs || "";
+    if (!url)
       return sock.sendMessage(from, {
-        text:
-          "⬇️ *DOWNLOAD MEDIA*\n\n" +
-          "Usage: .dl <url>\n\n" +
-          "Supported platforms:\n" +
-          ".play <song>     → YouTube audio\n" +
-          ".tiktok <url>    → TikTok video\n" +
-          ".ig <url>        → Instagram\n" +
-          ".fb <url>        → Facebook\n" +
-          ".twitter <url>   → Twitter/X\n" +
-          ".spotify <url>   → Spotify\n\n" +
-          "⚡ AYOBOT v1 | 👑 AYOCODES",
+        text: "⬇️ *DOWNLOAD*\n\nUsage: .dl <url>\n\n⚡ AYOBOT v1 | 👑 AYOCODES",
       });
-    }
-    let url = (specificUrl || fullArgs).trim();
-    if (!url.startsWith("http")) url = "https://" + url;
+    const clean = url.startsWith("http") ? url : "https://" + url;
     return sock.sendMessage(from, {
-      text:
-        `⚠️ Downloader module unavailable.\n\n` +
-        `Try specific commands:\n` +
-        `.tiktok ${url}\n` +
-        `.ig ${url}\n` +
-        `.fb ${url}\n` +
-        `.twitter ${url}\n` +
-        `.play <song name>\n\n` +
-        `⚡ AYOBOT v1 | 👑 AYOCODES`,
+      text: `⚠️ Downloader unavailable.\nTry: .tiktok ${clean}\n\n⚡ AYOBOT v1 | 👑 AYOCODES`,
     });
   };
 }
 
 // ========== REGISTER ALL COMMANDS ==========
 export function registerAllCommands() {
-  // ── BASIC ──────────────────────────────────────────────
+  console.log("\n📝 REGISTERING ALL COMMANDS...");
+  let count = 0;
+
+  // ── BASIC ────────────────────────────────────────────────
   if (typeof basic.menu === "function") {
-    reg("menu", basic.menu, { desc: "", category: "basic" });
-    reg("help", basic.menu, { desc: "", category: "basic" });
-    reg("commands", basic.menu, { desc: "", category: "basic" });
-    reg("cmds", basic.menu, { desc: "", category: "basic" });
-    reg("start", basic.menu, { desc: "", category: "basic" });
+    reg("menu", basic.menu);
+    reg("help", basic.menu);
+    reg("commands", basic.menu);
+    reg("cmds", basic.menu);
+    reg("start", basic.menu);
+    count += 5;
   }
-
   if (typeof basic.ping === "function") {
-    reg("ping", basic.ping, { desc: "", category: "basic" });
-    reg("pong", basic.ping, { desc: "", category: "basic" });
-    reg("latency", basic.ping, { desc: "", category: "basic" });
-    reg("speed", basic.ping, { desc: "", category: "basic" });
+    reg("ping", basic.ping);
+    reg("pong", basic.ping);
+    reg("latency", basic.ping);
+    reg("speed", basic.ping);
+    count += 4;
   }
-
   if (typeof basic.status === "function") {
-    reg("status", basic.status, { desc: "", category: "basic" });
-    reg("me", basic.status, { desc: "", category: "basic" });
-    reg("profile", basic.status, { desc: "", category: "basic" });
-    reg("whoami", basic.status, { desc: "", category: "basic" });
+    reg("status", basic.status);
+    reg("me", basic.status);
+    reg("profile", basic.status);
+    reg("whoami", basic.status);
+    count += 4;
   }
-
   if (typeof basic.creator === "function") {
-    reg("creator", basic.creator, { desc: "", category: "basic" });
-    reg("maker", basic.creator, { desc: "", category: "basic" });
-    reg("dev", basic.creator, { desc: "", category: "basic" });
-    reg("owner", basic.creator, { desc: "", category: "basic" });
+    reg("creator", basic.creator);
+    reg("maker", basic.creator);
+    reg("dev", basic.creator);
+    reg("owner", basic.creator);
+    count += 4;
   }
-
   if (typeof basic.creatorGit === "function") {
-    reg("creatorsgit", basic.creatorGit, { desc: "", category: "basic" });
-    reg("github", basic.creatorGit, { desc: "", category: "basic" });
-    reg("git", basic.creatorGit, { desc: "", category: "basic" });
+    reg("creatorsgit", basic.creatorGit);
+    reg("github", basic.creatorGit);
+    reg("git", basic.creatorGit);
+    count += 3;
   }
-
   if (typeof basic.auto === "function") {
-    reg("auto", basic.auto, { desc: "", category: "basic" });
-    reg("autoreply", basic.auto, { desc: "", category: "basic" });
-    reg("chatbot", basic.auto, { desc: "", category: "basic" });
+    reg("auto", basic.auto);
+    reg("autoreply", basic.auto);
+    reg("chatbot", basic.auto);
+    count += 3;
   }
-
   if (typeof basic.weather === "function") {
-    reg("weather", basic.weather, { desc: "", category: "basic" });
-    reg("w", basic.weather, { desc: "", category: "basic" });
-    reg("forecast", basic.weather, { desc: "", category: "basic" });
-    reg("temp", basic.weather, { desc: "", category: "basic" });
+    reg("weather", basic.weather);
+    reg("w", basic.weather);
+    reg("forecast", basic.weather);
+    reg("temp", basic.weather);
+    count += 4;
   }
-
   if (typeof basic.shorten === "function") {
-    reg("shorten", basic.shorten, { desc: "", category: "basic" });
-    reg("short", basic.shorten, { desc: "", category: "basic" });
-    reg("tiny", basic.shorten, { desc: "", category: "basic" });
+    reg("shorten", basic.shorten);
+    reg("short", basic.shorten);
+    reg("tiny", basic.shorten);
+    count += 3;
   }
-
   if (typeof basic.scrape === "function") {
-    reg("scrape", basic.scrape, { desc: "", category: "basic" });
-    reg("tweek", basic.scrape, { desc: "", category: "basic" });
+    reg("scrape", basic.scrape);
+    reg("tweek", basic.scrape);
+    count += 2;
   }
-
   if (typeof basic.connectInfo === "function") {
-    reg("connect", basic.connectInfo, { desc: "", category: "basic" });
-    reg("connectinfo", basic.connectInfo, { desc: "", category: "basic" });
+    reg("connect", basic.connectInfo);
+    reg("connectinfo", basic.connectInfo);
+    count += 2;
   }
-
   if (typeof basic.time === "function") {
-    reg("time", basic.time, { desc: "", category: "basic" });
-    reg("worldtime", basic.time, { desc: "", category: "basic" });
+    reg("time", basic.time);
+    reg("worldtime", basic.time);
+    count += 2;
   }
-
   if (typeof basic.pdf === "function") {
-    reg("pdf", basic.pdf, { desc: "", category: "basic" });
+    reg("pdf", basic.pdf);
+    count += 1;
   }
-
   if (typeof basic.viewOnce === "function") {
-    reg("open", basic.viewOnce, { desc: "", category: "basic" });
-    reg("vv", basic.viewOnce, { desc: "", category: "basic" });
-    reg("arise", basic.viewOnce, { desc: "", category: "basic" });
+    reg("open", basic.viewOnce);
+    reg("vv", basic.viewOnce);
+    reg("arise", basic.viewOnce);
+    count += 3;
   }
-
   if (typeof basic.joinWaitlist === "function") {
-    reg("jointrend", basic.joinWaitlist, { desc: "", category: "basic" });
-    reg("waitlist", basic.joinWaitlist, { desc: "", category: "basic" });
+    reg("jointrend", basic.joinWaitlist);
+    reg("waitlist", basic.joinWaitlist);
+    count += 2;
   }
-
   if (typeof basic.getpp === "function") {
-    reg("getpp", basic.getpp, { desc: "", category: "basic" });
-    reg("mypp", basic.getpp, { desc: "", category: "basic" });
-    reg("pp", basic.getpp, { desc: "", category: "basic" });
+    reg("getpp", basic.getpp);
+    reg("mypp", basic.getpp);
+    reg("pp", basic.getpp);
+    count += 3;
   }
-
   if (typeof basic.getgpp === "function") {
-    reg("getgpp", basic.getgpp, { desc: "", category: "basic" });
-    reg("gpp", basic.getgpp, { desc: "", category: "basic" });
+    reg("getgpp", basic.getgpp);
+    reg("gpp", basic.getgpp);
+    count += 2;
   }
-
   if (typeof basic.prefixinfo === "function") {
-    reg("prefixinfo", basic.prefixinfo, { desc: "", category: "basic" });
-    reg("preinfo", basic.prefixinfo, { desc: "", category: "basic" });
+    reg("prefixinfo", basic.prefixinfo);
+    reg("preinfo", basic.prefixinfo);
+    count += 2;
   }
-
   if (typeof basic.platform === "function") {
-    reg("platform", basic.platform, { desc: "", category: "basic" });
-    reg("kitchen", basic.platform, { desc: "", category: "basic" });
+    reg("platform", basic.platform);
+    reg("kitchen", basic.platform);
+    count += 2;
   }
-
   if (typeof basic.url === "function") {
-    reg("url", basic.url, { desc: "", category: "basic" });
+    reg("url", basic.url);
+    count += 1;
   }
-
   if (typeof basic.fetch === "function") {
-    reg("fetch", basic.fetch, { desc: "", category: "basic" });
+    reg("fetch", basic.fetch);
+    count += 1;
   }
-
   if (typeof basic.qencode === "function") {
-    reg("qencode", basic.qencode, { desc: "", category: "basic" });
+    reg("qencode", basic.qencode);
+    count += 1;
   }
-
   if (typeof basic.take === "function") {
-    reg("take", basic.take, { desc: "", category: "basic" });
+    reg("take", basic.take);
+    count += 1;
   }
-
   if (typeof basic.imgbb === "function") {
-    reg("imgbb", basic.imgbb, { desc: "", category: "basic" });
+    reg("imgbb", basic.imgbb);
+    count += 1;
   }
-
   if (typeof basic.screenshot === "function") {
-    reg("screenshot", basic.screenshot, { desc: "", category: "basic" });
-    reg("ss", basic.screenshot, { desc: "", category: "basic" });
+    reg("screenshot", basic.screenshot);
+    reg("ss", basic.screenshot);
+    count += 2;
   }
-
   if (typeof basic.inspect === "function") {
-    reg("inspect", basic.inspect, { desc: "", category: "basic" });
+    reg("inspect", basic.inspect);
+    count += 1;
   }
-
   if (typeof basic.trebleboost === "function") {
-    reg("trebleboost", basic.trebleboost, { desc: "", category: "basic" });
+    reg("trebleboost", basic.trebleboost);
+    count += 1;
   }
-
   if (typeof basic.vcf === "function") {
-    reg("vcf", basic.vcf, { desc: "", category: "basic" });
+    reg("vcf", basic.vcf);
+    count += 1;
   }
-
   if (typeof basic.viewvcf === "function") {
-    reg("viewvcf", basic.viewvcf, { desc: "", category: "basic" });
+    reg("viewvcf", basic.viewvcf);
+    count += 1;
   }
-
-  // IP / DNS
   if (typeof basic.getip === "function") {
-    reg("getip", basic.getip, { desc: "", category: "tools" });
+    reg("getip", basic.getip);
+    count += 1;
   }
   if (typeof basic.myip === "function") {
-    reg("myip", basic.myip, { desc: "", category: "tools" });
+    reg("myip", basic.myip);
+    count += 1;
   }
   if (typeof basic.whois === "function") {
-    reg("whois", basic.whois, { desc: "", category: "tools" });
-    reg("domain", basic.whois, { desc: "", category: "tools" });
+    reg("whois", basic.whois);
+    reg("domain", basic.whois);
+    count += 2;
   }
   if (typeof basic.dns === "function") {
-    reg("dns", basic.dns, { desc: "", category: "tools" });
-    reg("dnslookup", basic.dns, { desc: "", category: "tools" });
+    reg("dns", basic.dns);
+    reg("dnslookup", basic.dns);
+    count += 2;
   }
   if (typeof basic.ip === "function") {
-    reg("ip", basic.ip, { desc: "", category: "tools" });
-    reg("iplookup", basic.ip, { desc: "", category: "tools" });
+    reg("ip", basic.ip);
+    reg("iplookup", basic.ip);
+    count += 2;
   }
-
-  // JARVIS / IRON MAN
   if (typeof basic.jarvis === "function") {
-    reg("jarvis", basic.jarvis, { desc: "", category: "ai" });
-    reg("j", basic.jarvis, { desc: "", category: "ai" });
-    reg("ask", basic.jarvis, { desc: "", category: "ai" });
+    reg("jarvis", basic.jarvis);
+    reg("j", basic.jarvis);
+    reg("ask", basic.jarvis);
+    count += 3;
   }
-
   if (typeof basic.jarvisVoice === "function") {
-    reg("jarvisv", basic.jarvisVoice, { desc: "", category: "ai" });
-    reg("jv", basic.jarvisVoice, { desc: "", category: "ai" });
-    reg("speak", basic.jarvisVoice, { desc: "", category: "ai" });
+    reg("jarvisv", basic.jarvisVoice);
+    reg("jv", basic.jarvisVoice);
+    reg("speak", basic.jarvisVoice);
+    count += 3;
   }
-
   if (typeof basic.jarvisStatus === "function") {
-    reg("jarvisstatus", basic.jarvisStatus, { desc: "", category: "ai" });
-    reg("jstatus", basic.jarvisStatus, { desc: "", category: "ai" });
-    reg("jstats", basic.jarvisStatus, { desc: "", category: "ai" });
+    reg("jarvisstatus", basic.jarvisStatus);
+    reg("jstatus", basic.jarvisStatus);
+    reg("jstats", basic.jarvisStatus);
+    count += 3;
   }
-
   if (typeof basic.ironmanStatus === "function") {
-    reg("ironman", basic.ironmanStatus, { desc: "", category: "fun" });
-    reg("suit", basic.ironmanStatus, { desc: "", category: "fun" });
-    reg("stark", basic.ironmanStatus, { desc: "", category: "fun" });
-    reg("iron", basic.ironmanStatus, { desc: "", category: "fun" });
+    reg("ironman", basic.ironmanStatus);
+    reg("suit", basic.ironmanStatus);
+    reg("stark", basic.ironmanStatus);
+    reg("iron", basic.ironmanStatus);
+    count += 4;
   }
 
-  // ── AI ─────────────────────────────────────────────────
+  // ── AI ───────────────────────────────────────────────────
   if (typeof ai.ai === "function") {
-    reg("ai", ai.ai, { desc: "", category: "ai" });
-    reg("ayobot", ai.ai, { desc: "", category: "ai" });
+    reg("ai", ai.ai);
+    reg("ayobot", ai.ai);
+    count += 2;
   }
-
   if (typeof ai.aiClear === "function") {
-    reg("aiclear", ai.aiClear, { desc: "", category: "ai" });
-    reg("clearchat", ai.aiClear, { desc: "", category: "ai" });
+    reg("aiclear", ai.aiClear);
+    reg("clearchat", ai.aiClear);
+    count += 2;
   }
-
   if (typeof ai.aiExport === "function") {
-    reg("aiexport", ai.aiExport, { desc: "", category: "ai" });
+    reg("aiexport", ai.aiExport);
+    count += 1;
   }
-
   if (typeof ai.aiStat === "function") {
-    reg("aistat", ai.aiStat, { desc: "", category: "ai" });
-    reg("aistats", ai.aiStat, { desc: "", category: "ai" });
+    reg("aistat", ai.aiStat);
+    reg("aistats", ai.aiStat);
+    count += 2;
   }
-
   if (typeof ai.summarize === "function") {
-    reg("summarize", ai.summarize, { desc: "", category: "ai" });
-    reg("summary", ai.summarize, { desc: "", category: "ai" });
-    reg("simpler", ai.summarize, { desc: "", category: "ai" });
-    reg("tldr", ai.summarize, { desc: "", category: "ai" });
+    reg("summarize", ai.summarize);
+    reg("summary", ai.summarize);
+    reg("simpler", ai.summarize);
+    reg("tldr", ai.summarize);
+    count += 4;
   }
-
   if (typeof ai.grammar === "function") {
-    reg("grammar", ai.grammar, { desc: "", category: "ai" });
-    reg("spellcheck", ai.grammar, { desc: "", category: "ai" });
+    reg("grammar", ai.grammar);
+    reg("spellcheck", ai.grammar);
+    count += 2;
   }
-
   if (typeof ai.translate === "function") {
-    reg("translate", ai.translate, { desc: "", category: "ai" });
-    reg("tr", ai.translate, { desc: "", category: "ai" });
-    reg("tl", ai.translate, { desc: "", category: "ai" });
-    reg("lang", ai.translate, { desc: "", category: "ai" });
+    reg("translate", translation.translate);
+    reg("tr", translation.translate);
+    reg("tl", translation.translate);
+    reg("lang", translation.translate);
+    count += 4;
   }
 
-  // ── CALCULATOR ─────────────────────────────────────────
+  // ── CALCULATOR ───────────────────────────────────────────
   if (typeof calculator.calculate === "function") {
-    reg("calc", calculator.calculate, { desc: "", category: "tools" });
-    reg("calculate", calculator.calculate, { desc: "", category: "tools" });
-    reg("math", calculator.calculate, { desc: "", category: "tools" });
-    reg("=", calculator.calculate, { desc: "", category: "tools" });
+    reg("calc", calculator.calculate);
+    reg("calculate", calculator.calculate);
+    reg("math", calculator.calculate);
+    reg("=", calculator.calculate);
+    count += 4;
   }
 
-  // ── CRYPTO ─────────────────────────────────────────────
+  // ── CRYPTO ───────────────────────────────────────────────
   if (typeof crypto.crypto === "function") {
-    reg("crypto", crypto.crypto, { desc: "", category: "finance" });
-    reg("coin", crypto.crypto, { desc: "", category: "finance" });
-    reg("btc", (ctx) => crypto.crypto({ ...ctx, fullArgs: "bitcoin" }), {
-      desc: "",
-      category: "finance",
-    });
-    reg("eth", (ctx) => crypto.crypto({ ...ctx, fullArgs: "ethereum" }), {
-      desc: "",
-      category: "finance",
-    });
-    reg("doge", (ctx) => crypto.crypto({ ...ctx, fullArgs: "dogecoin" }), {
-      desc: "",
-      category: "finance",
-    });
-    reg("bnb", (ctx) => crypto.crypto({ ...ctx, fullArgs: "binancecoin" }), {
-      desc: "",
-      category: "finance",
-    });
+    reg("crypto", crypto.crypto);
+    reg("coin", crypto.crypto);
+    reg("btc", (ctx) => crypto.crypto({ ...ctx, fullArgs: "bitcoin" }));
+    reg("eth", (ctx) => crypto.crypto({ ...ctx, fullArgs: "ethereum" }));
+    reg("doge", (ctx) => crypto.crypto({ ...ctx, fullArgs: "dogecoin" }));
+    reg("bnb", (ctx) => crypto.crypto({ ...ctx, fullArgs: "binancecoin" }));
+    count += 6;
   }
-
   if (typeof crypto.cryptoTop === "function") {
-    reg("cryptotop", crypto.cryptoTop, { desc: "", category: "finance" });
-    reg("top10", crypto.cryptoTop, { desc: "", category: "finance" });
+    reg("cryptotop", crypto.cryptoTop);
+    reg("top10", crypto.cryptoTop);
+    count += 2;
   }
-
   if (typeof crypto.cryptoChart === "function") {
-    reg("cryptochart", crypto.cryptoChart, { desc: "", category: "finance" });
+    reg("cryptochart", crypto.cryptoChart);
+    count += 1;
   }
-
   if (typeof crypto.cryptoConvert === "function") {
-    reg("cryptoconvert", crypto.cryptoConvert, {
-      desc: "",
-      category: "finance",
-    });
+    reg("cryptoconvert", crypto.cryptoConvert);
+    count += 1;
   }
 
-  // ── DICTIONARY ─────────────────────────────────────────
+  // ── DICTIONARY ───────────────────────────────────────────
   if (typeof dictionary.dict === "function") {
-    reg("dict", dictionary.dict, { desc: "", category: "tools" });
-    reg("dictionary", dictionary.dict, { desc: "", category: "tools" });
-    reg("define", dictionary.dict, { desc: "", category: "tools" });
-    reg("meaning", dictionary.dict, { desc: "", category: "tools" });
+    reg("dict", dictionary.dict);
+    reg("dictionary", dictionary.dict);
+    reg("define", dictionary.dict);
+    reg("meaning", dictionary.dict);
+    count += 4;
   }
 
-  // ── DOWNLOADER ─────────────────────────────────────────
-  // Each alias has its own fallback so they ALWAYS register
-  if (typeof downloader.play === "function") {
-    reg("play", downloader.play, { desc: "", category: "media" });
-    reg("music", downloader.play, { desc: "", category: "media" });
-    reg("mp3", downloader.play, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("play", fb, { desc: "", category: "media" });
-    reg("music", fb, { desc: "", category: "media" });
-    reg("mp3", fb, { desc: "", category: "media" });
+  // ── DOWNLOADER ───────────────────────────────────────────
+  const dlMap = [
+    { fn: downloader.play, aliases: ["play", "music", "mp3"] },
+    { fn: downloader.tiktok, aliases: ["tiktok", "tt", "tok"] },
+    { fn: downloader.instagram, aliases: ["instagram", "ig", "insta"] },
+    { fn: downloader.facebook, aliases: ["facebook", "fb"] },
+    { fn: downloader.twitter, aliases: ["twitter", "x", "tweet"] },
+    { fn: downloader.spotify, aliases: ["spotify", "sp"] },
+    { fn: downloader.pinterest, aliases: ["pinterest", "pin"] },
+    { fn: downloader.image, aliases: ["image", "img"] },
+    { fn: downloader.gif, aliases: ["gif", "giphy"] },
+    { fn: downloader.download, aliases: ["download", "dl", "save"] },
+    { fn: downloader.youtube, aliases: ["youtube", "yt", "ytinfo"] },
+  ];
+  for (const { fn, aliases } of dlMap) {
+    const h = typeof fn === "function" ? fn : dlFallback();
+    for (const a of aliases) {
+      reg(a, h);
+      count++;
+    }
   }
 
-  if (typeof downloader.youtube === "function") {
-    reg("yt", downloader.youtube, { desc: "", category: "media" });
-    reg("youtube", downloader.youtube, { desc: "", category: "media" });
-    reg("ytinfo", downloader.youtube, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("yt", fb, { desc: "", category: "media" });
-    reg("youtube", fb, { desc: "", category: "media" });
-    reg("ytinfo", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.tiktok === "function") {
-    reg("tiktok", downloader.tiktok, { desc: "", category: "media" });
-    reg("tt", downloader.tiktok, { desc: "", category: "media" });
-    reg("tok", downloader.tiktok, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("tiktok", fb, { desc: "", category: "media" });
-    reg("tt", fb, { desc: "", category: "media" });
-    reg("tok", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.instagram === "function") {
-    reg("instagram", downloader.instagram, { desc: "", category: "media" });
-    reg("ig", downloader.instagram, { desc: "", category: "media" });
-    reg("insta", downloader.instagram, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("instagram", fb, { desc: "", category: "media" });
-    reg("ig", fb, { desc: "", category: "media" });
-    reg("insta", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.facebook === "function") {
-    reg("facebook", downloader.facebook, { desc: "", category: "media" });
-    reg("fb", downloader.facebook, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("facebook", fb, { desc: "", category: "media" });
-    reg("fb", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.twitter === "function") {
-    reg("twitter", downloader.twitter, { desc: "", category: "media" });
-    reg("x", downloader.twitter, { desc: "", category: "media" });
-    reg("tweet", downloader.twitter, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("twitter", fb, { desc: "", category: "media" });
-    reg("x", fb, { desc: "", category: "media" });
-    reg("tweet", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.spotify === "function") {
-    reg("spotify", downloader.spotify, { desc: "", category: "media" });
-    reg("sp", downloader.spotify, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("spotify", fb, { desc: "", category: "media" });
-    reg("sp", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.pinterest === "function") {
-    reg("pinterest", downloader.pinterest, { desc: "", category: "media" });
-    reg("pin", downloader.pinterest, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("pinterest", fb, { desc: "", category: "media" });
-    reg("pin", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.image === "function") {
-    reg("img", downloader.image, { desc: "", category: "media" });
-    reg("image", downloader.image, { desc: "", category: "media" });
-    reg("photo", downloader.image, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("img", fb, { desc: "", category: "media" });
-    reg("image", fb, { desc: "", category: "media" });
-    reg("photo", fb, { desc: "", category: "media" });
-  }
-
-  if (typeof downloader.gif === "function") {
-    reg("gif", downloader.gif, { desc: "", category: "media" });
-    reg("giphy", downloader.gif, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("gif", fb, { desc: "", category: "media" });
-    reg("giphy", fb, { desc: "", category: "media" });
-  }
-
-  // ── DOWNLOAD / DL / SAVE — always register with fallback ──
-  if (typeof downloader.download === "function") {
-    reg("download", downloader.download, { desc: "", category: "media" });
-    reg("dl", downloader.download, { desc: "", category: "media" });
-    reg("save", downloader.download, { desc: "", category: "media" });
-  } else {
-    const fb = makeDownloadFallback();
-    reg("download", fb, { desc: "", category: "media" });
-    reg("dl", fb, { desc: "", category: "media" });
-    reg("save", fb, { desc: "", category: "media" });
-  }
-
-  // ── ENCRYPTION ─────────────────────────────────────────
+  // ── ENCRYPTION ───────────────────────────────────────────
   if (typeof encryption.encrypt === "function") {
-    reg("encrypt", encryption.encrypt, { desc: "", category: "tools" });
-    reg("enc", encryption.encrypt, { desc: "", category: "tools" });
+    reg("encrypt", encryption.encrypt);
+    reg("enc", encryption.encrypt);
+    count += 2;
   }
-
   if (typeof encryption.decrypt === "function") {
-    reg("decrypt", encryption.decrypt, { desc: "", category: "tools" });
-    reg("dec", encryption.decrypt, { desc: "", category: "tools" });
+    reg("decrypt", encryption.decrypt);
+    reg("dec", encryption.decrypt);
+    count += 2;
   }
-
   if (typeof encryption.hash === "function") {
-    reg("hash", encryption.hash, { desc: "", category: "tools" });
-    reg("md5", encryption.hash, { desc: "", category: "tools" });
+    reg("hash", encryption.hash);
+    reg("md5", encryption.hash);
+    count += 2;
   }
-
   if (typeof encryption.password === "function") {
-    reg("password", encryption.password, { desc: "", category: "tools" });
-    reg("genpass", encryption.password, { desc: "", category: "tools" });
-    reg("passgen", encryption.password, { desc: "", category: "tools" });
+    reg("password", encryption.password);
+    reg("genpass", encryption.password);
+    reg("passgen", encryption.password);
+    count += 3;
   }
 
-  // ── GAMES ──────────────────────────────────────────────
+  // ── GAMES ────────────────────────────────────────────────
   if (typeof games.rps === "function") {
-    reg("rps", games.rps, { desc: "", category: "games" });
-    reg("rockpaperscissors", games.rps, { desc: "", category: "games" });
+    reg("rps", games.rps);
+    reg("rockpaperscissors", games.rps);
+    count += 2;
   }
-
   if (typeof games.dice === "function") {
-    reg("dice", games.dice, { desc: "", category: "games" });
-    reg("roll", games.dice, { desc: "", category: "games" });
+    reg("dice", games.dice);
+    reg("roll", games.dice);
+    count += 2;
   }
-
   if (typeof games.coinFlip === "function") {
-    reg("flip", games.coinFlip, { desc: "", category: "games" });
+    reg("flip", games.coinFlip);
+    count += 1;
   }
-
   if (typeof games.trivia === "function") {
-    reg("trivia", games.trivia, { desc: "", category: "games" });
-    reg("quiz", games.trivia, { desc: "", category: "games" });
+    reg("trivia", games.trivia);
+    reg("quiz", games.trivia);
+    count += 2;
   }
 
-  // ── IMAGE TOOLS ────────────────────────────────────────
+  // ── IMAGE TOOLS ──────────────────────────────────────────
   if (typeof imageTools.sticker === "function") {
-    reg("sticker", imageTools.sticker, { desc: "", category: "media" });
-    reg("s", imageTools.sticker, { desc: "", category: "media" });
-    reg("stick", imageTools.sticker, { desc: "", category: "media" });
+    reg("sticker", imageTools.sticker);
+    reg("s", imageTools.sticker);
+    reg("stick", imageTools.sticker);
+    count += 3;
   }
-
   if (typeof imageTools.toImage === "function") {
-    reg("toimage", imageTools.toImage, { desc: "", category: "media" });
-    reg("toimg", imageTools.toImage, { desc: "", category: "media" });
+    reg("toimage", imageTools.toImage);
+    reg("toimg", imageTools.toImage);
+    count += 2;
   }
-
   if (typeof imageTools.toVideo === "function") {
-    reg("tovideo", imageTools.toVideo, { desc: "", category: "media" });
-    reg("tovid", imageTools.toVideo, { desc: "", category: "media" });
+    reg("tovideo", imageTools.toVideo);
+    reg("tovid", imageTools.toVideo);
+    count += 2;
   }
-
   if (typeof imageTools.toGif === "function") {
-    reg("togif", imageTools.toGif, { desc: "", category: "media" });
+    reg("togif", imageTools.toGif);
+    count += 1;
   }
-
   if (typeof imageTools.toAudio === "function") {
-    reg("toaudio", imageTools.toAudio, { desc: "", category: "media" });
-    reg("tomp3", imageTools.toAudio, { desc: "", category: "media" });
+    reg("toaudio", imageTools.toAudio);
+    reg("tomp3", imageTools.toAudio);
+    count += 2;
   }
-
   if (typeof imageTools.removeBg === "function") {
-    reg("removebg", imageTools.removeBg, { desc: "", category: "media" });
-    reg("nobg", imageTools.removeBg, { desc: "", category: "media" });
-    reg("rmbg", imageTools.removeBg, { desc: "", category: "media" });
+    reg("removebg", imageTools.removeBg);
+    reg("nobg", imageTools.removeBg);
+    reg("rmbg", imageTools.removeBg);
+    count += 3;
   }
-
   if (typeof imageTools.meme === "function") {
-    reg("meme", imageTools.meme, { desc: "", category: "fun" });
+    reg("meme", imageTools.meme);
+    count += 1;
   }
 
-  // ── IP LOOKUP (fallback if basic didn't provide) ────────
-  if (typeof ipLookup.ip === "function" && !commands.has("ipinfo")) {
-    reg("ipinfo", ipLookup.ip, { desc: "", category: "tools" });
+  // ── IP LOOKUP (fallback only — basic.js registers primary) ─
+  if (typeof ipLookup.ip === "function" && !commands.has("ip")) {
+    reg("ipinfo", ipLookup.ip);
+    count += 1;
   }
   if (typeof ipLookup.whois === "function" && !commands.has("whois")) {
-    reg("whois", ipLookup.whois, { desc: "", category: "tools" });
+    reg("whois", ipLookup.whois);
+    count += 1;
   }
   if (typeof ipLookup.myip === "function" && !commands.has("myip")) {
-    reg("myip", ipLookup.myip, { desc: "", category: "tools" });
+    reg("myip", ipLookup.myip);
+    count += 1;
   }
   if (typeof ipLookup.dns === "function" && !commands.has("dns")) {
-    reg("dns", ipLookup.dns, { desc: "", category: "tools" });
+    reg("dns", ipLookup.dns);
+    count += 1;
   }
 
-  // ── JOKES ──────────────────────────────────────────────
+  // ── JOKES ────────────────────────────────────────────────
   if (typeof jokes.joke === "function") {
-    reg("joke", jokes.joke, { desc: "", category: "fun" });
-    reg("laugh", jokes.joke, { desc: "", category: "fun" });
-    reg("funny", jokes.joke, { desc: "", category: "fun" });
+    reg("joke", jokes.joke);
+    reg("laugh", jokes.joke);
+    reg("funny", jokes.joke);
+    count += 3;
   }
-
   if (typeof jokes.roast === "function") {
-    reg("roast", jokes.roast, { desc: "", category: "fun" });
-    reg("burn", jokes.roast, { desc: "", category: "fun" });
+    reg("roast", jokes.roast);
+    reg("burn", jokes.roast);
+    count += 2;
   }
-
   if (typeof jokes.pickupLine === "function") {
-    reg("pickup", jokes.pickupLine, { desc: "", category: "fun" });
-    reg("pickupline", jokes.pickupLine, { desc: "", category: "fun" });
-    reg("flirt", jokes.pickupLine, { desc: "", category: "fun" });
+    reg("pickup", jokes.pickupLine);
+    reg("pickupline", jokes.pickupLine);
+    reg("flirt", jokes.pickupLine);
+    count += 3;
   }
 
-  // ── MOVIES ─────────────────────────────────────────────
+  // ── MOVIES ───────────────────────────────────────────────
   if (typeof movies.movie === "function") {
-    reg("movie", movies.movie, { desc: "", category: "entertainment" });
-    reg("film", movies.movie, { desc: "", category: "entertainment" });
-    reg("imdb", movies.movie, { desc: "", category: "entertainment" });
-    reg("movies", movies.movie, { desc: "", category: "entertainment" });
+    reg("movie", movies.movie);
+    reg("film", movies.movie);
+    reg("imdb", movies.movie);
+    reg("movies", movies.movie);
+    count += 4;
   }
-
   if (typeof movies.tv === "function") {
-    reg("tv", movies.tv, { desc: "", category: "entertainment" });
-    reg("series", movies.tv, { desc: "", category: "entertainment" });
-    reg("show", movies.tv, { desc: "", category: "entertainment" });
+    reg("tv", movies.tv);
+    reg("series", movies.tv);
+    reg("show", movies.tv);
+    count += 3;
   }
-
   if (typeof movies.recommend === "function") {
-    reg("recommend", movies.recommend, { desc: "", category: "entertainment" });
-    reg("rec", movies.recommend, { desc: "", category: "entertainment" });
-    reg("suggest", movies.recommend, { desc: "", category: "entertainment" });
+    reg("recommend", movies.recommend);
+    reg("rec", movies.recommend);
+    reg("suggest", movies.recommend);
+    count += 3;
   }
 
-  // ── MUSIC ──────────────────────────────────────────────
+  // ── MUSIC ────────────────────────────────────────────────
   if (typeof music.musicLyrics === "function") {
-    reg("lyrics", music.musicLyrics, { desc: "", category: "music" });
-    reg("lyric", music.musicLyrics, { desc: "", category: "music" });
-    reg("words", music.musicLyrics, { desc: "", category: "music" });
+    reg("lyrics", music.musicLyrics);
+    reg("lyric", music.musicLyrics);
+    reg("words", music.musicLyrics);
+    count += 3;
   }
-
   if (typeof music.musicTrending === "function") {
-    reg("trending", music.musicTrending, { desc: "", category: "music" });
-    reg("chart", music.musicTrending, { desc: "", category: "music" });
+    reg("trending", music.musicTrending);
+    reg("chart", music.musicTrending);
+    count += 2;
   }
-
   if (typeof music.musicArtist === "function") {
-    reg("artist", music.musicArtist, { desc: "", category: "music" });
+    reg("artist", music.musicArtist);
+    count += 1;
   }
-
   if (typeof music.musicAlbum === "function") {
-    reg("album", music.musicAlbum, { desc: "", category: "music" });
+    reg("album", music.musicAlbum);
+    count += 1;
   }
-
   if (typeof music.musicSearch === "function") {
-    reg("musicsearch", music.musicSearch, { desc: "", category: "music" });
-    reg("findsong", music.musicSearch, { desc: "", category: "music" });
+    reg("musicsearch", music.musicSearch);
+    reg("findsong", music.musicSearch);
+    count += 2;
   }
-
   if (typeof music.musicGenius === "function") {
-    reg("genius", music.musicGenius, { desc: "", category: "music" });
+    reg("genius", music.musicGenius);
+    count += 1;
   }
 
-  // ── NEWS ───────────────────────────────────────────────
+  // ── NEWS ─────────────────────────────────────────────────
   if (typeof news.news === "function") {
-    reg("news", news.news, { desc: "", category: "info" });
-    reg("headlines", news.news, { desc: "", category: "info" });
-    reg("breaking", news.news, { desc: "", category: "info" });
-    reg("update", news.news, { desc: "", category: "info" });
+    reg("news", news.news);
+    reg("headlines", news.news);
+    reg("breaking", news.news);
+    reg("update", news.news);
+    count += 4;
   }
 
-  // ── NOTES ──────────────────────────────────────────────
+  // ── NOTES ────────────────────────────────────────────────
   if (typeof notes.save === "function") {
-    reg("note", notes.save, { desc: "", category: "tools" });
-    reg("store", notes.save, { desc: "", category: "tools" });
+    reg("note", notes.save);
+    reg("store", notes.save);
+    count += 2;
   }
-
   if (typeof notes.get === "function") {
-    reg("getnote", notes.get, { desc: "", category: "tools" });
-    reg("recall", notes.get, { desc: "", category: "tools" });
+    reg("getnote", notes.get);
+    reg("recall", notes.get);
+    count += 2;
   }
-
   if (typeof notes.list === "function") {
-    reg("notes", notes.list, { desc: "", category: "tools" });
-    reg("keys", notes.list, { desc: "", category: "tools" });
+    reg("notes", notes.list);
+    reg("keys", notes.list);
+    count += 2;
   }
-
   if (typeof notes.deleteKey === "function") {
-    reg("delnote", notes.deleteKey, { desc: "", category: "tools" });
-    reg("forget", notes.deleteKey, { desc: "", category: "tools" });
+    reg("delnote", notes.deleteKey);
+    reg("forget", notes.deleteKey);
+    count += 2;
   }
-
   if (typeof notes.clearAll === "function") {
-    reg("clearnotes", notes.clearAll, { desc: "", category: "tools" });
+    reg("clearnotes", notes.clearAll);
+    count += 1;
   }
 
-  // ── QR ─────────────────────────────────────────────────
+  // ── QR ───────────────────────────────────────────────────
   if (typeof qr.qr === "function") {
-    reg("qr", qr.qr, { desc: "", category: "tools" });
-    reg("qrcode", qr.qr, { desc: "", category: "tools" });
+    reg("qr", qr.qr);
+    reg("qrcode", qr.qr);
+    count += 2;
   }
 
-  // ── QUOTES ─────────────────────────────────────────────
+  // ── QUOTES ───────────────────────────────────────────────
   if (typeof quotes.quote === "function") {
-    reg("quote", quotes.quote, { desc: "", category: "fun" });
-    reg("motivation", quotes.quote, { desc: "", category: "fun" });
-    reg("inspire", quotes.quote, { desc: "", category: "fun" });
-    reg("wisdom", quotes.quote, { desc: "", category: "fun" });
+    reg("quote", quotes.quote);
+    reg("motivation", quotes.quote);
+    reg("inspire", quotes.quote);
+    reg("wisdom", quotes.quote);
+    count += 4;
   }
 
-  // ── REMINDER ───────────────────────────────────────────
+  // ── REMINDER ─────────────────────────────────────────────
+  // .remind / .reminder / .later / .alarm — set a new reminder — AYOCODES
   if (typeof reminder.reminder === "function") {
-    reg("remind", reminder.reminder, { desc: "", category: "tools" });
-    reg("reminder", reminder.reminder, { desc: "", category: "tools" });
-    reg("later", reminder.reminder, { desc: "", category: "tools" });
-    reg("alarm", reminder.reminder, { desc: "", category: "tools" });
+    reg("remind", reminder.reminder);
+    reg("reminder", reminder.reminder);
+    reg("later", reminder.reminder);
+    reg("alarm", reminder.reminder);
+    count += 4;
+  }
+  // .reminders / .myreminders / .rlist — list all active reminders — AYOCODES
+  if (typeof reminder.listReminders === "function") {
+    reg("reminders", reminder.listReminders);
+    reg("myreminders", reminder.listReminders);
+    reg("rlist", reminder.listReminders);
+    count += 3;
+  }
+  // .cancelreminder / .delreminder / .rmreminder — cancel by number — AYOCODES
+  if (typeof reminder.cancelReminder === "function") {
+    reg("cancelreminder", reminder.cancelReminder);
+    reg("delreminder", reminder.cancelReminder);
+    reg("rmreminder", reminder.cancelReminder);
+    count += 3;
   }
 
-  // ── SECURITY ───────────────────────────────────────────
+  // ── SECURITY ─────────────────────────────────────────────
   if (typeof security.scan === "function") {
-    reg("scan", security.scan, { desc: "", category: "tools" });
-    reg("virustotal", security.scan, { desc: "", category: "tools" });
-    reg("checksafe", security.scan, { desc: "", category: "tools" });
+    reg("scan", security.scan);
+    reg("virustotal", security.scan);
+    reg("checksafe", security.scan);
+    count += 3;
   }
 
-  // ── STOCKS ─────────────────────────────────────────────
+  // ── STOCKS ───────────────────────────────────────────────
   if (typeof stocks.stock === "function") {
-    reg("stock", stocks.stock, { desc: "", category: "finance" });
-    reg("stocks", stocks.stock, { desc: "", category: "finance" });
-    reg("share", stocks.stock, { desc: "", category: "finance" });
+    reg("stock", stocks.stock);
+    reg("stocks", stocks.stock);
+    reg("share", stocks.stock);
+    count += 3;
   }
 
-  // ── TRANSLATION (fallback if ai.translate didn't cover) ─
+  // ── TRANSLATION (fallback) ────────────────────────────────
   if (
     typeof translation.translate === "function" &&
     !commands.has("translate")
   ) {
-    reg("translate", translation.translate, { desc: "", category: "tools" });
-    reg("tr", translation.translate, { desc: "", category: "tools" });
-    reg("tl", translation.translate, { desc: "", category: "tools" });
-    reg("lang", translation.translate, { desc: "", category: "tools" });
+    reg("translate", translation.translate);
+    reg("tr", translation.translate);
+    reg("tl", translation.translate);
+    reg("lang", translation.translate);
+    count += 4;
   }
-
   if (typeof translation.languages === "function") {
-    reg("languages", translation.languages, { desc: "", category: "tools" });
-    reg("langs", translation.languages, { desc: "", category: "tools" });
+    reg("languages", translation.languages);
+    reg("langs", translation.languages);
+    count += 2;
   }
-
   if (typeof translation.detect === "function") {
-    reg("detect", translation.detect, { desc: "", category: "tools" });
-    reg("langdetect", translation.detect, { desc: "", category: "tools" });
+    reg("detect", translation.detect);
+    reg("langdetect", translation.detect);
+    count += 2;
   }
 
-  // ── TTS ────────────────────────────────────────────────
+  // ── TTS ──────────────────────────────────────────────────
   if (typeof tts.tts === "function") {
-    reg("tts", tts.tts, { desc: "", category: "tools" });
-    reg("voice", tts.tts, { desc: "", category: "tools" });
-    reg("say", tts.tts, { desc: "", category: "tools" });
+    reg("tts", tts.tts);
+    reg("voice", tts.tts);
+    reg("say", tts.tts);
+    count += 3;
   }
-
   if (typeof tts.ttsVoice === "function") {
-    reg("voices", tts.ttsVoice, { desc: "", category: "tools" });
+    reg("voices", tts.ttsVoice);
+    count += 1;
   }
 
-  // ── UNIT CONVERTER ─────────────────────────────────────
+  // ── UNIT CONVERTER ───────────────────────────────────────
   if (typeof unitConverter.convert === "function") {
-    reg("convert", unitConverter.convert, { desc: "", category: "tools" });
-    reg("conv", unitConverter.convert, { desc: "", category: "tools" });
-    reg("uconvert", unitConverter.convert, { desc: "", category: "tools" });
+    reg("convert", unitConverter.convert);
+    reg("conv", unitConverter.convert);
+    reg("uconvert", unitConverter.convert);
+    count += 3;
   }
-
   if (typeof unitConverter.units === "function") {
-    reg("units", unitConverter.units, { desc: "", category: "tools" });
+    reg("units", unitConverter.units);
+    count += 1;
   }
-
   if (typeof unitConverter.allunits === "function") {
-    reg("allunits", unitConverter.allunits, { desc: "", category: "tools" });
+    reg("allunits", unitConverter.allunits);
+    count += 1;
   }
 
-  // ── GROUP CORE ─────────────────────────────────────────
+  // ── GROUP CORE ───────────────────────────────────────────
   if (group?.core) {
-    if (typeof group.core.kick === "function") {
-      reg("kick", group.core.kick, {
+    const gc = group.core;
+    if (typeof gc.kick === "function") {
+      reg("kick", gc.kick, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
-      reg("remove", group.core.kick, {
+      reg("remove", gc.kick, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
+      count += 2;
     }
-    if (typeof group.core.add === "function") {
-      reg("add", group.core.add, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("invite", group.core.add, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gc.add === "function") {
+      reg("add", gc.add, { groupOnly: true, adminOnly: true });
+      reg("invite", gc.add, { groupOnly: true, adminOnly: true });
+      count += 2;
     }
-    if (typeof group.core.promote === "function") {
-      reg("promote", group.core.promote, {
+    if (typeof gc.promote === "function") {
+      reg("promote", gc.promote, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
-      reg("makeadmin", group.core.promote, {
+      reg("makeadmin", gc.promote, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
+      count += 2;
     }
-    if (typeof group.core.demote === "function") {
-      reg("demote", group.core.demote, {
+    if (typeof gc.demote === "function") {
+      reg("demote", gc.demote, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
-      reg("unadmin", group.core.demote, {
+      reg("unadmin", gc.demote, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
+      count += 2;
     }
-    if (typeof group.core.listAdmins === "function") {
-      reg("listadmins", group.core.listAdmins, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("admins", group.core.listAdmins, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("admin", group.core.listAdmins, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gc.listAdmins === "function") {
+      reg("listadmins", gc.listAdmins, { groupOnly: true });
+      reg("admins", gc.listAdmins, { groupOnly: true });
+      reg("admin", gc.listAdmins, { groupOnly: true });
+      count += 3;
     }
   }
 
-  // ── GROUP MODERATION ───────────────────────────────────
+  // ── GROUP MODERATION ─────────────────────────────────────
   if (group?.moderation) {
-    if (typeof group.moderation.ban === "function") {
-      reg("ban", group.moderation.ban, {
+    const gm = group.moderation;
+    if (typeof gm.ban === "function") {
+      reg("ban", gm.ban, {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
-        desc: "",
-        category: "group",
       });
+      count += 1;
     }
-    if (typeof group.moderation.unban === "function") {
-      reg("unban", group.moderation.unban, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gm.unban === "function") {
+      reg("unban", gm.unban, { groupOnly: true, adminOnly: true });
+      count += 1;
     }
-    if (typeof group.moderation.listBanned === "function") {
-      reg("listbanned", group.moderation.listBanned, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("bans", group.moderation.listBanned, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gm.listBanned === "function") {
+      reg("listbanned", gm.listBanned, { groupOnly: true, adminOnly: true });
+      reg("bans", gm.listBanned, { groupOnly: true, adminOnly: true });
+      count += 2;
     }
-    if (typeof group.moderation.warn === "function") {
-      reg("warn", group.moderation.warn, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gm.warn === "function") {
+      reg("warn", gm.warn, { groupOnly: true, adminOnly: true });
+      count += 1;
     }
-    if (typeof group.moderation.warnings === "function") {
-      reg("warnings", group.moderation.warnings, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("warnlist", group.moderation.warnings, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gm.warnings === "function") {
+      reg("warnings", gm.warnings, { groupOnly: true });
+      reg("warnlist", gm.warnings, { groupOnly: true });
+      count += 2;
     }
-    if (typeof group.moderation.clearWarns === "function") {
-      reg("clearwarns", group.moderation.clearWarns, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("resetwarns", group.moderation.clearWarns, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gm.clearWarns === "function") {
+      reg("clearwarns", gm.clearWarns, { groupOnly: true, adminOnly: true });
+      reg("resetwarns", gm.clearWarns, { groupOnly: true, adminOnly: true });
+      count += 2;
     }
   }
 
-  // ── GROUP SETTINGS ─────────────────────────────────────
+  // ── GROUP SETTINGS ───────────────────────────────────────
   if (group?.settings) {
     const gs = group.settings;
-    if (typeof gs.mute === "function")
-      reg("mute", gs.mute, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.unmute === "function")
-      reg("unmute", gs.unmute, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.antiLink === "function")
-      reg("antilink", gs.antiLink, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.antiSpam === "function")
-      reg("antispam", gs.antiSpam, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.welcomeToggle === "function")
-      reg("welcome", gs.welcomeToggle, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.setWelcome === "function")
-      reg("setwelcome", gs.setWelcome, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.goodbyeToggle === "function")
-      reg("goodbye", gs.goodbyeToggle, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.setGoodbye === "function")
-      reg("setgoodbye", gs.setGoodbye, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gs.mute === "function") {
+      reg("mute", gs.mute, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.unmute === "function") {
+      reg("unmute", gs.unmute, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.lock === "function") {
+      reg("lock", gs.lock, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.unlock === "function") {
+      reg("unlock", gs.unlock, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.antiLink === "function") {
+      reg("antilink", gs.antiLink, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.antiSpam === "function") {
+      reg("antispam", gs.antiSpam, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.welcomeToggle === "function") {
+      reg("welcome", gs.welcomeToggle, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.setWelcome === "function") {
+      reg("setwelcome", gs.setWelcome, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.goodbyeToggle === "function") {
+      reg("goodbye", gs.goodbyeToggle, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.setGoodbye === "function") {
+      reg("setgoodbye", gs.setGoodbye, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
     if (typeof gs.groupInfo === "function") {
-      reg("groupinfo", gs.groupInfo, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("ginfo", gs.groupInfo, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("gstats", gs.groupInfo, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
+      reg("groupinfo", gs.groupInfo, { groupOnly: true });
+      reg("ginfo", gs.groupInfo, { groupOnly: true });
+      reg("gstats", gs.groupInfo, { groupOnly: true });
+      count += 3;
     }
     if (typeof gs.rules === "function") {
-      reg("rules", gs.rules, { groupOnly: true, desc: "", category: "group" });
-      reg("grouprules", gs.rules, {
-        groupOnly: true,
-        desc: "",
-        category: "group",
-      });
+      reg("rules", gs.rules, { groupOnly: true });
+      reg("grouprules", gs.rules, { groupOnly: true });
+      count += 2;
     }
-    if (typeof gs.setRules === "function")
-      reg("setrules", gs.setRules, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.link === "function")
-      reg("link", gs.link, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-    if (typeof gs.revoke === "function")
-      reg("revoke", gs.revoke, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+    if (typeof gs.setRules === "function") {
+      reg("setrules", gs.setRules, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.link === "function") {
+      reg("link", gs.link, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.revoke === "function") {
+      reg("revoke", gs.revoke, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
     if (typeof gs.tagAll === "function") {
-      reg("tagall", gs.tagAll, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("everyone", gs.tagAll, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("all", gs.tagAll, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+      reg("tagall", gs.tagAll, { groupOnly: true, adminOnly: true });
+      reg("everyone", gs.tagAll, { groupOnly: true, adminOnly: true });
+      reg("all", gs.tagAll, { groupOnly: true, adminOnly: true });
+      count += 3;
     }
     if (typeof gs.hideTag === "function") {
-      reg("hidetag", gs.hideTag, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("htag", gs.hideTag, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+      reg("hidetag", gs.hideTag, { groupOnly: true, adminOnly: true });
+      reg("htag", gs.hideTag, { groupOnly: true, adminOnly: true });
+      count += 2;
+    }
+    if (typeof gs.pin === "function") {
+      reg("pin", gs.pin, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.unpin === "function") {
+      reg("unpin", gs.unpin, { groupOnly: true, adminOnly: true });
+      count += 1;
     }
     if (typeof gs.deleteMsg === "function") {
-      reg("delete", gs.deleteMsg, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
-      reg("del", gs.deleteMsg, {
-        groupOnly: true,
-        adminOnly: true,
-        desc: "",
-        category: "group",
-      });
+      reg("delete", gs.deleteMsg, { groupOnly: true, adminOnly: true });
+      reg("del", gs.deleteMsg, { groupOnly: true, adminOnly: true });
+      count += 2;
     }
-    if (typeof gs.leave === "function")
-      reg("leave", gs.leave, {
+    if (typeof gs.settingsOverview === "function") {
+      reg("settings", gs.settingsOverview, { groupOnly: true });
+      reg("gsettings", gs.settingsOverview, { groupOnly: true });
+      count += 2;
+    }
+    if (typeof gs.resetSettings === "function") {
+      reg("resetsettings", gs.resetSettings, {
         groupOnly: true,
         adminOnly: true,
-        desc: "",
-        category: "group",
       });
-    if (typeof gs.debug === "function")
-      reg("debuggroup", gs.debug, {
+      reg("clearsettings", gs.resetSettings, {
         groupOnly: true,
         adminOnly: true,
-        desc: "",
-        category: "group",
       });
+      count += 2;
+    }
+    if (typeof gs.leave === "function") {
+      reg("leave", gs.leave, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
+    if (typeof gs.debug === "function") {
+      reg("debuggroup", gs.debug, { groupOnly: true, adminOnly: true });
+      count += 1;
+    }
   }
 
-  // ── ADMIN (BOT OWNER) ──────────────────────────────────
+  // ── ADMIN ────────────────────────────────────────────────
   if (admin) {
     if (typeof admin.addUser === "function") {
-      reg("adduser", admin.addUser, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("auth", admin.addUser, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("adduser", admin.addUser, { adminOnly: true });
+      reg("auth", admin.addUser, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.removeUser === "function") {
-      reg("removeuser", admin.removeUser, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("deauth", admin.removeUser, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("removeuser", admin.removeUser, { adminOnly: true });
+      reg("deauth", admin.removeUser, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.listUsers === "function") {
-      reg("listusers", admin.listUsers, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("users", admin.listUsers, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("listusers", admin.listUsers, { adminOnly: true });
+      reg("users", admin.listUsers, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.mode === "function") {
-      reg("mode", admin.mode, { adminOnly: true, desc: "", category: "admin" });
-      reg("setmode", admin.mode, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("mode", admin.mode, { adminOnly: true });
+      reg("setmode", admin.mode, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.broadcast === "function") {
-      reg("broadcast", admin.broadcast, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("bc", admin.broadcast, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("broadcast", admin.broadcast, { adminOnly: true });
+      reg("bc", admin.broadcast, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.globalBroadcast === "function") {
-      reg("globalbroadcast", admin.globalBroadcast, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("gbc", admin.globalBroadcast, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("globalbroadcast", admin.globalBroadcast, { adminOnly: true });
+      reg("gbc", admin.globalBroadcast, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.stats === "function") {
-      reg("stats", admin.stats, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("botstats", admin.stats, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("stats", admin.stats, { adminOnly: true });
+      reg("botstats", admin.stats, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.superBan === "function") {
-      reg("superban", admin.superBan, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("superban", admin.superBan, { adminOnly: true });
+      count += 1;
     }
     if (typeof admin.clearBans === "function") {
-      reg("clearbans", admin.clearBans, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("clearbans", admin.clearBans, { adminOnly: true });
+      count += 1;
     }
     if (typeof admin.restart === "function") {
-      reg("restart", admin.restart, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("reboot", admin.restart, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("restart", admin.restart, { adminOnly: true });
+      reg("reboot", admin.restart, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.shutdown === "function") {
-      reg("shutdown", admin.shutdown, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("off", admin.shutdown, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("shutdown", admin.shutdown, { adminOnly: true });
+      reg("off", admin.shutdown, { adminOnly: true });
+      count += 2;
     }
     if (typeof admin.botStatus === "function") {
-      reg("botstatus", admin.botStatus, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("botstatus", admin.botStatus, { adminOnly: true });
+      count += 1;
     }
     if (typeof admin.adminEval === "function") {
-      reg("eval", admin.adminEval, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
-      reg("exec", admin.adminEval, {
-        adminOnly: true,
-        desc: "",
-        category: "admin",
-      });
+      reg("eval", admin.adminEval, { adminOnly: true });
+      reg("exec", admin.adminEval, { adminOnly: true });
+      count += 2;
     }
   }
+
+  log.ok(`Registered ${commands.size} commands (${count} attempts)`);
 }
 
-// Register all commands
 registerAllCommands();
-console.log(`✅ Registered ${commands.size} commands`);
 
-// ========== SAFE HELPERS ==========
+// ========== HELPERS ==========
 function safeJid(jid) {
   if (!jid) return "";
-  if (typeof jid === "object") return jid.id || jid.jid || String(jid);
+  if (typeof jid === "object") {
+    if (jid.user && jid.server) return `${jid.user}@${jid.server}`;
+    if (jid._serialized) return jid._serialized;
+    if (jid.id) return jid.id;
+    if (jid.jid) return jid.jid;
+    return "";
+  }
   return String(jid);
 }
 
+// Strip device suffix (:56, :52) then get just the number part. — AYOCODES
 function safePhone(jid) {
-  return safeJid(jid).split("@")[0] || "";
+  return safeJid(jid).split("@")[0].split(":")[0] || "";
+}
+
+function storeDeletedMessage(id, text) {
+  if (deletedMessages.size >= 2000)
+    deletedMessages.delete(deletedMessages.keys().next().value);
+  deletedMessages.set(id, text);
+  setTimeout(() => deletedMessages.delete(id), 3_600_000);
 }
 
 // ========== MAIN COMMAND HANDLER ==========
@@ -1342,162 +1244,98 @@ export async function handleCommand(message, sock) {
     if (!from) return;
 
     const isGroup = from.endsWith("@g.us");
-    const isDM = from.endsWith("@s.whatsapp.net");
+    const isDM = from.endsWith("@s.whatsapp.net") || from.endsWith("@lid");
     const fromMe = !!message.key.fromMe;
 
-    // Resolve real sender JID
-    let userJid;
+    // ── Resolve sender JID ──────────────────────────────────
+    // In groups, sender is key.participant (includes device suffix like :56).
+    // In DMs, fromMe = owner sending from their own phone.
+    // We strip the :XX device suffix before any comparison. — AYOCODES
+    let rawSenderJid;
     if (isGroup) {
-      userJid = safeJid(message.key.participant || from);
+      rawSenderJid = message.key.participant || from;
     } else if (fromMe) {
-      const raw = sock?.user?.id || "";
-      const phone = raw.split(":")[0].replace(/[^0-9]/g, "");
-      userJid = phone ? `${phone}@s.whatsapp.net` : from;
+      const phone = (sock?.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
+      rawSenderJid = phone ? `${phone}@s.whatsapp.net` : from;
     } else {
-      userJid = from;
+      rawSenderJid = from;
     }
 
+    // Normalize: strip device suffix so "2349159180375:56@s.whatsapp.net"
+    // becomes "2349159180375@s.whatsapp.net" for all admin checks. — AYOCODES
+    const cleanPhone = safePhone(rawSenderJid);
+    const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
     if (!userJid) return;
 
-    const isAdminUser = isAdmin(userJid);
-    const isAuthorizedUser = isAuthorized(userJid);
+    // ── Permission flags ────────────────────────────────────
+    // fromMe = this message was sent by the bot owner from their own phone.
+    // The owner is ALWAYS admin — no JID comparison needed for fromMe messages.
+    // This is the definitive fix for "owner blocked in groups". — AYOCODES
+    const isAdminUser = fromMe || isAdmin(userJid);
+    const isAuthorizedUser = isAdminUser || isAuthorized(userJid);
 
-    // Where to send replies
-    const replyTo = fromMe && isDM ? userJid : from;
+    // ── Extract message text ────────────────────────────────
+    const m = message.message || {};
+    const msgText =
+      m.conversation ||
+      m.extendedTextMessage?.text ||
+      m.imageMessage?.caption ||
+      m.videoMessage?.caption ||
+      m.documentMessage?.caption ||
+      m.buttonsResponseMessage?.selectedButtonId ||
+      m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+      m.templateButtonReplyMessage?.selectedId ||
+      "";
 
-    // Extract text
-    const msgText = extractText(message);
-    if (!msgText || msgText.trim() === "") return;
+    if (!msgText || !msgText.trim()) return;
     const trimmed = msgText.trim();
 
-    // Logging
+    // ── Non-command messages ────────────────────────────────
+    if (!trimmed.startsWith(ENV.PREFIX)) return;
+
+    // ── Log ─────────────────────────────────────────────────
     const tag = isAdminUser
-      ? "👑 ADMIN"
+      ? "👑ADMIN"
       : isAuthorizedUser
-        ? "✅ USER"
-        : "👤 PUBLIC";
+        ? "✅USER"
+        : "👤PUBLIC";
     const loc = isGroup ? "GROUP" : "DM";
-    console.log(
-      `📥 [${tag}][${loc}] ${safePhone(userJid)}: "${trimmed.substring(0, 60)}"`,
-    );
+    log.cmd(`[${tag}][${loc}] ${trimmed.substring(0, 60)} ← ${cleanPhone}`);
 
-    // Bot mode gate
-    if (ENV.BOT_MODE === "private" && !isAdminUser && !isAuthorizedUser) {
-      return sock.sendMessage(replyTo, {
-        text: formatError(
-          "ACCESS DENIED",
-          `🔒 Bot is in *PRIVATE MODE*.\n\nContact: ${ENV.CREATOR_CONTACT || "admin"}`,
-        ),
-      });
-    }
-
-    // Rate limit
-    if (!isAdminUser && isRateLimited(userJid, false)) {
-      return sock.sendMessage(replyTo, {
-        text: formatInfo("⏳ SLOW DOWN", getRateLimitMessage()),
-      });
-    }
-
-    // Store for anti-delete
-    if (message.key?.id) {
-      deletedMessages.set(message.key.id, trimmed);
-      setTimeout(() => deletedMessages.delete(message.key.id), 3600000);
-    }
-
-    // Group rule enforcement
-    if (isGroup && !isAdminUser) {
-      const settings = groupSettings.get(from) || {};
-      if (settings.antilink && containsLink(trimmed)) {
-        try {
-          await handleRuleViolation("link", from, userJid, sock, message);
-        } catch (_) {}
-        return;
-      }
-      if (settings.antispam && isSpam(userJid, trimmed)) {
-        try {
-          await handleRuleViolation("spam", from, userJid, sock, message);
-        } catch (_) {}
-        return;
-      }
-    }
-
-    // Non-command messages → auto-reply
-    if (!trimmed.startsWith(ENV.PREFIX)) {
-      const autoEnabled =
-        autoReplyEnabled.get(userJid) ||
-        autoReplyEnabled.get(from) ||
-        ENV.AUTO_REPLY_ENABLED ||
-        false;
-
-      if (autoEnabled && typeof autoReplyHandler?.handleReply === "function") {
-        const ctxInfo = message.message?.extendedTextMessage?.contextInfo || {};
-        const quotedParticipant =
-          ctxInfo.participant || ctxInfo.remoteJid || "";
-        const botPhone = sock.user?.id?.split(":")[0] || "";
-        const isReplyToBot = botPhone && quotedParticipant.includes(botPhone);
-        const isActive = userConversations.has(userJid);
-        const shouldAutoReply = isDM ? autoEnabled : isReplyToBot || isActive;
-
-        if (shouldAutoReply) {
-          const cooldownKey = `ar_${userJid}`;
-          if (Date.now() - (userCooldown.get(cooldownKey) || 0) >= 3000) {
-            try {
-              const replied = await autoReplyHandler.handleReply(
-                trimmed,
-                userJid,
-                isAdminUser,
-                sock,
-                replyTo,
-                message,
-              );
-              if (replied) {
-                userCooldown.set(cooldownKey, Date.now());
-                if (isDM) userConversations.set(userJid, true);
-              }
-            } catch (e) {
-              console.error("Auto-reply error:", e.message);
-            }
-          }
-        }
-      }
-      return;
-    }
-
-    // Parse command
+    // ── Parse command ────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
-    const parts = body.split(/ +/);
+    const parts = body.split(/\s+/);
     const commandName = parts.shift()?.toLowerCase()?.trim();
     if (!commandName) return;
     const args = parts;
     const fullArgs = parts.join(" ");
 
-    console.log(
-      `⚡ [${loc}] ${ENV.PREFIX}${commandName}${fullArgs ? ` "${fullArgs.substring(0, 40)}"` : ""} | ${safePhone(userJid)}`,
-    );
+    // ── Store for anti-delete ────────────────────────────────
+    if (message.key?.id) storeDeletedMessage(message.key.id, trimmed);
 
-    // Track usage
+    // ── Track usage ──────────────────────────────────────────
     if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
     commandUsage.get(userJid)[commandName] =
       (commandUsage.get(userJid)[commandName] || 0) + 1;
     commandStats.set(commandName, (commandStats.get(commandName) || 0) + 1);
 
-    // Find command
+    // ── Find command ─────────────────────────────────────────
     const command = commands.get(commandName);
     if (!command) {
-      console.log(`❓ Unknown command: ${ENV.PREFIX}${commandName}`);
-      await sock.sendMessage(replyTo, {
+      log.info(`Unknown command: ${ENV.PREFIX}${commandName}`);
+      await sock.sendMessage(from, {
         text: formatInfo(
           "UNKNOWN COMMAND",
-          `❓ *.${commandName}* not found.\n\nType *.menu* to see all commands!`,
+          `❓ *.${commandName}* not found.\n\nType *${ENV.PREFIX}menu* to see all commands!`,
         ),
       });
       return;
     }
 
-    // Permission checks
+    // ── Permission checks ────────────────────────────────────
     if (command.adminOnly && !isAdminUser) {
-      return sock.sendMessage(replyTo, {
+      return sock.sendMessage(from, {
         text: formatError(
           "ACCESS DENIED",
           "⛔ This command is for the *bot owner* only.",
@@ -1506,7 +1344,7 @@ export async function handleCommand(message, sock) {
     }
 
     if (command.groupOnly && !isGroup) {
-      return sock.sendMessage(replyTo, {
+      return sock.sendMessage(from, {
         text: formatError(
           "GROUP ONLY",
           `👥 *.${commandName}* only works in groups.`,
@@ -1520,22 +1358,22 @@ export async function handleCommand(message, sock) {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
       } catch (_) {}
       if (!botIsAdmin) {
-        return sock.sendMessage(replyTo, {
+        return sock.sendMessage(from, {
           text: formatGroupError(
             "BOT NOT ADMIN",
-            `❌ I need group admin rights to run *.${commandName}*. Please promote me first!`,
+            `❌ I need group admin rights for *.${commandName}*. Please promote me first!`,
           ),
         });
       }
     }
 
-    // Execute
+    // ── Execute ──────────────────────────────────────────────
     try {
       await command.handler({
         args,
         fullArgs,
         message,
-        from: replyTo,
+        from,
         groupJid: isGroup ? from : null,
         userJid,
         isGroup,
@@ -1546,14 +1384,11 @@ export async function handleCommand(message, sock) {
         commandName,
         prefix: ENV.PREFIX,
       });
-      console.log(`✅ Done: ${ENV.PREFIX}${commandName}`);
+      log.ok(`Done: ${ENV.PREFIX}${commandName} ← ${cleanPhone}`);
     } catch (cmdError) {
-      console.error(
-        `❌ Error in ${ENV.PREFIX}${commandName}:`,
-        cmdError.message,
-      );
+      log.err(`Error in ${ENV.PREFIX}${commandName}: ${cmdError.message}`);
       try {
-        await sock.sendMessage(replyTo, {
+        await sock.sendMessage(from, {
           text: formatError(
             "COMMAND ERROR",
             `❌ *.${commandName}* failed:\n${cmdError.message || "Unknown error"}`,
@@ -1562,19 +1397,8 @@ export async function handleCommand(message, sock) {
       } catch (_) {}
     }
   } catch (error) {
-    console.error("❌ handleCommand fatal:", error.message);
-    try {
-      const replyTarget = message?.key?.remoteJid;
-      if (replyTarget)
-        await sock.sendMessage(replyTarget, {
-          text: formatError(
-            "SYSTEM ERROR",
-            error.message || "Unexpected error.",
-          ),
-        });
-    } catch (_) {}
+    log.err("handleCommand fatal: " + error.message);
   }
 }
 
-// ── EXPORTS ───────────────────────────────────────────────
 export { commands, commandStats };

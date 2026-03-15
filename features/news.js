@@ -1,60 +1,70 @@
 import axios from "axios";
 import { ENV } from "../index.js";
-import { formatSuccess, formatError, formatInfo } from "../utils/formatters.js";
+import { formatError, formatInfo } from "../utils/formatters.js";
 
-export async function news({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "NEWS",
-        "📰 *Latest News*\n\nUsage: .news <topic>\nExample: .news technology",
-      ),
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function truncate(str, max) {
+  if (!str) return "";
+  return str.length > max ? str.substring(0, max).trimEnd() + "..." : str;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "Recent";
+  try {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
     });
-    return;
+  } catch {
+    return "Recent";
   }
+}
 
-  await sock.sendMessage(from, { text: "📰 *Fetching latest news...*" });
+function buildNewsMessage(articles, query, providerName) {
+  const header = `📰 *${query.toUpperCase()} — LATEST NEWS*\n${"─".repeat(30)}\n\n`;
 
-  const providers = [
-    // NewsAPI
+  const body = articles
+    .slice(0, 5)
+    .map((article, i) => {
+      const title = truncate(article.title, 70);
+      const desc = truncate(article.description, 100);
+      const source = article.source || "Unknown";
+      const date = formatDate(article.date);
+
+      let entry = `*${i + 1}. ${title}*\n`;
+      if (desc) entry += `   📝 ${desc}\n`;
+      entry += `   📊 ${source}  •  ${date}\n`;
+      if (article.url) entry += `   🔗 ${article.url}\n`;
+      return entry;
+    })
+    .join("\n");
+
+  const footer = `${"─".repeat(30)}\n⚡ Via ${providerName} • AYOBOT v1 by AYOCODES 👑`;
+
+  return header + body + footer;
+}
+
+// ── Providers ──────────────────────────────────────────────────────────────
+
+function getProviders(query) {
+  return [
     {
-      name: "NewsAPI",
+      name: "NewsData.io",
       fetch: async () => {
-        const res = await axios.get(
-          `https://newsapi.org/v2/everything?q=${encodeURIComponent(fullArgs)}&apiKey=7a8d4b4a7a8d4b4a&pageSize=5&language=en`,
-        );
-        return res.data.articles.map((a) => ({
-          title: a.title,
-          description: a.description,
-          url: a.url,
-          source: a.source.name,
-          date: a.publishedAt,
-        }));
-      },
-    },
-    // GNews
-    {
-      name: "GNews",
-      fetch: async () => {
-        const res = await axios.get(
-          `https://gnews.io/api/v4/search?q=${encodeURIComponent(fullArgs)}&lang=en&token=eea1c7b1e7c5f4b3a2d1c0b9a8f7e6d5&max=5`,
-        );
-        return res.data.articles.map((a) => ({
-          title: a.title,
-          description: a.description,
-          url: a.url,
-          source: a.source.name,
-          date: a.publishedAt,
-        }));
-      },
-    },
-    // NewsData.io
-    {
-      name: "NewsData",
-      fetch: async () => {
-        const res = await axios.get(
-          `https://newsdata.io/api/1/news?apikey=${ENV.NEWS_API_KEY}&q=${encodeURIComponent(fullArgs)}&language=en&size=5`,
-        );
+        const res = await axios.get("https://newsdata.io/api/1/news", {
+          params: {
+            apikey: ENV.NEWSDATA_API_KEY,
+            q: query,
+            language: "en",
+            size: 5,
+          },
+          timeout: 8000,
+        });
+
+        if (!res.data?.results?.length) return [];
+
         return res.data.results.map((a) => ({
           title: a.title,
           description: a.description,
@@ -64,73 +74,118 @@ export async function news({ fullArgs, from, sock }) {
         }));
       },
     },
+    {
+      name: "GNews",
+      fetch: async () => {
+        const res = await axios.get("https://gnews.io/api/v4/search", {
+          params: {
+            q: query,
+            lang: "en",
+            token: ENV.GNEWS_API_KEY,
+            max: 5,
+          },
+          timeout: 8000,
+        });
+
+        if (!res.data?.articles?.length) return [];
+
+        return res.data.articles.map((a) => ({
+          title: a.title,
+          description: a.description,
+          url: a.url,
+          source: a.source?.name,
+          date: a.publishedAt,
+        }));
+      },
+    },
+    {
+      name: "NewsAPI",
+      fetch: async () => {
+        const res = await axios.get("https://newsapi.org/v2/everything", {
+          params: {
+            q: query,
+            apiKey: ENV.NEWSAPI_KEY,
+            pageSize: 5,
+            language: "en",
+            sortBy: "publishedAt",
+          },
+          timeout: 8000,
+        });
+
+        if (!res.data?.articles?.length) return [];
+
+        // NewsAPI returns removed articles as "[Removed]"
+        return res.data.articles
+          .filter((a) => a.title !== "[Removed]")
+          .map((a) => ({
+            title: a.title,
+            description: a.description,
+            url: a.url,
+            source: a.source?.name,
+            date: a.publishedAt,
+          }));
+      },
+    },
   ];
+}
+
+// ── Main Handler ───────────────────────────────────────────────────────────
+
+export async function news({ fullArgs, from, sock }) {
+  // ── No input guard ───────────────────────────────────────────
+  if (!fullArgs?.trim()) {
+    await sock.sendMessage(from, {
+      text: formatInfo(
+        "📰 NEWS",
+        "Usage: .news <topic>\n\nExamples:\n  .news AI\n  .news Nigeria\n  .news crypto\n\nGet the latest headlines on anything fr 🔥",
+      ),
+    });
+    return;
+  }
+
+  const query = fullArgs.trim();
+
+  await sock.sendMessage(from, {
+    text: `🔍 Hunting down the latest on *"${query}"*...`,
+  });
+
+  // ── Try each provider in order ───────────────────────────────
+  const providers = getProviders(query);
 
   for (const provider of providers) {
     try {
       const articles = await provider.fetch();
+
       if (articles?.length > 0) {
-        let newsText = `╔══════════════════════════╗
-║   📰 *LATEST NEWS:* ${fullArgs.toUpperCase()}  ║
-╚══════════════════════════╝\n\n`;
-
-        articles.slice(0, 5).forEach((article, i) => {
-          const title = article.title || "No title";
-          const description = article.description || "No description";
-          const source = article.source || "Unknown";
-          const date = article.date
-            ? new Date(article.date).toLocaleDateString()
-            : "Recent";
-
-          newsText += `${i + 1}. *${title.substring(0, 60)}${title.length > 60 ? "..." : ""}*\n`;
-          newsText += `   📝 ${description.substring(0, 80)}${description.length > 80 ? "..." : ""}\n`;
-          if (article.url) newsText += `   🔗 ${article.url}\n`;
-          newsText += `   📊 ${source} | ${date}\n\n`;
+        await sock.sendMessage(from, {
+          text: buildNewsMessage(articles, query, provider.name),
         });
-
-        newsText += `━━━━━━━━━━━━━━━━━━━━━\n📊 *Source:* ${provider.name}\n⚡ *AYOBOT v1* | 👑 AYOCODES`;
-
-        await sock.sendMessage(from, { text: newsText });
         return;
       }
-    } catch (e) {
-      console.log(`${provider.name} failed:`, e.message);
+
+      console.log(`[news] ${provider.name} returned no articles.`);
+    } catch (err) {
+      const status = err.response?.status;
+      const reason =
+        status === 401
+          ? "Invalid API key"
+          : status === 429
+            ? "Rate limited"
+            : status === 426
+              ? "Plan upgrade required"
+              : err.code === "ECONNABORTED"
+                ? "Timeout"
+                : err.message;
+
+      console.warn(`[news] ${provider.name} failed — ${reason}`);
     }
   }
 
-  // Generate fallback news
-  const fallbackNews = [
-    {
-      title: `Latest Developments in ${fullArgs}`,
-      description: `Stay updated with the most recent news and trends in ${fullArgs}. Industry experts weigh in on what's next.`,
-      source: "News Global",
-      date: new Date().toLocaleDateString(),
-    },
-    {
-      title: `${fullArgs}: What You Need to Know`,
-      description: `A comprehensive look at current events shaping the ${fullArgs} landscape.`,
-      source: "Daily Briefing",
-      date: new Date().toLocaleDateString(),
-    },
-    {
-      title: `The Future of ${fullArgs}`,
-      description: `Experts predict major changes coming to ${fullArgs} in the near future.`,
-      source: "Trend Watch",
-      date: new Date().toLocaleDateString(),
-    },
-  ];
-
-  let newsText = `╔══════════════════════════╗
-║   📰 *NEWS SUMMARY:* ${fullArgs.toUpperCase()}  ║
-╚══════════════════════════╝\n\n`;
-
-  fallbackNews.forEach((item, i) => {
-    newsText += `${i + 1}. *${item.title}*\n`;
-    newsText += `   📝 ${item.description}\n`;
-    newsText += `   📊 ${item.source} | ${item.date}\n\n`;
+  // ── All providers failed ─────────────────────────────────────
+  await sock.sendMessage(from, {
+    text: formatError(
+      "NEWS UNAVAILABLE",
+      `Couldn't pull live news for *"${query}"* right now.\n\nMight be an API key issue or all sources are down.\nTry again in a bit or check your .env keys 🔑`,
+    ),
   });
-
-  newsText += `━━━━━━━━━━━━━━━━━━━━━\n⚠️ Live news unavailable. Showing summary.\n⚡ *AYOBOT v1* | 👑 AYOCODES`;
-
-  await sock.sendMessage(from, { text: newsText });
 }

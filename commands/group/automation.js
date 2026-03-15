@@ -1,50 +1,42 @@
-// commands/group/automation.js - FIXED + COMPLETE
+// commands/group/automation.js - AYOBOT v1 | Created by AYOCODES
+
 import {
   ENV,
   groupSettings,
   bannedUsers,
   groupWarnings,
-  groupMetadataCache,
-  adminCache,
+  saveGroupSettings,
+  saveBannedUsers,
+  saveWarnings,
 } from "../../index.js";
+
 import {
   formatSuccess,
   formatError,
   formatInfo,
-  formatGroupSuccess,
 } from "../../utils/formatters.js";
+
 import {
-  getGroupMetadataCached,
-  isGroupAdminCached,
   containsLink,
   isSpam,
+  getGroupMetadataCached,
 } from "../../utils/validators.js";
-import {
-  saveGroupSettings,
-  saveBannedUsers,
-  saveWarnings,
-} from "../../utils/database.js";
-import gtts from "gtts";
+
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TEMP_DIR = path.join(__dirname, "../temp");
+const TEMP_DIR = path.join(__dirname, "../../temp");
 
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// ========== SAFE JID HELPER ==========
-// Fixes: "participantJid.split is not a function"
-// Baileys sometimes sends participant as object, string, or array item
+// ========== SAFE JID HELPERS ==========
+// Baileys sometimes gives participant as object or string — handle both. — AYOCODES
 function safeJid(participant) {
   if (!participant) return "";
-  // Already a plain string
   if (typeof participant === "string") return participant;
-  // Object with id field (Baileys participant object)
   if (typeof participant === "object") {
     return (
       participant.id ||
@@ -58,25 +50,33 @@ function safeJid(participant) {
 
 function safePhone(participant) {
   const jid = safeJid(participant);
-  return jid.split("@")[0] || jid;
+  return jid.split("@")[0].split(":")[0] || jid;
+}
+
+// Lazy gtts loader — missing package won't kill the module. — AYOCODES
+let _gtts = null;
+async function getGtts() {
+  if (!_gtts) {
+    try {
+      const m = await import("gtts");
+      _gtts = m.default || m;
+    } catch (_) {}
+  }
+  return _gtts;
 }
 
 // ========== HANDLE GROUP PARTICIPANT UPDATES ==========
 export async function handleGroupParticipant(update, sock) {
   const { id, participants, action } = update;
-
   if (!id || !participants || !Array.isArray(participants)) return;
 
   for (const participant of participants) {
     try {
       const participantJid = safeJid(participant);
       if (!participantJid) continue;
-
-      if (action === "add") {
-        await handleGroupJoin(id, participantJid, sock);
-      } else if (action === "remove") {
+      if (action === "add") await handleGroupJoin(id, participantJid, sock);
+      else if (action === "remove")
         await handleGroupLeave(id, participantJid, sock);
-      }
     } catch (error) {
       console.error("❌ Participant update error:", error.message);
     }
@@ -88,7 +88,7 @@ async function handleGroupJoin(groupId, participantJid, sock) {
   try {
     const settings = groupSettings.get(groupId) || {};
 
-    // Auto-kick banned users
+    // Auto-kick banned users. — AYOCODES
     const banKey = `${groupId}_${participantJid}`;
     if (bannedUsers.has(banKey)) {
       try {
@@ -98,28 +98,14 @@ async function handleGroupJoin(groupId, participantJid, sock) {
       return;
     }
 
-    // Welcome message
+    // Welcome message — with image if set. — AYOCODES
     if (settings.welcome) {
       await sendWelcomeMessage(groupId, participantJid, sock, settings);
     }
 
-    // Voice welcome
+    // Voice welcome (optional). — AYOCODES
     if (settings.voiceWelcome) {
       await sendVoiceWelcome(groupId, participantJid, sock, settings);
-    }
-
-    // Notify admin (only if ADMIN is set)
-    if (ENV.ADMIN) {
-      try {
-        const adminJid = `${ENV.ADMIN}@s.whatsapp.net`;
-        await sock.sendMessage(adminJid, {
-          text:
-            `👋 *New Member Joined*\n\n` +
-            `👤 @${safePhone(participantJid)}\n` +
-            `👥 Group: ${groupId}`,
-          mentions: [participantJid],
-        });
-      } catch (_) {}
     }
   } catch (error) {
     console.error("❌ Join handler error:", error.message);
@@ -127,39 +113,51 @@ async function handleGroupJoin(groupId, participantJid, sock) {
 }
 
 // ========== SEND WELCOME MESSAGE ==========
+// Always sends with the welcome image. Custom message is the caption. — AYOCODES
 async function sendWelcomeMessage(groupId, participantJid, sock, settings) {
   try {
-    const metadata = await getGroupMetadataCached(groupId, sock);
-    if (!metadata) return;
+    let metadata = null;
+    try {
+      metadata = await getGroupMetadataCached(groupId, sock);
+    } catch (_) {}
 
-    const groupName = metadata.subject || "the group";
+    const groupName = metadata?.subject || "the group";
     const participant = safePhone(participantJid);
-    const memberCount = metadata.participants?.length || 0;
+    const memberCount = metadata?.participants?.length || 0;
 
-    let welcomeMsg = settings.welcomeMessage || "Welcome @user to @group! 🎉";
+    // Build the message text — replace placeholders. — AYOCODES
+    let welcomeText =
+      settings.welcomeMessage ||
+      `Welcome to *${groupName}*, @${participant}! 🎉\nYou are member #${memberCount}.`;
 
-    welcomeMsg = welcomeMsg
-      .replace(/@user/g, `@${participant}`)
-      .replace(/@group/g, groupName)
-      .replace(/@count/g, memberCount.toString())
-      .replace(/@time/g, new Date().toLocaleTimeString())
-      .replace(/@date/g, new Date().toLocaleDateString());
+    welcomeText = welcomeText
+      .replace(/@user/gi, `@${participant}`)
+      .replace(/@group/gi, groupName)
+      .replace(/@count/gi, memberCount.toString())
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
 
-    // Try with image first, fallback to text
+    const caption =
+      `👋 *Welcome to ${groupName}!*\n\n` +
+      `${welcomeText}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+
+    // Always try image first — fallback to text if URL fails. — AYOCODES
     try {
       await sock.sendMessage(groupId, {
         image: { url: ENV.WELCOME_IMAGE_URL },
-        caption: `👋 *Welcome to ${groupName}!*\n\n${welcomeMsg}`,
+        caption,
         mentions: [participantJid],
       });
     } catch (_) {
       await sock.sendMessage(groupId, {
-        text: `👋 *Welcome to ${groupName}!*\n\n${welcomeMsg}`,
+        text: caption,
         mentions: [participantJid],
       });
     }
 
-    console.log(`👋 Welcome sent to ${participant}`);
+    console.log(`👋 Welcome sent to ${participant} in ${groupId}`);
   } catch (error) {
     console.error("❌ Welcome message error:", error.message);
   }
@@ -168,9 +166,12 @@ async function sendWelcomeMessage(groupId, participantJid, sock, settings) {
 // ========== SEND VOICE WELCOME ==========
 async function sendVoiceWelcome(groupId, participantJid, sock, settings) {
   try {
+    const Gtts = await getGtts();
+    if (!Gtts) return; // gtts not installed — skip silently
+
     const participant = safePhone(participantJid);
-    const text = `Welcome to the group, ${participant}! We're happy to have you here.`;
-    const speech = new gtts(text, "en");
+    const text = `Welcome to the group, ${participant}! We are happy to have you here.`;
+    const speech = new Gtts(text, "en");
     const outputFile = path.join(TEMP_DIR, `welcome_${Date.now()}.mp3`);
 
     await new Promise((resolve, reject) => {
@@ -196,63 +197,68 @@ async function sendVoiceWelcome(groupId, participantJid, sock, settings) {
   }
 }
 
-// ========== HANDLE MEMBER LEAVE ==========
+// ========== HANDLE MEMBER LEAVE / KICK ==========
 async function handleGroupLeave(groupId, participantJid, sock) {
   try {
     const settings = groupSettings.get(groupId) || {};
-
-    // Goodbye message
     if (settings.goodbye) {
       await sendGoodbyeMessage(groupId, participantJid, sock, settings);
     }
-
-    // Notify admin (only if ADMIN is set)
-    if (ENV.ADMIN) {
-      try {
-        const adminJid = `${ENV.ADMIN}@s.whatsapp.net`;
-        await sock.sendMessage(adminJid, {
-          text:
-            `👋 *Member Left*\n\n` +
-            `👤 @${safePhone(participantJid)}\n` +
-            `👥 Group: ${groupId}`,
-          mentions: [participantJid],
-        });
-      } catch (_) {}
-    }
   } catch (error) {
-    console.error("❌ Goodbye error:", error.message);
+    console.error("❌ Leave handler error:", error.message);
   }
 }
 
 // ========== SEND GOODBYE MESSAGE ==========
+// Sends with welcome image (serves as the group image banner). — AYOCODES
 async function sendGoodbyeMessage(groupId, participantJid, sock, settings) {
   try {
-    const metadata = await getGroupMetadataCached(groupId, sock);
-    if (!metadata) return;
+    let metadata = null;
+    try {
+      metadata = await getGroupMetadataCached(groupId, sock);
+    } catch (_) {}
 
-    const groupName = metadata.subject || "the group";
+    const groupName = metadata?.subject || "the group";
     const participant = safePhone(participantJid);
 
-    let goodbyeMsg =
-      settings.goodbyeMessage || "Goodbye @user 👋 We'll miss you!";
-    goodbyeMsg = goodbyeMsg
-      .replace(/@user/g, `@${participant}`)
-      .replace(/@group/g, groupName)
-      .replace(/@time/g, new Date().toLocaleTimeString())
-      .replace(/@date/g, new Date().toLocaleDateString());
+    let goodbyeText =
+      settings.goodbyeMessage ||
+      `Goodbye, @${participant}! 👋\nWe'll miss you in *${groupName}*.`;
 
-    await sock.sendMessage(groupId, {
-      text: `👋 *Goodbye!*\n\n${goodbyeMsg}`,
-      mentions: [participantJid],
-    });
+    goodbyeText = goodbyeText
+      .replace(/@user/gi, `@${participant}`)
+      .replace(/@group/gi, groupName)
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
 
-    console.log(`👋 Goodbye sent for ${participant}`);
+    const caption =
+      `👋 *Goodbye from ${groupName}!*\n\n` +
+      `${goodbyeText}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+
+    // Try image first, fallback to text. — AYOCODES
+    try {
+      await sock.sendMessage(groupId, {
+        image: { url: ENV.WELCOME_IMAGE_URL },
+        caption,
+        mentions: [participantJid],
+      });
+    } catch (_) {
+      await sock.sendMessage(groupId, {
+        text: caption,
+        mentions: [participantJid],
+      });
+    }
+
+    console.log(`👋 Goodbye sent for ${participant} in ${groupId}`);
   } catch (error) {
     console.error("❌ Goodbye message error:", error.message);
   }
 }
 
 // ========== CHECK MESSAGE VIOLATIONS ==========
+// Called from commandHandler for every group message. — AYOCODES
 export async function checkMessageViolation(message, from, userJid, sock) {
   try {
     const settings = groupSettings.get(from) || {};
@@ -265,13 +271,11 @@ export async function checkMessageViolation(message, from, userJid, sock) {
 
     if (!msgText) return false;
 
-    // Anti-link
     if (settings.antilink && containsLink(msgText)) {
       await handleViolation("link", from, userJid, sock, message);
       return true;
     }
 
-    // Anti-spam
     if (settings.antispam && isSpam(userJid, msgText)) {
       await handleViolation("spam", from, userJid, sock, message);
       return true;
@@ -284,10 +288,24 @@ export async function checkMessageViolation(message, from, userJid, sock) {
   }
 }
 
-// ========== HANDLE VIOLATIONS ==========
+// ========== HANDLE RULE VIOLATIONS ==========
+// Exported as handleRuleViolation so ruleHandler.js and commandHandler.js
+// can import it directly. — AYOCODES
+export async function handleRuleViolation(
+  type,
+  groupJid,
+  userJid,
+  sock,
+  message,
+) {
+  return handleViolation(type, groupJid, userJid, sock, message);
+}
+
 async function handleViolation(type, groupJid, userJid, sock, message) {
-  // Never punish admin
-  if (!userJid || userJid === `${ENV.ADMIN}@s.whatsapp.net`) return;
+  // Never punish the bot owner. — AYOCODES
+  if (!userJid) return;
+  const ownerPhone = ENV.ADMIN?.replace(/[^0-9]/g, "") || "";
+  if (ownerPhone && userJid.includes(ownerPhone)) return;
 
   const warnings = {
     link: {
@@ -299,19 +317,18 @@ async function handleViolation(type, groupJid, userJid, sock, message) {
       message: "Please do not spam. Slow down your message rate.",
     },
   };
-
   const warning = warnings[type] || {
     title: "⚠️ RULE VIOLATION",
     message: "Please follow the group rules.",
   };
 
   try {
-    // Delete the violating message
+    // Delete the violating message. — AYOCODES
     try {
       await sock.sendMessage(groupJid, { delete: message.key });
     } catch (_) {}
 
-    // Update warning count
+    // Update warning count. — AYOCODES
     const key = `${groupJid}_${userJid}`;
     const warns = groupWarnings.get(key) || {
       count: 0,
@@ -319,7 +336,6 @@ async function handleViolation(type, groupJid, userJid, sock, message) {
       firstOffense: Date.now(),
       lastOffense: Date.now(),
     };
-
     warns.count++;
     warns.reasons.push({
       reason: type,
@@ -331,24 +347,23 @@ async function handleViolation(type, groupJid, userJid, sock, message) {
     saveWarnings();
 
     const warningsLeft = ENV.MAX_WARNINGS - warns.count;
-    const warningLevel =
+    const level =
       warns.count === 1
         ? "FIRST"
         : warns.count === 2
           ? "SECOND"
-          : warns.count >= ENV.MAX_WARNINGS - 1
+          : warns.count >= ENV.MAX_WARNINGS
             ? "FINAL"
             : "WARNING";
 
     await sock.sendMessage(groupJid, {
       text:
         `╔══════════════════════════╗\n` +
-        `║  ⚠️ *${warningLevel} WARNING* ⚠️  ║\n` +
+        `║  ⚠️ *${level} WARNING* ⚠️  ║\n` +
         `╚══════════════════════════╝\n\n` +
         `${warning.title}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
         `${warning.message}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 *Offender:* @${safePhone(userJid)}\n` +
         `📊 *Violation:* ${type.toUpperCase()}\n` +
         `⚠️ *Warnings:* ${warns.count}/${ENV.MAX_WARNINGS}\n` +
@@ -358,24 +373,19 @@ async function handleViolation(type, groupJid, userJid, sock, message) {
       mentions: [userJid],
     });
 
-    // Auto-kick on max warnings
+    // Auto-kick on max warnings. — AYOCODES
     if (warns.count >= ENV.MAX_WARNINGS) {
       try {
         await sock.groupParticipantsUpdate(groupJid, [userJid], "remove");
-
         await sock.sendMessage(groupJid, {
           text:
             `╔══════════════════════════╗\n` +
             `║   🚫 *USER REMOVED* 🚫   ║\n` +
             `╚══════════════════════════╝\n\n` +
-            `@${safePhone(userJid)} has been removed.\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━\n` +
-            `📊 *Reason:* Reached ${ENV.MAX_WARNINGS} violations\n` +
-            `━━━━━━━━━━━━━━━━━━━━━\n` +
+            `@${safePhone(userJid)} has been removed after ${ENV.MAX_WARNINGS} violations.\n\n` +
             `⚡ *AYOBOT Security* | 👑 AYOCODES`,
           mentions: [userJid],
         });
-
         groupWarnings.delete(key);
         saveWarnings();
       } catch (kickError) {
@@ -445,6 +455,7 @@ export function getGroupSettings(groupJid) {
 export default {
   handleGroupParticipant,
   checkMessageViolation,
+  handleRuleViolation,
   setWelcome,
   setGoodbye,
   setAntiLink,
