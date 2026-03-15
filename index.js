@@ -1789,18 +1789,18 @@ async function loadInstances(){
     let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>ACTION</th></tr></thead><tbody>';
     d.instances.forEach(inst=>{
       const up=inst.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60);
-      const status=inst.connected
+      const connStatus=inst.connected
         ?'<span style="color:var(--green);font-family:JetBrains Mono,monospace">● LIVE</span>'
         :'<span style="color:var(--red);font-family:JetBrains Mono,monospace">● OFFLINE</span>';
-      html+=`<tr>
-        <td>${status}</td>
-        <td><span class="mono" style="color:var(--gold)">${inst.ownerName||'—'}</span></td>
-        <td><span class="mono">+${inst.ownerPhone||'—'}</span></td>
-        <td><span class="mono" style="color:var(--green)">${h}h ${m}m</span></td>
-        <td><span class="mono">${(inst.messageCount||0).toLocaleString()}</span></td>
-        <td><span class="mono" style="color:var(--text2)">${inst.authMethod||'—'}</span></td>
-        <td><button class="kill-btn" onclick="killSession('${inst.instanceId}')">⚡ KILL</button></td>
-      </tr>`;
+      html += '<tr>' +
+        '<td>' + connStatus + '</td>' +
+        '<td><span class="mono" style="color:var(--gold)">' + (inst.ownerName||'—') + '</span></td>' +
+        '<td><span class="mono">+' + (inst.ownerPhone||'—') + '</span></td>' +
+        '<td><span class="mono" style="color:var(--green)">' + h + 'h ' + m + 'm</span></td>' +
+        '<td><span class="mono">' + ((inst.messageCount||0).toLocaleString()) + '</span></td>' +
+        '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod||'—') + '</span></td>' +
+        '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')">⚡ KILL</button></td>' +
+        '</tr>';
     });
     html+='</tbody></table></div>';
     document.getElementById('instanceTable').innerHTML=html;
