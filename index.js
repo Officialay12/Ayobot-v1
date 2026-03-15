@@ -1177,7 +1177,10 @@ function setupWebDashboard() {
   app.listen(PORT, "0.0.0.0", () => {
     log.ok(`Dashboard → http://localhost:${PORT}`);
     if (ENV.AYOCODES_ADMIN_KEY) log.ok(`Admin     → http://localhost:${PORT}/ayocodes-admin`);
-    log.ok(`Public    → https://${process.env.RENDER_EXTERNAL_URL || "localhost:" + PORT}\n`);
+    const publicUrl = process.env.RENDER_EXTERNAL_URL
+      ? (process.env.RENDER_EXTERNAL_URL.startsWith("http") ? process.env.RENDER_EXTERNAL_URL : `https://${process.env.RENDER_EXTERNAL_URL}`)
+      : `http://localhost:${PORT}`;
+    log.ok(`Public    → ${publicUrl}\n`);
   });
 }
 
@@ -1786,18 +1789,18 @@ async function loadInstances(){
     let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>ACTION</th></tr></thead><tbody>';
     d.instances.forEach(inst=>{
       const up=inst.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60);
-      const statusHtml = inst.connected
-        ? '<span style="color:var(--green);font-family:JetBrains Mono,monospace">● LIVE</span>'
-        : '<span style="color:var(--red);font-family:JetBrains Mono,monospace">● OFFLINE</span>';
-      html += '<tr>' +
-        '<td>' + statusHtml + '</td>' +
-        '<td><span class="mono" style="color:var(--gold)">' + (inst.ownerName||'—') + '</span></td>' +
-        '<td><span class="mono">+' + (inst.ownerPhone||'—') + '</span></td>' +
-        '<td><span class="mono" style="color:var(--green)">' + h + 'h ' + m + 'm</span></td>' +
-        '<td><span class="mono">' + ((inst.messageCount||0).toLocaleString()) + '</span></td>' +
-        '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod||'—') + '</span></td>' +
-        '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')">⚡ KILL</button></td>' +
-      '</tr>';
+      const status=inst.connected
+        ?'<span style="color:var(--green);font-family:JetBrains Mono,monospace">● LIVE</span>'
+        :'<span style="color:var(--red);font-family:JetBrains Mono,monospace">● OFFLINE</span>';
+      html+=`<tr>
+        <td>${status}</td>
+        <td><span class="mono" style="color:var(--gold)">${inst.ownerName||'—'}</span></td>
+        <td><span class="mono">+${inst.ownerPhone||'—'}</span></td>
+        <td><span class="mono" style="color:var(--green)">${h}h ${m}m</span></td>
+        <td><span class="mono">${(inst.messageCount||0).toLocaleString()}</span></td>
+        <td><span class="mono" style="color:var(--text2)">${inst.authMethod||'—'}</span></td>
+        <td><button class="kill-btn" onclick="killSession('${inst.instanceId}')">⚡ KILL</button></td>
+      </tr>`;
     });
     html+='</tbody></table></div>';
     document.getElementById('instanceTable').innerHTML=html;
