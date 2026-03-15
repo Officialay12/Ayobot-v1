@@ -7,8 +7,8 @@
   "type": "module",
   "scripts": {
     "clean": "node -e \"const fs=require('fs');['auth_info','database'].forEach(f=>fs.existsSync(f)&&fs.rmSync(f,{recursive:true,force:true}));console.log('✅ Clean complete!')\"",
-    "start": "node index.js",
-    "dev": "nodemon index.js",
+    "start": "node index.min.js",
+    "dev": "nodemon index.min.js",
     "pm2": "pm2 start ecosystem.config.js",
     "pm2-stop": "pm2 stop ayobot",
     "pm2-restart": "pm2 restart ayobot",
@@ -26,7 +26,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Officialay12/ayobot.git"
+    "url": "https://github.com/Officialay12/Ayobot-v1.git"
   },
   "dependencies": {
     "@google/generative-ai": "^0.1.3",
