@@ -45,6 +45,38 @@ import {
   formatUptime,
 } from "../../utils/formatters.js";
 
+// ========== TEST COMMAND ==========
+export async function test({
+  from,
+  sock,
+  userJid,
+  session,
+  sessionId,
+  sessionMode,
+  ownerPhone,
+}) {
+  const phone = userJid?.split("@")[0] || "unknown";
+
+  console.log("🔧 TEST COMMAND EXECUTED!");
+  console.log("  sessionId:", sessionId);
+  console.log("  sessionMode:", sessionMode);
+  console.log("  ownerPhone:", ownerPhone);
+  console.log("  session exists:", !!session);
+
+  await sock.sendMessage(from, {
+    text:
+      `✅ *TEST COMMAND WORKING!*\n\n` +
+      `📱 Your number: ${phone}\n` +
+      `🆔 Session ID: ${sessionId || "none"}\n` +
+      `⚙️ Mode: ${sessionMode || "public"}\n` +
+      `👑 Owner: ${ownerPhone || "none"}\n` +
+      `⏰ Time: ${new Date().toLocaleString()}\n\n` +
+      `👑 Created by AYOCODES`,
+  });
+
+  return { text: "✅ Test completed" };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  MODULE BOOTSTRAP
 // ─────────────────────────────────────────────────────────────────────────────

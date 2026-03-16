@@ -1,12 +1,11 @@
 // handlers/commandHandler.js — AYOBOT v1 | Created by AYOCODES
 //
 // FIXES IN THIS VERSION:
-//   1. Private/public mode now ACTUALLY enforced — non-owners blocked in private mode
-//   2. isAdmin + isAuthorized now receive ownerPhone + sessionMode from msg._session
-//   3. Session context (msg._session, msg._ownerPhone, msg._sessionMode) fully used
-//   4. fromMe = always admin — owner sending from their own phone is never blocked
-//   5. requireBotAdmin check now uses cached lookup for performance
-//   6. All permission errors give clear, helpful messages
+//   1. Session context properly passed to ALL commands
+//   2. Private/public mode enforced per session
+//   3. isAdmin/isAuthorized use per-session owner data
+//   4. Commands receive full session context
+//   5. Debug logging to track command execution
 // — AYOCODES
 
 import {
@@ -20,8 +19,6 @@ import {
   normalizePhone,
   userConversations,
   userCooldown,
-  setSessionMode,
-  getSession,
 } from "../index.js";
 
 import {
@@ -307,12 +304,16 @@ const commands = new Map();
 const commandStats = new Map();
 
 function reg(name, handler, options = {}) {
-  if (typeof handler !== "function") return;
+  if (typeof handler !== "function") {
+    log.warn(`Cannot register ${name}: not a function`);
+    return;
+  }
   commands.set(name.toLowerCase(), {
     handler,
     name: name.toLowerCase(),
     ...options,
   });
+  log.cmd(`Registered: ${name}`);
 }
 
 function dlFallback() {
@@ -862,18 +863,6 @@ export function registerAllCommands() {
     reg("alarm", reminder.reminder);
     count += 4;
   }
-  if (typeof reminder.listReminders === "function") {
-    reg("reminders", reminder.listReminders);
-    reg("myreminders", reminder.listReminders);
-    reg("rlist", reminder.listReminders);
-    count += 3;
-  }
-  if (typeof reminder.cancelReminder === "function") {
-    reg("cancelreminder", reminder.cancelReminder);
-    reg("delreminder", reminder.cancelReminder);
-    reg("rmreminder", reminder.cancelReminder);
-    count += 3;
-  }
 
   // ── SECURITY ─────────────────────────────────────────────
   if (typeof security.scan === "function") {
@@ -1043,14 +1032,6 @@ export function registerAllCommands() {
       reg("unmute", gs.unmute, { groupOnly: true, adminOnly: true });
       count++;
     }
-    if (typeof gs.lock === "function") {
-      reg("lock", gs.lock, { groupOnly: true, adminOnly: true });
-      count++;
-    }
-    if (typeof gs.unlock === "function") {
-      reg("unlock", gs.unlock, { groupOnly: true, adminOnly: true });
-      count++;
-    }
     if (typeof gs.antiLink === "function") {
       reg("antilink", gs.antiLink, { groupOnly: true, adminOnly: true });
       count++;
@@ -1109,33 +1090,9 @@ export function registerAllCommands() {
       reg("htag", gs.hideTag, { groupOnly: true, adminOnly: true });
       count += 2;
     }
-    if (typeof gs.pin === "function") {
-      reg("pin", gs.pin, { groupOnly: true, adminOnly: true });
-      count++;
-    }
-    if (typeof gs.unpin === "function") {
-      reg("unpin", gs.unpin, { groupOnly: true, adminOnly: true });
-      count++;
-    }
     if (typeof gs.deleteMsg === "function") {
       reg("delete", gs.deleteMsg, { groupOnly: true, adminOnly: true });
       reg("del", gs.deleteMsg, { groupOnly: true, adminOnly: true });
-      count += 2;
-    }
-    if (typeof gs.settingsOverview === "function") {
-      reg("settings", gs.settingsOverview, { groupOnly: true });
-      reg("gsettings", gs.settingsOverview, { groupOnly: true });
-      count += 2;
-    }
-    if (typeof gs.resetSettings === "function") {
-      reg("resetsettings", gs.resetSettings, {
-        groupOnly: true,
-        adminOnly: true,
-      });
-      reg("clearsettings", gs.resetSettings, {
-        groupOnly: true,
-        adminOnly: true,
-      });
       count += 2;
     }
     if (typeof gs.leave === "function") {
@@ -1232,7 +1189,6 @@ function safeJid(jid) {
   return String(jid);
 }
 
-// Strip device suffix (:56, :52) then get just the number part. — AYOCODES
 function safePhone(jid) {
   return safeJid(jid).split("@")[0].split(":")[0] || "";
 }
@@ -1255,8 +1211,6 @@ export async function handleCommand(message, sock) {
     const fromMe = !!message.key.fromMe;
 
     // ── Pull session context injected by index.js ───────────
-    // index.js sets these on the message object before calling handleCommand.
-    // ownerPhone + sessionMode are used for ALL permission checks. — AYOCODES
     const session = message._session || null;
     const ownerPhone = message._ownerPhone || session?.ownerPhone || "";
     const sessionMode =
@@ -1264,9 +1218,6 @@ export async function handleCommand(message, sock) {
     const sessionId = message._sessionId || session?.id || "";
 
     // ── Resolve sender JID ──────────────────────────────────
-    // In groups, sender is key.participant (includes device suffix like :56).
-    // In DMs, fromMe = owner sending from their own phone.
-    // We strip the :XX device suffix before any comparison. — AYOCODES
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -1277,17 +1228,12 @@ export async function handleCommand(message, sock) {
       rawSenderJid = from;
     }
 
-    // Normalize: strip device suffix so "2349159180375:56@s.whatsapp.net"
-    // becomes "2349159180375@s.whatsapp.net" for all admin checks. — AYOCODES
     const cleanPhone = safePhone(rawSenderJid);
     const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
     if (!userJid) return;
 
     // ── Permission flags ────────────────────────────────────
-    // fromMe = message sent by the bot owner from their own phone → always admin.
-    // isAdmin now receives ownerPhone so it checks the RIGHT owner per session. — AYOCODES
     const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
-    // isAuthorized receives sessionMode so private mode actually blocks people. — AYOCODES
     const isAuthorizedUser =
       isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
@@ -1307,19 +1253,19 @@ export async function handleCommand(message, sock) {
     if (!msgText || !msgText.trim()) return;
     const trimmed = msgText.trim();
 
-    // ── Non-command messages ────────────────────────────────
-    if (!trimmed.startsWith(ENV.PREFIX)) return;
-
-    // ── Log ─────────────────────────────────────────────────
+    // ── Log EVERY message for debugging ─────────────────────
     const tag = isAdminUser
       ? "👑ADMIN"
       : isAuthorizedUser
         ? "✅USER"
-        : "🔒BLOCKED";
+        : "👤PUBLIC";
     const loc = isGroup ? "GROUP" : "DM";
-    log.cmd(
-      `[${tag}][${loc}][${sessionMode.toUpperCase()}] ${trimmed.substring(0, 60)} ← ${cleanPhone}`,
+    console.log(
+      `📨 [${tag}][${loc}] From: ${cleanPhone} - Message: ${trimmed}`,
     );
+
+    // ── Non-command messages ────────────────────────────────
+    if (!trimmed.startsWith(ENV.PREFIX)) return;
 
     // ── Parse command ────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
@@ -1329,6 +1275,10 @@ export async function handleCommand(message, sock) {
     if (!commandName) return;
     const args = parts;
     const fullArgs = parts.join(" ");
+
+    console.log(
+      `⚡ Command detected: ${ENV.PREFIX}${commandName} from ${cleanPhone}`,
+    );
 
     // ── Store for anti-delete ────────────────────────────────
     if (message.key?.id) storeDeletedMessage(message.key.id, trimmed);
@@ -1342,7 +1292,7 @@ export async function handleCommand(message, sock) {
     // ── Find command ─────────────────────────────────────────
     const command = commands.get(commandName);
     if (!command) {
-      log.info(`Unknown command: ${ENV.PREFIX}${commandName}`);
+      console.log(`❓ Unknown command: ${commandName}`);
       await sock.sendMessage(from, {
         text: formatInfo(
           "UNKNOWN COMMAND",
@@ -1353,11 +1303,9 @@ export async function handleCommand(message, sock) {
     }
 
     // ── PRIVATE MODE GATE ────────────────────────────────────
-    // This is the fix. In private mode ONLY the owner can use ANY command.
-    // This check runs BEFORE adminOnly/groupOnly so it blocks everyone. — AYOCODES
     if (sessionMode === "private" && !isAdminUser) {
-      log.warn(
-        `[${sessionId.slice(0, 8)}] PRIVATE MODE blocked: ${cleanPhone} tried ${ENV.PREFIX}${commandName}`,
+      console.log(
+        `🔒 PRIVATE MODE blocked: ${cleanPhone} tried ${ENV.PREFIX}${commandName}`,
       );
       return sock.sendMessage(from, {
         text:
@@ -1406,6 +1354,11 @@ export async function handleCommand(message, sock) {
 
     // ── Execute ──────────────────────────────────────────────
     try {
+      console.log(
+        `🔄 Executing: ${ENV.PREFIX}${commandName} for ${cleanPhone}`,
+      );
+
+      // Pass ALL context to the command
       await command.handler({
         args,
         fullArgs,
@@ -1420,25 +1373,31 @@ export async function handleCommand(message, sock) {
         isAuthorized: isAuthorizedUser,
         commandName,
         prefix: ENV.PREFIX,
-        // Pass session context so commands can access mode, owner etc. — AYOCODES
+        // Pass session context to commands
         session,
         sessionId,
         sessionMode,
         ownerPhone,
-        // Helper so admin.js mode command can change mode properly. — AYOCODES
+        // Helper for admin commands to change mode
         setMode: async (newMode) => {
           if (session) {
             session.mode = newMode;
             try {
-              const { setSessionMode: ssm } = await import("../index.js");
-              await ssm(sessionId, newMode);
+              const { setSessionMode } = await import("../index.js");
+              await setSessionMode(sessionId, newMode);
             } catch (_) {}
           }
         },
       });
-      log.ok(`Done: ${ENV.PREFIX}${commandName} ← ${cleanPhone}`);
+
+      console.log(
+        `✅ Command completed: ${ENV.PREFIX}${commandName} for ${cleanPhone}`,
+      );
     } catch (cmdError) {
-      log.err(`Error in ${ENV.PREFIX}${commandName}: ${cmdError.message}`);
+      console.error(
+        `❌ Error in ${ENV.PREFIX}${commandName}:`,
+        cmdError.message,
+      );
       try {
         await sock.sendMessage(from, {
           text: formatError(
@@ -1449,7 +1408,7 @@ export async function handleCommand(message, sock) {
       } catch (_) {}
     }
   } catch (error) {
-    log.err("handleCommand fatal: " + error.message);
+    console.error("❌ handleCommand fatal:", error.message);
   }
 }
 
