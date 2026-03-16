@@ -53,12 +53,12 @@ const C = {
 };
 
 export const log = {
-  ok:   (m) => console.log(`${C.green}✅${C.reset} ${m}`),
-  err:  (m) => console.log(`${C.red}❌${C.reset} ${m}`),
+  ok: (m) => console.log(`${C.green}✅${C.reset} ${m}`),
+  err: (m) => console.log(`${C.red}❌${C.reset} ${m}`),
   warn: (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
   info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
-  msg:  (m) => console.log(`📨 ${m}`),
-  cmd:  (m) => console.log(`⚡ ${m}`),
+  msg: (m) => console.log(`📨 ${m}`),
+  cmd: (m) => console.log(`⚡ ${m}`),
 };
 
 // ============================================================
@@ -67,58 +67,68 @@ export const log = {
 //   that feature — no crashes. — AYOCODES
 // ============================================================
 export const ENV = {
-  PREFIX:            process.env.PREFIX            || ".",
-  BOT_NAME:          process.env.BOT_NAME          || "AYOBOT",
-  BOT_VERSION:       process.env.BOT_VERSION       || "1.0.0",
-  ADMIN:             process.env.ADMIN,
-  CO_DEVELOPER:      process.env.CO_DEVELOPER      || process.env.ADMIN,
-  OPENWEATHER_KEY:   process.env.OPENWEATHER_KEY,
-  NEWS_API_KEY:      process.env.NEWS_API_KEY,
-  TMDB_API_KEY:      process.env.TMDB_API_KEY,
+  PREFIX: process.env.PREFIX || ".",
+  BOT_NAME: process.env.BOT_NAME || "AYOBOT",
+  BOT_VERSION: process.env.BOT_VERSION || "1.0.0",
+  ADMIN: process.env.ADMIN,
+  CO_DEVELOPER: process.env.CO_DEVELOPER || process.env.ADMIN,
+  OPENWEATHER_KEY: process.env.OPENWEATHER_KEY,
+  NEWS_API_KEY: process.env.NEWS_API_KEY,
+  TMDB_API_KEY: process.env.TMDB_API_KEY,
   COINMARKETCAP_KEY: process.env.COINMARKETCAP_KEY,
-  REMOVEBG_KEY:      process.env.REMOVEBG_KEY,
-  WELCOME_IMAGE_URL: process.env.WELCOME_IMAGE_URL || "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
-  CREATOR_IMAGE_URL: process.env.CREATOR_IMAGE_URL || "https://i.ibb.co/4R4LPvV3/creator.jpg",
-  WELCOME_AUDIO_URL: process.env.WELCOME_AUDIO_URL || "https://files.catbox.moe/zat947.aac",
-  WHATSAPP_CHANNEL:  process.env.WHATSAPP_CHANNEL  || "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25",
-  WHATSAPP_GROUP:    process.env.WHATSAPP_GROUP    || "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN",
-  CREATOR_NAME:      "AYOCODES",
-  CREATOR_CONTACT:   process.env.CREATOR_CONTACT   || process.env.ADMIN,
-  CREATOR_EMAIL:     process.env.CREATOR_EMAIL,
-  CREATOR_GITHUB:    "https://github.com/Officialay12",
-  MAX_WARNINGS:      parseInt(process.env.MAX_WARNINGS) || 3,
+  REMOVEBG_KEY: process.env.REMOVEBG_KEY,
+  WELCOME_IMAGE_URL:
+    process.env.WELCOME_IMAGE_URL ||
+    "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
+  CREATOR_IMAGE_URL:
+    process.env.CREATOR_IMAGE_URL || "https://i.ibb.co/4R4LPvV3/creator.jpg",
+  WELCOME_AUDIO_URL:
+    process.env.WELCOME_AUDIO_URL || "https://files.catbox.moe/zat947.aac",
+  WHATSAPP_CHANNEL:
+    process.env.WHATSAPP_CHANNEL ||
+    "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25",
+  WHATSAPP_GROUP:
+    process.env.WHATSAPP_GROUP ||
+    "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN",
+  CREATOR_NAME: "AYOCODES",
+  CREATOR_CONTACT: process.env.CREATOR_CONTACT || process.env.ADMIN,
+  CREATOR_EMAIL: process.env.CREATOR_EMAIL,
+  CREATOR_GITHUB: "https://github.com/Officialay12",
+  MAX_WARNINGS: parseInt(process.env.MAX_WARNINGS) || 3,
   AUTO_REPLY_ENABLED: false,
-  BOT_MODE:          process.env.BOT_MODE          || "public",
-  SHORTENER_API:     process.env.SHORTENER_API     || "https://ayo-link.onrender.com",
+  BOT_MODE: process.env.BOT_MODE || "public",
+  SHORTENER_API: process.env.SHORTENER_API || "https://ayo-link.onrender.com",
   SHORTENER_API_KEY: process.env.SHORTENER_API_KEY,
   ANTI_DELETE_ENABLED: process.env.ANTI_DELETE_ENABLED !== "false",
-  HF_TOKEN:          process.env.HF_TOKEN,
-  GEMINI_KEY:        process.env.GEMINI_KEY,
-  TENOR_KEY:         process.env.TENOR_KEY         || process.env.GEMINI_KEY,
-  GIPHY_KEY:         process.env.GIPHY_KEY,
-  PIXABAY_KEY:       process.env.PIXABAY_KEY,
-  UNSPLASH_KEY:      process.env.UNSPLASH_KEY,
-  RAPIDAPI_KEY:      process.env.RAPIDAPI_KEY,
-  PORT:              process.env.PORT              || 3000,
+  HF_TOKEN: process.env.HF_TOKEN,
+  GEMINI_KEY: process.env.GEMINI_KEY,
+  TENOR_KEY: process.env.TENOR_KEY || process.env.GEMINI_KEY,
+  GIPHY_KEY: process.env.GIPHY_KEY,
+  PIXABAY_KEY: process.env.PIXABAY_KEY,
+  UNSPLASH_KEY: process.env.UNSPLASH_KEY,
+  RAPIDAPI_KEY: process.env.RAPIDAPI_KEY,
+  PORT: process.env.PORT || 3000,
   // ── MULTI-SESSION ─────────────────────────────────────────
-  MONGODB_URI:       process.env.MONGODB_URI       || "",
-  MAX_SESSIONS:      parseInt(process.env.MAX_SESSIONS) || 100,
+  MONGODB_URI: process.env.MONGODB_URI || "",
+  MAX_SESSIONS: parseInt(process.env.MAX_SESSIONS) || 100,
   // ── ADMIN PANEL ────────────────────────────────────────────
   AYOCODES_ADMIN_KEY: process.env.AYOCODES_ADMIN_KEY || null,
 };
 
 // Hard stop if MongoDB URI is missing — nothing works without it. — AYOCODES
 if (!ENV.MONGODB_URI) {
-  console.error(`${C.red}❌ MONGODB_URI is required! Add it to your Render environment variables.${C.reset}`);
+  console.error(
+    `${C.red}❌ MONGODB_URI is required! Add it to your Render environment variables.${C.reset}`,
+  );
   console.error(`   Get a free URI at https://cloud.mongodb.com`);
   process.exit(1);
 }
 
 function checkEnvVars() {
   const missing = [];
-  if (!ENV.GEMINI_KEY)        missing.push("GEMINI_KEY (AI disabled)");
-  if (!ENV.NEWS_API_KEY)      missing.push("NEWS_API_KEY (News disabled)");
-  if (!ENV.OPENWEATHER_KEY)   missing.push("OPENWEATHER_KEY (Weather disabled)");
+  if (!ENV.GEMINI_KEY) missing.push("GEMINI_KEY (AI disabled)");
+  if (!ENV.NEWS_API_KEY) missing.push("NEWS_API_KEY (News disabled)");
+  if (!ENV.OPENWEATHER_KEY) missing.push("OPENWEATHER_KEY (Weather disabled)");
   if (missing.length) {
     console.log(`\n${C.yellow}⚠️  Missing optional ENV vars:${C.reset}`);
     missing.forEach((x) => console.log(`   • ${x}`));
@@ -131,7 +141,9 @@ function checkEnvVars() {
 // ============================================================
 export function normalizePhone(raw) {
   if (!raw) return "";
-  return String(raw).replace(/[^0-9]/g, "").trim();
+  return String(raw)
+    .replace(/[^0-9]/g, "")
+    .trim();
 }
 
 export function delay(ms) {
@@ -150,13 +162,13 @@ export async function sendMsg(sock, jid, content, opts = {}) {
 // ============================================================
 //   CONSTANTS — unchanged from original
 // ============================================================
-export const ADMIN_CACHE_TTL        = 30000;
-export const GROUP_META_TTL         = 60000;
-export const RATE_LIMIT_WINDOW      = 2000;
+export const ADMIN_CACHE_TTL = 30000;
+export const GROUP_META_TTL = 60000;
+export const RATE_LIMIT_WINDOW = 2000;
 export const MAX_COMMANDS_PER_WINDOW = 1;
-export const SPAM_TIME_WINDOW       = 4000;
-export const MAX_SPAM_MESSAGES      = 3;
-export const MAX_SIMILAR_MESSAGES   = 2;
+export const SPAM_TIME_WINDOW = 4000;
+export const MAX_SPAM_MESSAGES = 3;
+export const MAX_SIMILAR_MESSAGES = 2;
 
 export const RATE_LIMIT_MESSAGES = [
   "⏳ *CHILL BRO!* Take a breath!",
@@ -169,31 +181,45 @@ export const RATE_LIMIT_MESSAGES = [
 // ============================================================
 //   GLOBAL STATE — exported so submodules can import as before
 // ============================================================
-export let messageCount  = 0;
-export let botStartTime  = Date.now();
-export const commandUsage        = new Map();
-export const commandRateLimit    = new Map();
-export const userCooldown        = new Map();
-export const groupWarnings       = new Map();
-export const bannedUsers         = new Map();
-export const groupSettings       = new Map();
-export const waitlistEntries     = new Map();
-export const deletedMessages     = new Map();
-export const userConversations   = new Map();
-export const inactivityTimers    = new Map();
-export const autoReplyEnabled    = new Map();
-export const spamTracker         = new Map();
-export const adminCache          = new Map();
-export const groupMetadataCache  = new Map();
+export let messageCount = 0;
+export let botStartTime = Date.now();
+export const commandUsage = new Map();
+export const commandRateLimit = new Map();
+export const userCooldown = new Map();
+export const groupWarnings = new Map();
+export const bannedUsers = new Map();
+export const groupSettings = new Map();
+export const waitlistEntries = new Map();
+export const deletedMessages = new Map();
+export const userConversations = new Map();
+export const inactivityTimers = new Map();
+export const autoReplyEnabled = new Map();
+export const spamTracker = new Map();
+export const adminCache = new Map();
+export const groupMetadataCache = new Map();
 export const msgCache = new NodeCache({ stdTTL: 60, maxKeys: 5000 });
 
 // DB alias wrappers — moderation.js and settings.js import these. — AYOCODES
-export function saveBann(jid, reason = "") { bannedUsers.set(jid, { reason, timestamp: Date.now() }); saveDatabases(); }
-export function getBann(jid) { return bannedUsers.get(jid) || null; }
-export function removeBann(jid) { bannedUsers.delete(jid); saveDatabases(); }
-export function saveBannedUsers() { saveDatabases(); }
-export function saveWarnings()    { saveDatabases(); }
-export function saveGroupSettings() { saveDatabases(); }
+export function saveBann(jid, reason = "") {
+  bannedUsers.set(jid, { reason, timestamp: Date.now() });
+  saveDatabases();
+}
+export function getBann(jid) {
+  return bannedUsers.get(jid) || null;
+}
+export function removeBann(jid) {
+  bannedUsers.delete(jid);
+  saveDatabases();
+}
+export function saveBannedUsers() {
+  saveDatabases();
+}
+export function saveWarnings() {
+  saveDatabases();
+}
+export function saveGroupSettings() {
+  saveDatabases();
+}
 
 // ============================================================
 //   DATABASE — now MongoDB-backed for multi-session
@@ -214,20 +240,37 @@ export function saveDatabases() {
 }
 
 // Owner helpers — per-session, called from session objects below. — AYOCODES
+// Backwards compatible isAdmin — works with 1 or 2 args.
+// If ownerPhone not passed, checks all active session owners.
+// This means obfuscated command files work without any changes. — AYOCODES
 export function isAdmin(userJid, ownerPhone) {
-  if (!userJid || !ownerPhone) return false;
+  if (!userJid) return false;
   const rawLocal = userJid.split("@")[0].split(":")[0];
   const u = normalizePhone(rawLocal);
-  const o = normalizePhone(ownerPhone);
-  return (
-    u === o ||
-    userJid === `${o}@s.whatsapp.net` ||
-    userJid === `${o}@lid`
-  );
+
+  // If ownerPhone passed directly — fast check. — AYOCODES
+  if (ownerPhone) {
+    const o = normalizePhone(ownerPhone);
+    return (
+      u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`
+    );
+  }
+
+  // Fallback: check against ALL active session owners.
+  // Handles obfuscated files that call isAdmin(jid) with one arg. — AYOCODES
+  for (const session of sessions.values()) {
+    if (!session.ownerPhone) continue;
+    const o = normalizePhone(session.ownerPhone);
+    if (u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`)
+      return true;
+  }
+  return false;
 }
 
+// Backwards compatible isAuthorized — works with 1 or 2 args. — AYOCODES
 export function isAuthorized(userJid, ownerPhone) {
   if (isAdmin(userJid, ownerPhone)) return true;
+  if (authorizedUsers.has(userJid)) return true;
   if (ENV.BOT_MODE === "public") return true;
   return false;
 }
@@ -255,8 +298,11 @@ async function useMongoAuthState(collection, sessionId) {
   const writeData = async (data, id) => {
     await collection.replaceOne(
       { _id: `${sessionId}:${id}` },
-      { _id: `${sessionId}:${id}`, data: JSON.stringify(data, BufferJSON.replacer) },
-      { upsert: true }
+      {
+        _id: `${sessionId}:${id}`,
+        data: JSON.stringify(data, BufferJSON.replacer),
+      },
+      { upsert: true },
     );
   };
 
@@ -278,13 +324,15 @@ async function useMongoAuthState(collection, sessionId) {
       keys: {
         get: async (type, ids) => {
           const data = {};
-          await Promise.all(ids.map(async (id) => {
-            let value = await readData(`${type}-${id}`);
-            if (type === "app-state-sync-key" && value) {
-              value = proto.Message.AppStateSyncKeyData.fromObject(value);
-            }
-            data[id] = value;
-          }));
+          await Promise.all(
+            ids.map(async (id) => {
+              let value = await readData(`${type}-${id}`);
+              if (type === "app-state-sync-key" && value) {
+                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+              }
+              data[id] = value;
+            }),
+          );
           return data;
         },
         set: async (data) => {
@@ -292,7 +340,11 @@ async function useMongoAuthState(collection, sessionId) {
           for (const category of Object.keys(data)) {
             for (const id of Object.keys(data[category])) {
               const value = data[category][id];
-              tasks.push(value ? writeData(value, `${category}-${id}`) : removeData(`${category}-${id}`));
+              tasks.push(
+                value
+                  ? writeData(value, `${category}-${id}`)
+                  : removeData(`${category}-${id}`),
+              );
             }
           }
           await Promise.all(tasks);
@@ -392,23 +444,23 @@ async function loadHandlersForSession(session) {
   try {
     const m = await import("./handlers/commandHandler.js");
     session.commandHandler = m.handleCommand;
-    log.ok(`[${session.id.slice(0,8)}] Command handler loaded`);
+    log.ok(`[${session.id.slice(0, 8)}] Command handler loaded`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0,8)}] Command handler: ${e.message}`);
+    log.warn(`[${session.id.slice(0, 8)}] Command handler: ${e.message}`);
   }
   try {
     const m = await import("./handlers/antiDelete.js");
     session.antiDeleteHandler = m.handleAntiDelete;
-    log.ok(`[${session.id.slice(0,8)}] Anti-delete handler loaded`);
+    log.ok(`[${session.id.slice(0, 8)}] Anti-delete handler loaded`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0,8)}] Anti-delete: ${e.message}`);
+    log.warn(`[${session.id.slice(0, 8)}] Anti-delete: ${e.message}`);
   }
   try {
     const m = await import("./commands/group/automation.js");
     session.groupHandler = m.handleGroupParticipant;
-    log.ok(`[${session.id.slice(0,8)}] Group handler loaded`);
+    log.ok(`[${session.id.slice(0, 8)}] Group handler loaded`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0,8)}] Group handler: ${e.message}`);
+    log.warn(`[${session.id.slice(0, 8)}] Group handler: ${e.message}`);
   }
   session.handlersReady = true;
 }
@@ -440,21 +492,34 @@ function attachListeners(session) {
         m.extendedTextMessage?.text ||
         m.imageMessage?.caption ||
         m.videoMessage?.caption ||
-        m.documentMessage?.caption || "";
+        m.documentMessage?.caption ||
+        "";
 
       const senderJid = isGroup
         ? msg.key.participant || from
-        : fromMe ? session.botSelfJid || from : from;
+        : fromMe
+          ? session.botSelfJid || from
+          : from;
       const senderNumber = senderJid.split("@")[0];
 
       if (messageText) {
-        log.msg(`[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${messageText.substring(0, 60)}${messageText.length > 60 ? "…" : ""}`);
+        log.msg(
+          `[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${messageText.substring(0, 60)}${messageText.length > 60 ? "…" : ""}`,
+        );
       }
 
-      if (fromMe && (!messageText || !messageText.trimStart().startsWith(ENV.PREFIX))) return;
+      if (
+        fromMe &&
+        (!messageText || !messageText.trimStart().startsWith(ENV.PREFIX))
+      )
+        return;
 
       const normSender = normalizePhone(senderNumber);
-      if (bannedUsers.has(senderJid) || bannedUsers.has(normSender) || bannedUsers.has(`${normSender}@s.whatsapp.net`)) {
+      if (
+        bannedUsers.has(senderJid) ||
+        bannedUsers.has(normSender) ||
+        bannedUsers.has(`${normSender}@s.whatsapp.net`)
+      ) {
         log.warn(`[${sid}] Blocked banned: ${senderNumber}`);
         return;
       }
@@ -462,9 +527,14 @@ function attachListeners(session) {
       session.messageCount++;
       messageCount++;
       // Update user tracker every 10 messages — not every single one. — AYOCODES
-      if (session.messageCount % 10 === 0) updateUserMessageCount(session).catch(() => {});
+      if (session.messageCount % 10 === 0)
+        updateUserMessageCount(session).catch(() => {});
 
-      if (!session.ownerJid && !isGroup && messageText?.startsWith(ENV.PREFIX)) {
+      if (
+        !session.ownerJid &&
+        !isGroup &&
+        messageText?.startsWith(ENV.PREFIX)
+      ) {
         log.warn(`[${sid}] No owner — auto-setting ${senderNumber}`);
         setSessionOwner(session, senderJid, senderNumber, "Owner");
       }
@@ -480,20 +550,32 @@ function attachListeners(session) {
 
       await session.commandHandler(msg, sock);
     } catch (e) {
-      if (!e.message?.includes("Bad MAC") && !e.message?.includes("Connection Closed"))
+      if (
+        !e.message?.includes("Bad MAC") &&
+        !e.message?.includes("Connection Closed")
+      )
         log.err(`[${sid}] Message error: ${e.message}`);
     }
   });
 
   sock.ev.on("group-participants.update", async (update) => {
     if (!session.connected || !session.groupHandler) return;
-    try { await session.groupHandler(update, sock); } catch (_) {}
+    try {
+      await session.groupHandler(update, sock);
+    } catch (_) {}
   });
 
   sock.ev.on("messages.update", async (updates) => {
-    if (!session.connected || !ENV.ANTI_DELETE_ENABLED || !session.antiDeleteHandler) return;
+    if (
+      !session.connected ||
+      !ENV.ANTI_DELETE_ENABLED ||
+      !session.antiDeleteHandler
+    )
+      return;
     for (const u of updates) {
-      try { await session.antiDeleteHandler(u, sock); } catch (_) {}
+      try {
+        await session.antiDeleteHandler(u, sock);
+      } catch (_) {}
     }
   });
 
@@ -525,7 +607,7 @@ async function trackUser(session) {
         $setOnInsert: { firstSeen: new Date() },
         $inc: { totalSessions: 1 },
       },
-      { upsert: true }
+      { upsert: true },
     );
   } catch (_) {}
 }
@@ -535,7 +617,7 @@ async function updateUserMessageCount(session) {
   try {
     await userLogCollection.updateOne(
       { phone: session.ownerPhone },
-      { $set: { lastSeen: new Date(), totalMessages: session.messageCount } }
+      { $set: { lastSeen: new Date(), totalMessages: session.messageCount } },
     );
   } catch (_) {}
 }
@@ -546,19 +628,30 @@ async function updateUserMessageCount(session) {
 function setSessionOwner(session, jid, phone, name = "Owner") {
   const cleanPhone = String(phone).replace(/[^0-9]/g, "");
   const cleanJid = `${cleanPhone}@s.whatsapp.net`;
-  const cleanName = (name && name !== cleanPhone && name !== "Unknown") ? name : "Owner";
+  const cleanName =
+    name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
   session.ownerJid = cleanJid;
   session.ownerPhone = cleanPhone;
   session.ownerName = cleanName;
   // Persist to MongoDB session meta. — AYOCODES
-  sessionMetaCollection?.updateOne(
-    { sessionId: session.id },
-    { $set: { ownerPhone: cleanPhone, ownerName: cleanName, botNumber: session.botNumber } },
-    { upsert: true }
-  ).catch(() => {});
+  sessionMetaCollection
+    ?.updateOne(
+      { sessionId: session.id },
+      {
+        $set: {
+          ownerPhone: cleanPhone,
+          ownerName: cleanName,
+          botNumber: session.botNumber,
+        },
+      },
+      { upsert: true },
+    )
+    .catch(() => {});
   // Log to user tracker. — AYOCODES
   trackUser(session).catch(() => {});
-  log.ok(`[${session.id.slice(0,8)}] Owner set: +${cleanPhone} (${cleanName})`);
+  log.ok(
+    `[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`,
+  );
 }
 
 // ============================================================
@@ -573,16 +666,22 @@ async function sendWelcomeMessage(session, sock) {
   if (!session.ownerJid) return;
 
   const connectTime = Date.now() - session.startTime;
-  const speedLabel = connectTime < 10000 ? "Fast" : connectTime < 20000 ? "Normal" : "Slow";
-  const speedIcon  = connectTime < 10000 ? "🟢" : connectTime < 20000 ? "🟡" : "🔴";
+  const speedLabel =
+    connectTime < 10000 ? "Fast" : connectTime < 20000 ? "Normal" : "Slow";
+  const speedIcon =
+    connectTime < 10000 ? "🟢" : connectTime < 20000 ? "🟡" : "🔴";
   const connectSecs = (connectTime / 1000).toFixed(1);
 
   const mem = process.memoryUsage();
   const usedMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
   const totalMB = (mem.heapTotal / 1024 / 1024).toFixed(1);
 
-  const displayName = (session.ownerName && session.ownerName !== session.ownerPhone && session.ownerName !== "Owner")
-    ? session.ownerName : null;
+  const displayName =
+    session.ownerName &&
+    session.ownerName !== session.ownerPhone &&
+    session.ownerName !== "Owner"
+      ? session.ownerName
+      : null;
 
   const caption =
     `━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -609,23 +708,34 @@ async function sendWelcomeMessage(session, sock) {
   } catch (_) {}
 
   for (let i = 1; i <= 5; i++) {
-    if (!session.connected) { await delay(3000); continue; }
+    if (!session.connected) {
+      await delay(3000);
+      continue;
+    }
     try {
       const r = await sock.sendMessage(session.ownerJid, {
         image: { url: ENV.WELCOME_IMAGE_URL },
         caption,
       });
-      if (r) { log.ok(`[${session.id.slice(0,8)}] Welcome sent!`); return; }
+      if (r) {
+        log.ok(`[${session.id.slice(0, 8)}] Welcome sent!`);
+        return;
+      }
     } catch (e) {
       try {
         const r = await sock.sendMessage(session.ownerJid, { text: caption });
-        if (r) { log.ok(`[${session.id.slice(0,8)}] Welcome sent (text fallback)`); return; }
+        if (r) {
+          log.ok(`[${session.id.slice(0, 8)}] Welcome sent (text fallback)`);
+          return;
+        }
       } catch (_) {}
     }
     await delay(4000 * i);
   }
   try {
-    await sock.sendMessage(session.ownerJid, { text: `✅ AYOBOT online! Type ${ENV.PREFIX}menu for commands.` });
+    await sock.sendMessage(session.ownerJid, {
+      text: `✅ AYOBOT online! Type ${ENV.PREFIX}menu for commands.`,
+    });
   } catch (_) {}
 }
 
@@ -639,11 +749,11 @@ async function clearSessionAuth(sessionId) {
     // but we sanitize anyway to be absolutely certain. — AYOCODES
     const safePrefix = sessionId.replace(/[^a-f0-9]/gi, "");
     await authCollection.deleteMany({
-      _id: { $regex: `^${safePrefix}:`, $options: "" }
+      _id: { $regex: `^${safePrefix}:`, $options: "" },
     });
-    log.info(`[${sessionId.slice(0,8)}] Auth cleared from MongoDB.`);
+    log.info(`[${sessionId.slice(0, 8)}] Auth cleared from MongoDB.`);
   } catch (e) {
-    log.warn(`[${sessionId.slice(0,8)}] Could not clear auth: ${e.message}`);
+    log.warn(`[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`);
   }
 }
 
@@ -668,7 +778,9 @@ async function startSession(sessionId, isNew = true) {
 
   const totalSessions = sessions.size;
   if (isNew && totalSessions >= ENV.MAX_SESSIONS) {
-    log.warn(`Max sessions (${ENV.MAX_SESSIONS}) reached — rejecting new session.`);
+    log.warn(
+      `Max sessions (${ENV.MAX_SESSIONS}) reached — rejecting new session.`,
+    );
     return null;
   }
 
@@ -679,7 +791,7 @@ async function startSession(sessionId, isNew = true) {
     await sessionMetaCollection.updateOne(
       { sessionId },
       { $set: { sessionId, active: true, createdAt: new Date() } },
-      { upsert: true }
+      { upsert: true },
     );
   }
 
@@ -693,7 +805,10 @@ async function _startSocket(session) {
 
   try {
     const { version } = await fetchLatestBaileysVersion();
-    const { state, saveCreds } = await useMongoAuthState(authCollection, session.id);
+    const { state, saveCreds } = await useMongoAuthState(
+      authCollection,
+      session.id,
+    );
 
     const sock = makeWASocket({
       version,
@@ -720,7 +835,10 @@ async function _startSocket(session) {
           msg = {
             viewOnceMessage: {
               message: {
-                messageContextInfo: { deviceListMetadataVersion: 2, deviceListMetadata: {} },
+                messageContextInfo: {
+                  deviceListMetadataVersion: 2,
+                  deviceListMetadata: {},
+                },
                 ...msg,
               },
             },
@@ -740,7 +858,9 @@ async function _startSocket(session) {
         session.pingInterval = null;
         return;
       }
-      try { await sock.sendPresenceUpdate("available"); } catch (_) {}
+      try {
+        await sock.sendPresenceUpdate("available");
+      } catch (_) {}
     }, 12000);
 
     // ── CONNECTION EVENTS ──────────────────────────────────
@@ -761,19 +881,36 @@ async function _startSocket(session) {
         session.reconnectAttempts = 0;
 
         session.botSelfJid = sock.user?.id || null;
-        const botNumber = (session.botSelfJid || "").split(":")[0].replace(/[^0-9]/g, "") || "Unknown";
-        const rawName = sock.user?.name || sock.user?.verifiedName || sock.user?.notify || sock.user?.pushName || "";
-        const userName = (rawName && rawName !== botNumber) ? rawName : null;
+        const botNumber =
+          (session.botSelfJid || "").split(":")[0].replace(/[^0-9]/g, "") ||
+          "Unknown";
+        const rawName =
+          sock.user?.name ||
+          sock.user?.verifiedName ||
+          sock.user?.notify ||
+          sock.user?.pushName ||
+          "";
+        const userName = rawName && rawName !== botNumber ? rawName : null;
 
         session.botNumber = botNumber;
         session.botName = userName || botNumber;
 
         if (!session.ownerPhone) {
-          setSessionOwner(session, `${botNumber}@s.whatsapp.net`, botNumber, userName || "Owner");
+          setSessionOwner(
+            session,
+            `${botNumber}@s.whatsapp.net`,
+            botNumber,
+            userName || "Owner",
+          );
           if (!session.authMethod) session.authMethod = "session";
         } else if (userName && session.ownerName === "Owner") {
           session.ownerName = userName;
-          sessionMetaCollection?.updateOne({ sessionId: session.id }, { $set: { ownerName: userName } }).catch(() => {});
+          sessionMetaCollection
+            ?.updateOne(
+              { sessionId: session.id },
+              { $set: { ownerName: userName } },
+            )
+            .catch(() => {});
         }
 
         await saveCreds();
@@ -793,7 +930,10 @@ async function _startSocket(session) {
         const reason = lastDisconnect?.error?.message || "Unknown";
         log.err(`[${sid}] Disconnected — code: ${code} | ${reason}`);
 
-        if (session.pingInterval) { clearInterval(session.pingInterval); session.pingInterval = null; }
+        if (session.pingInterval) {
+          clearInterval(session.pingInterval);
+          session.pingInterval = null;
+        }
 
         if (code === DisconnectReason.loggedOut) {
           await clearSessionAuth(session.id);
@@ -815,14 +955,18 @@ async function _startSocket(session) {
         // Exponential backoff. — AYOCODES
         session.reconnectAttempts++;
         const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
-        log.info(`[${sid}] Reconnecting in ${backoff / 1000}s... (attempt ${session.reconnectAttempts})`);
+        log.info(
+          `[${sid}] Reconnecting in ${backoff / 1000}s... (attempt ${session.reconnectAttempts})`,
+        );
         if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
-        session.reconnectTimeout = setTimeout(() => _startSocket(session), backoff);
+        session.reconnectTimeout = setTimeout(
+          () => _startSocket(session),
+          backoff,
+        );
       }
     });
 
     sock.ev.on("creds.update", saveCreds);
-
   } catch (e) {
     log.err(`[${sid}] Socket startup error: ${e.message}`);
     if (!session.destroyed) {
@@ -842,12 +986,15 @@ async function destroySession(sessionId) {
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
   if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
   if (session.sock) {
-    try { session.sock.end(); session.sock.removeAllListeners(); } catch (_) {}
+    try {
+      session.sock.end();
+      session.sock.removeAllListeners();
+    } catch (_) {}
   }
   await clearSessionAuth(sessionId);
   await sessionMetaCollection.deleteOne({ sessionId });
   sessions.delete(sessionId);
-  log.info(`[${sessionId.slice(0,8)}] Session destroyed.`);
+  log.info(`[${sessionId.slice(0, 8)}] Session destroyed.`);
 }
 
 // ============================================================
@@ -857,23 +1004,38 @@ async function destroySession(sessionId) {
 async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
   if (clean.length < 10 || clean.length > 15) {
-    return { success: false, error: "Phone must be 10–15 digits with country code, no + or spaces" };
+    return {
+      success: false,
+      error: "Phone must be 10–15 digits with country code, no + or spaces",
+    };
   }
   if (session.connected) {
-    return { success: false, error: "Already connected. Logout first to re-pair." };
+    return {
+      success: false,
+      error: "Already connected. Logout first to re-pair.",
+    };
   }
   if (!session.sock) {
-    return { success: false, error: "Bot still starting up — wait a moment and try again." };
+    return {
+      success: false,
+      error: "Bot still starting up — wait a moment and try again.",
+    };
   }
   if (session.pairingCode && session.pairingExpiry > Date.now()) {
     return {
-      success: true, code: session.pairingCode, phoneNumber: session.pairingPhone,
-      expiresIn: Math.floor((session.pairingExpiry - Date.now()) / 1000), cached: true,
+      success: true,
+      code: session.pairingCode,
+      phoneNumber: session.pairingPhone,
+      expiresIn: Math.floor((session.pairingExpiry - Date.now()) / 1000),
+      cached: true,
     };
   }
   try {
     const rawCode = await session.sock.requestPairingCode(clean);
-    const code = String(rawCode).match(/.{1,4}/g)?.join("-") || String(rawCode);
+    const code =
+      String(rawCode)
+        .match(/.{1,4}/g)
+        ?.join("-") || String(rawCode);
     session.pairingCode = code;
     session.pairingPhone = clean;
     session.pairingExpiry = Date.now() + 60000;
@@ -884,10 +1046,16 @@ async function requestPairingCode(session, phoneNumber) {
       session.pairingPhone = null;
       session.pairingExpiry = null;
     }, 60000);
-    log.ok(`[${session.id.slice(0,8)}] Pairing code: ${code} for +${clean}`);
-    return { success: true, code, rawCode: String(rawCode), phoneNumber: clean, expiresIn: 60 };
+    log.ok(`[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`);
+    return {
+      success: true,
+      code,
+      rawCode: String(rawCode),
+      phoneNumber: clean,
+      expiresIn: 60,
+    };
   } catch (e) {
-    log.err(`[${session.id.slice(0,8)}] Pairing code failed: ${e.message}`);
+    log.err(`[${session.id.slice(0, 8)}] Pairing code failed: ${e.message}`);
     return { success: false, error: e.message };
   }
 }
@@ -903,13 +1071,17 @@ app.use(bodyParser.urlencoded({ extended: true }));
 function parseCookies(req) {
   const list = {};
   const rc = req.headers.cookie;
-  if (rc) rc.split(";").forEach(c => {
-    const parts = c.split("=");
-    list[parts.shift().trim()] = decodeURIComponent(parts.join("=").trim());
-  });
+  if (rc)
+    rc.split(";").forEach((c) => {
+      const parts = c.split("=");
+      list[parts.shift().trim()] = decodeURIComponent(parts.join("=").trim());
+    });
   return list;
 }
-app.use((req, _res, next) => { req.cookies = parseCookies(req); next(); });
+app.use((req, _res, next) => {
+  req.cookies = parseCookies(req);
+  next();
+});
 
 // Admin auth. — AYOCODES
 const adminTokens = new Set();
@@ -925,7 +1097,10 @@ function getOrCreateSessionId(req, res) {
   let sid = req.cookies?.ayoSessionId;
   if (!sid || !/^[a-f0-9]{32}$/.test(sid)) {
     sid = crypto.randomBytes(16).toString("hex");
-    res.setHeader("Set-Cookie", `ayoSessionId=${sid}; HttpOnly; Path=/; Max-Age=31536000`);
+    res.setHeader(
+      "Set-Cookie",
+      `ayoSessionId=${sid}; HttpOnly; Path=/; Max-Age=31536000`,
+    );
   }
   return sid;
 }
@@ -934,7 +1109,6 @@ function getOrCreateSessionId(req, res) {
 //   WEB DASHBOARD ROUTES
 // ============================================================
 function setupWebDashboard() {
-
   // ROOT → redirect to user's personal dashboard. — AYOCODES
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
@@ -949,7 +1123,10 @@ function setupWebDashboard() {
     // Security: only the cookie owner sees their own dashboard. — AYOCODES
     if (cookieSid !== sessionId) {
       const correctSid = cookieSid || sessionId;
-      res.setHeader("Set-Cookie", `ayoSessionId=${correctSid}; HttpOnly; Path=/; Max-Age=31536000`);
+      res.setHeader(
+        "Set-Cookie",
+        `ayoSessionId=${correctSid}; HttpOnly; Path=/; Max-Age=31536000`,
+      );
       return res.redirect(`/dashboard/${correctSid}`);
     }
 
@@ -999,10 +1176,12 @@ function setupWebDashboard() {
   // ── API: REQUEST PAIRING CODE ────────────────────────────
   app.post("/api/request-pairing/:sessionId", async (req, res) => {
     const { phoneNumber } = req.body;
-    if (!phoneNumber) return res.json({ success: false, error: "Phone number is required." });
+    if (!phoneNumber)
+      return res.json({ success: false, error: "Phone number is required." });
     let session = sessions.get(req.params.sessionId);
     if (!session) session = await startSession(req.params.sessionId, true);
-    if (!session) return res.json({ success: false, error: "Could not create session." });
+    if (!session)
+      return res.json({ success: false, error: "Could not create session." });
     res.json(await requestPairingCode(session, phoneNumber));
   });
 
@@ -1023,7 +1202,7 @@ function setupWebDashboard() {
       status: "ok",
       uptime: process.uptime(),
       totalSessions: all.length,
-      connectedSessions: all.filter(s => s.connected).length,
+      connectedSessions: all.filter((s) => s.connected).length,
       totalMessages: all.reduce((a, s) => a + s.messageCount, 0),
     });
   });
@@ -1031,7 +1210,8 @@ function setupWebDashboard() {
   // ── WAITLIST (preserved from original) ──────────────────
   app.post("/api/waitlist-join/:sessionId", async (req, res) => {
     const { version } = req.body;
-    if (!version) return res.json({ success: false, error: "version required" });
+    if (!version)
+      return res.json({ success: false, error: "version required" });
     const session = sessions.get(req.params.sessionId);
     if (!session?.connected || !session.sock || !session.ownerJid)
       return res.json({ success: false, error: "Bot not connected" });
@@ -1059,10 +1239,14 @@ function setupWebDashboard() {
 
   app.post("/ayocodes-admin/login-post", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
-    if (req.body.password !== ENV.AYOCODES_ADMIN_KEY) return res.send(adminLoginHTML("Wrong password — try again."));
+    if (req.body.password !== ENV.AYOCODES_ADMIN_KEY)
+      return res.send(adminLoginHTML("Wrong password — try again."));
     const token = crypto.randomBytes(20).toString("hex");
     adminTokens.add(token);
-    res.setHeader("Set-Cookie", `ayoAdminToken=${token}; HttpOnly; Path=/; Max-Age=43200`);
+    res.setHeader(
+      "Set-Cookie",
+      `ayoAdminToken=${token}; HttpOnly; Path=/; Max-Age=43200`,
+    );
     res.redirect("/ayocodes-admin");
   });
 
@@ -1079,8 +1263,9 @@ function setupWebDashboard() {
   });
 
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
-    const list = Array.from(sessions.values()).map(s => ({
+    if (!ENV.AYOCODES_ADMIN_KEY)
+      return res.status(403).json({ error: "Not enabled" });
+    const list = Array.from(sessions.values()).map((s) => ({
       instanceId: s.id,
       ownerPhone: s.ownerPhone,
       ownerName: s.ownerName,
@@ -1093,13 +1278,19 @@ function setupWebDashboard() {
       stale: false,
       lastSeenAgo: 0,
     }));
-    res.json({ instances: list, total: list.length, online: list.filter(i => i.connected).length });
+    res.json({
+      instances: list,
+      total: list.length,
+      online: list.filter((i) => i.connected).length,
+    });
   });
 
   app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
+    if (!ENV.AYOCODES_ADMIN_KEY)
+      return res.status(403).json({ error: "Not enabled" });
     const { instanceId } = req.body;
-    if (!instanceId) return res.status(400).json({ error: "instanceId required" });
+    if (!instanceId)
+      return res.status(400).json({ error: "instanceId required" });
     await destroySession(instanceId);
     res.json({ ok: true });
   });
@@ -1112,7 +1303,8 @@ function setupWebDashboard() {
   });
 
   app.get("/ayocodes-admin/api/users", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
+    if (!ENV.AYOCODES_ADMIN_KEY)
+      return res.status(403).json({ error: "Not enabled" });
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = 50;
@@ -1120,21 +1312,33 @@ function setupWebDashboard() {
       const search = req.query.search || "";
 
       const query = search
-        ? { $or: [{ phone: { $regex: search, $options: "i" } }, { name: { $regex: search, $options: "i" } }] }
+        ? {
+            $or: [
+              { phone: { $regex: search, $options: "i" } },
+              { name: { $regex: search, $options: "i" } },
+            ],
+          }
         : {};
 
       const [users, total] = await Promise.all([
-        userLogCollection.find(query).sort({ lastSeen: -1 }).skip(skip).limit(limit).toArray(),
+        userLogCollection
+          .find(query)
+          .sort({ lastSeen: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
         userLogCollection.countDocuments(query),
       ]);
 
       // Check which users are currently active. — AYOCODES
       const activeSessions = new Set(
-        Array.from(sessions.values()).filter(s => s.connected).map(s => s.ownerPhone)
+        Array.from(sessions.values())
+          .filter((s) => s.connected)
+          .map((s) => s.ownerPhone),
       );
 
       res.json({
-        users: users.map(u => ({
+        users: users.map((u) => ({
           ...u,
           online: activeSessions.has(u.phone),
         })),
@@ -1148,37 +1352,53 @@ function setupWebDashboard() {
   });
 
   // Export all users as CSV. — AYOCODES
-  app.get("/ayocodes-admin/api/users/export", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
-    try {
-      const users = await userLogCollection.find({}).sort({ lastSeen: -1 }).toArray();
-      const csv = [
-        "Phone,Name,First Seen,Last Seen,Total Messages,Total Sessions,Auth Method,Bot Number",
-        ...users.map(u => [
-          u.phone || "",
-          (u.name || "").replace(/,/g, ";"),
-          u.firstSeen ? new Date(u.firstSeen).toISOString() : "",
-          u.lastSeen ? new Date(u.lastSeen).toISOString() : "",
-          u.totalMessages || 0,
-          u.totalSessions || 0,
-          u.authMethod || "",
-          u.botNumber || "",
-        ].join(","))
-      ].join("\n");
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", "attachment; filename=ayobot-users.csv");
-      res.send(csv);
-    } catch (e) {
-      res.status(500).send("Export failed: " + e.message);
-    }
-  });
+  app.get(
+    "/ayocodes-admin/api/users/export",
+    requireAdmin,
+    async (req, res) => {
+      if (!ENV.AYOCODES_ADMIN_KEY)
+        return res.status(403).json({ error: "Not enabled" });
+      try {
+        const users = await userLogCollection
+          .find({})
+          .sort({ lastSeen: -1 })
+          .toArray();
+        const csv = [
+          "Phone,Name,First Seen,Last Seen,Total Messages,Total Sessions,Auth Method,Bot Number",
+          ...users.map((u) =>
+            [
+              u.phone || "",
+              (u.name || "").replace(/,/g, ";"),
+              u.firstSeen ? new Date(u.firstSeen).toISOString() : "",
+              u.lastSeen ? new Date(u.lastSeen).toISOString() : "",
+              u.totalMessages || 0,
+              u.totalSessions || 0,
+              u.authMethod || "",
+              u.botNumber || "",
+            ].join(","),
+          ),
+        ].join("\n");
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+          "Content-Disposition",
+          "attachment; filename=ayobot-users.csv",
+        );
+        res.send(csv);
+      } catch (e) {
+        res.status(500).send("Export failed: " + e.message);
+      }
+    },
+  );
 
   const PORT = ENV.PORT;
   app.listen(PORT, "0.0.0.0", () => {
     log.ok(`Dashboard → http://localhost:${PORT}`);
-    if (ENV.AYOCODES_ADMIN_KEY) log.ok(`Admin     → http://localhost:${PORT}/ayocodes-admin`);
+    if (ENV.AYOCODES_ADMIN_KEY)
+      log.ok(`Admin     → http://localhost:${PORT}/ayocodes-admin`);
     const publicUrl = process.env.RENDER_EXTERNAL_URL
-      ? (process.env.RENDER_EXTERNAL_URL.startsWith("http") ? process.env.RENDER_EXTERNAL_URL : `https://${process.env.RENDER_EXTERNAL_URL}`)
+      ? process.env.RENDER_EXTERNAL_URL.startsWith("http")
+        ? process.env.RENDER_EXTERNAL_URL
+        : `https://${process.env.RENDER_EXTERNAL_URL}`
       : `http://localhost:${PORT}`;
     log.ok(`Public    → ${publicUrl}\n`);
   });
@@ -1337,7 +1557,9 @@ function connectedHTML(session) {
   const s = up % 60;
   const SID = session.id;
 
-  return sharedHead("AYOBOT v1 — Dashboard") + `
+  return (
+    sharedHead("AYOBOT v1 — Dashboard") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1511,14 +1733,17 @@ function joinWaitlist(v,btn){
   if(btn){btn.textContent='✅ JOINED';btn.classList.add('joined');}if(wc)wc.textContent=count+' waiting';}
 });
 </script>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
 //   CONNECT PAGE HTML
 // ============================================================
 function connectHTML(sessionId, qrUrl) {
-  return sharedHead("AYOBOT — Connect") + `
+  return (
+    sharedHead("AYOBOT — Connect") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1640,14 +1865,17 @@ window.onload=function(){
   }).catch(()=>{});
 };
 </script>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
 //   LOADING PAGE HTML
 // ============================================================
 function loadingHTML(sessionId) {
-  return sharedHead("AYOBOT — Starting") + `
+  return (
+    sharedHead("AYOBOT — Starting") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1672,14 +1900,17 @@ function loadingHTML(sessionId) {
 let rc=3;
 setInterval(()=>{rc--;const e=document.getElementById('rc');if(e)e.textContent=rc;if(rc<=0)location.reload();},1000);
 </script>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
 //   MAX SESSIONS PAGE HTML
 // ============================================================
 function maxSessionsHTML() {
-  return sharedHead("AYOBOT — At Capacity") + `
+  return (
+    sharedHead("AYOBOT — At Capacity") +
+    `
 <body>
 <div class="orb orb1"></div>
 <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px;position:relative;z-index:1">
@@ -1688,14 +1919,17 @@ function maxSessionsHTML() {
   <p style="color:var(--text2);margin-top:12px;max-width:400px">This server has reached its maximum session limit (${ENV.MAX_SESSIONS}). Please try again later.</p>
   <div style="margin-top:24px;font-size:13px;color:var(--text3)">Built by <a href="${ENV.CREATOR_GITHUB}" style="color:var(--red);text-decoration:none" target="_blank">AYOCODES</a></div>
 </div>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
 //   ADMIN LOGIN HTML
 // ============================================================
 function adminLoginHTML(error = "") {
-  return sharedHead("AYOBOT — Developer Access") + `
+  return (
+    sharedHead("AYOBOT — Developer Access") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1721,14 +1955,17 @@ function adminLoginHTML(error = "") {
     </div>
   </div>
 </div>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
 //   ADMIN DASHBOARD HTML
 // ============================================================
 function adminDashboardHTML() {
-  return sharedHead("AYOBOT — Developer Control Panel") + `
+  return (
+    sharedHead("AYOBOT — Developer Control Panel") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1789,15 +2026,15 @@ async function loadInstances(){
     let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>ACTION</th></tr></thead><tbody>';
     d.instances.forEach(inst=>{
       const up=inst.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60);
-      const connStatus=inst.connected
+      const status=inst.connected
         ?'<span style="color:var(--green);font-family:JetBrains Mono,monospace">● LIVE</span>'
         :'<span style="color:var(--red);font-family:JetBrains Mono,monospace">● OFFLINE</span>';
       html += '<tr>' +
-        '<td>' + connStatus + '</td>' +
+        '<td>' + status + '</td>' +
         '<td><span class="mono" style="color:var(--gold)">' + (inst.ownerName||'—') + '</span></td>' +
         '<td><span class="mono">+' + (inst.ownerPhone||'—') + '</span></td>' +
         '<td><span class="mono" style="color:var(--green)">' + h + 'h ' + m + 'm</span></td>' +
-        '<td><span class="mono">' + ((inst.messageCount||0).toLocaleString()) + '</span></td>' +
+        '<td><span class="mono">' + (inst.messageCount||0).toLocaleString() + '</span></td>' +
         '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod||'—') + '</span></td>' +
         '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')">⚡ KILL</button></td>' +
         '</tr>';
@@ -1817,7 +2054,8 @@ loadInstances();setInterval(loadInstances,5000);
 function tick(){const e=document.getElementById('footerClock');if(e)e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
 tick();setInterval(tick,1000);
 </script>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
@@ -1826,7 +2064,9 @@ tick();setInterval(tick,1000);
 //   Search, pagination, CSV export, live online status. — AYOCODES
 // ============================================================
 function userTrackingHTML() {
-  return sharedHead("AYOBOT — User Tracker") + `
+  return (
+    sharedHead("AYOBOT — User Tracker") +
+    `
 <body>
 <div class="orb orb1"></div><div class="orb orb2"></div>
 <nav class="nav">
@@ -1957,7 +2197,8 @@ setInterval(()=>loadUsers(currentPage),30000); // refresh every 30s
 function tick(){const e=document.getElementById('footerClock');if(e)e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
 tick();setInterval(tick,1000);
 </script>
-</body></html>`;
+</body></html>`
+  );
 }
 
 // ============================================================
@@ -1969,49 +2210,58 @@ async function loadAndDisplayFeatures() {
   console.log(`┃           📦 LOADING ALL FEATURE MODULES            ┃`);
   console.log(`┗${line}┛\n`);
   const features = [
-    { name: "AI",           path: "./features/ai.js",                emoji: "🤖" },
-    { name: "Calculator",   path: "./features/calculator.js",         emoji: "🧮" },
-    { name: "Crypto",       path: "./features/crypto.js",             emoji: "💰" },
-    { name: "Dictionary",   path: "./features/dictionary.js",         emoji: "📖" },
-    { name: "Downloader",   path: "./features/downloader.js",         emoji: "📥" },
-    { name: "Encryption",   path: "./features/encryption.js",         emoji: "🔐" },
-    { name: "Games",        path: "./features/games.js",              emoji: "🎮" },
-    { name: "Image Tools",  path: "./features/imageTools.js",         emoji: "🖼️" },
-    { name: "IP Lookup",    path: "./features/ipLookup.js",           emoji: "🌐" },
-    { name: "Jokes",        path: "./features/jokes.js",              emoji: "😂" },
-    { name: "Movies",       path: "./features/movies.js",             emoji: "🎬" },
-    { name: "Music",        path: "./features/music.js",              emoji: "🎵" },
-    { name: "News",         path: "./features/news.js",               emoji: "📰" },
-    { name: "Notes",        path: "./features/notes.js",              emoji: "📝" },
-    { name: "QR",           path: "./features/qr.js",                 emoji: "📱" },
-    { name: "Quotes",       path: "./features/quotes.js",             emoji: "💬" },
-    { name: "Reminder",     path: "./features/reminder.js",           emoji: "⏰" },
-    { name: "Security",     path: "./features/security.js",           emoji: "🛡️" },
-    { name: "Stocks",       path: "./features/stocks.js",             emoji: "📈" },
-    { name: "Translation",  path: "./features/translation.js",        emoji: "🌍" },
-    { name: "TTS",          path: "./features/tts.js",                emoji: "🗣️" },
-    { name: "Unit Convert", path: "./features/unitConverter.js",      emoji: "📏" },
-    { name: "Group Core",   path: "./commands/group/core.js",         emoji: "👥" },
-    { name: "Group Mod",    path: "./commands/group/moderation.js",   emoji: "⚙️" },
-    { name: "Group Sett.",  path: "./commands/group/settings.js",     emoji: "🔧" },
-    { name: "Admin",        path: "./commands/group/admin.js",        emoji: "👑" },
-    { name: "Basic",        path: "./commands/group/basic.js",        emoji: "📋" },
-    { name: "Automation",   path: "./commands/group/automation.js",   emoji: "🤖" },
+    { name: "AI", path: "./features/ai.js", emoji: "🤖" },
+    { name: "Calculator", path: "./features/calculator.js", emoji: "🧮" },
+    { name: "Crypto", path: "./features/crypto.js", emoji: "💰" },
+    { name: "Dictionary", path: "./features/dictionary.js", emoji: "📖" },
+    { name: "Downloader", path: "./features/downloader.js", emoji: "📥" },
+    { name: "Encryption", path: "./features/encryption.js", emoji: "🔐" },
+    { name: "Games", path: "./features/games.js", emoji: "🎮" },
+    { name: "Image Tools", path: "./features/imageTools.js", emoji: "🖼️" },
+    { name: "IP Lookup", path: "./features/ipLookup.js", emoji: "🌐" },
+    { name: "Jokes", path: "./features/jokes.js", emoji: "😂" },
+    { name: "Movies", path: "./features/movies.js", emoji: "🎬" },
+    { name: "Music", path: "./features/music.js", emoji: "🎵" },
+    { name: "News", path: "./features/news.js", emoji: "📰" },
+    { name: "Notes", path: "./features/notes.js", emoji: "📝" },
+    { name: "QR", path: "./features/qr.js", emoji: "📱" },
+    { name: "Quotes", path: "./features/quotes.js", emoji: "💬" },
+    { name: "Reminder", path: "./features/reminder.js", emoji: "⏰" },
+    { name: "Security", path: "./features/security.js", emoji: "🛡️" },
+    { name: "Stocks", path: "./features/stocks.js", emoji: "📈" },
+    { name: "Translation", path: "./features/translation.js", emoji: "🌍" },
+    { name: "TTS", path: "./features/tts.js", emoji: "🗣️" },
+    { name: "Unit Convert", path: "./features/unitConverter.js", emoji: "📏" },
+    { name: "Group Core", path: "./commands/group/core.js", emoji: "👥" },
+    { name: "Group Mod", path: "./commands/group/moderation.js", emoji: "⚙️" },
+    { name: "Group Sett.", path: "./commands/group/settings.js", emoji: "🔧" },
+    { name: "Admin", path: "./commands/group/admin.js", emoji: "👑" },
+    { name: "Basic", path: "./commands/group/basic.js", emoji: "📋" },
+    { name: "Automation", path: "./commands/group/automation.js", emoji: "🤖" },
   ];
-  let loaded = 0, failed = 0, total = 0;
+  let loaded = 0,
+    failed = 0,
+    total = 0;
   for (const f of features) {
     try {
       const mod = await import(f.path);
-      const fns = Object.keys(mod).filter(k => typeof mod[k] === "function");
+      const fns = Object.keys(mod).filter((k) => typeof mod[k] === "function");
       console.log(`✅ ${f.emoji} ${f.name.padEnd(16)} ➜ ${fns.length} exports`);
-      loaded++; total += fns.length;
+      loaded++;
+      total += fns.length;
     } catch (e) {
-      console.log(`❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`);
+      console.log(
+        `❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`,
+      );
       failed++;
     }
   }
   console.log(`\n┏${line}┓`);
-  console.log(`┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(55) + "┃");
+  console.log(
+    `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(
+      55,
+    ) + "┃",
+  );
   console.log(`┗${line}┛\n`);
 }
 
@@ -2022,7 +2272,9 @@ async function loadAndDisplayFeatures() {
 //   regardless so no one gets caught out. — AYOCODES
 // ============================================================
 async function main() {
-  console.log(`\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1 Multi-Session by AYOCODES…${C.reset}\n`);
+  console.log(
+    `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1 Multi-Session by AYOCODES…${C.reset}\n`,
+  );
   checkEnvVars();
 
   // 1. Connect to MongoDB. — AYOCODES
@@ -2038,12 +2290,16 @@ async function main() {
   await restoreAllSessions();
 
   // 5. Load feature list to terminal (non-blocking). — AYOCODES
-  loadAndDisplayFeatures().catch(e => log.warn("Feature display: " + e.message));
+  loadAndDisplayFeatures().catch((e) =>
+    log.warn("Feature display: " + e.message),
+  );
 
-  console.log(`${C.green}${C.bold}✨ AYOBOT Multi-Session ready. Anyone can visit the link and connect their own WhatsApp.${C.reset}\n`);
+  console.log(
+    `${C.green}${C.bold}✨ AYOBOT Multi-Session ready. Anyone can visit the link and connect their own WhatsApp.${C.reset}\n`,
+  );
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(`${C.red}❌ Fatal startup error: ${e.message}${C.reset}`);
   console.error(e);
   process.exit(1);
@@ -2055,7 +2311,12 @@ main().catch(e => {
 async function gracefulShutdown(sig) {
   console.log(`\n${C.red}🛑 ${sig} — Shutting down cleanly…${C.reset}`);
   for (const session of sessions.values()) {
-    if (session.sock) { try { session.sock.end(); session.sock.removeAllListeners(); } catch (_) {} }
+    if (session.sock) {
+      try {
+        session.sock.end();
+        session.sock.removeAllListeners();
+      } catch (_) {}
+    }
     if (session.pingInterval) clearInterval(session.pingInterval);
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
   }
@@ -2063,12 +2324,16 @@ async function gracefulShutdown(sig) {
   console.error = originalConsoleError;
   process.exit(0);
 }
-process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("unhandledRejection", (e) => {
-  if (!e?.message?.includes("Bad MAC")) log.warn("Unhandled rejection: " + (e?.message || e));
+  if (!e?.message?.includes("Bad MAC"))
+    log.warn("Unhandled rejection: " + (e?.message || e));
 });
 process.on("uncaughtException", (e) => {
-  if (!e.message?.includes("Bad MAC")) log.err("Uncaught exception: " + e.message);
+  if (!e.message?.includes("Bad MAC"))
+    log.err("Uncaught exception: " + e.message);
 });
-process.on("exit", () => { console.error = originalConsoleError; });
+process.on("exit", () => {
+  console.error = originalConsoleError;
+});
