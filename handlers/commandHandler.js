@@ -1,4 +1,13 @@
 // handlers/commandHandler.js — AYOBOT v1 | Created by AYOCODES
+//
+// FIXES IN THIS VERSION:
+//   1. Private/public mode now ACTUALLY enforced — non-owners blocked in private mode
+//   2. isAdmin + isAuthorized now receive ownerPhone + sessionMode from msg._session
+//   3. Session context (msg._session, msg._ownerPhone, msg._sessionMode) fully used
+//   4. fromMe = always admin — owner sending from their own phone is never blocked
+//   5. requireBotAdmin check now uses cached lookup for performance
+//   6. All permission errors give clear, helpful messages
+// — AYOCODES
 
 import {
   autoReplyEnabled,
@@ -11,6 +20,8 @@ import {
   normalizePhone,
   userConversations,
   userCooldown,
+  setSessionMode,
+  getSession,
 } from "../index.js";
 
 import {
@@ -395,7 +406,7 @@ export function registerAllCommands() {
   }
   if (typeof basic.pdf === "function") {
     reg("pdf", basic.pdf);
-    count += 1;
+    count++;
   }
   if (typeof basic.viewOnce === "function") {
     reg("open", basic.viewOnce);
@@ -431,23 +442,23 @@ export function registerAllCommands() {
   }
   if (typeof basic.url === "function") {
     reg("url", basic.url);
-    count += 1;
+    count++;
   }
   if (typeof basic.fetch === "function") {
     reg("fetch", basic.fetch);
-    count += 1;
+    count++;
   }
   if (typeof basic.qencode === "function") {
     reg("qencode", basic.qencode);
-    count += 1;
+    count++;
   }
   if (typeof basic.take === "function") {
     reg("take", basic.take);
-    count += 1;
+    count++;
   }
   if (typeof basic.imgbb === "function") {
     reg("imgbb", basic.imgbb);
-    count += 1;
+    count++;
   }
   if (typeof basic.screenshot === "function") {
     reg("screenshot", basic.screenshot);
@@ -456,27 +467,27 @@ export function registerAllCommands() {
   }
   if (typeof basic.inspect === "function") {
     reg("inspect", basic.inspect);
-    count += 1;
+    count++;
   }
   if (typeof basic.trebleboost === "function") {
     reg("trebleboost", basic.trebleboost);
-    count += 1;
+    count++;
   }
   if (typeof basic.vcf === "function") {
     reg("vcf", basic.vcf);
-    count += 1;
+    count++;
   }
   if (typeof basic.viewvcf === "function") {
     reg("viewvcf", basic.viewvcf);
-    count += 1;
+    count++;
   }
   if (typeof basic.getip === "function") {
     reg("getip", basic.getip);
-    count += 1;
+    count++;
   }
   if (typeof basic.myip === "function") {
     reg("myip", basic.myip);
-    count += 1;
+    count++;
   }
   if (typeof basic.whois === "function") {
     reg("whois", basic.whois);
@@ -532,7 +543,7 @@ export function registerAllCommands() {
   }
   if (typeof ai.aiExport === "function") {
     reg("aiexport", ai.aiExport);
-    count += 1;
+    count++;
   }
   if (typeof ai.aiStat === "function") {
     reg("aistat", ai.aiStat);
@@ -551,7 +562,7 @@ export function registerAllCommands() {
     reg("spellcheck", ai.grammar);
     count += 2;
   }
-  if (typeof ai.translate === "function") {
+  if (typeof translation.translate === "function") {
     reg("translate", translation.translate);
     reg("tr", translation.translate);
     reg("tl", translation.translate);
@@ -585,11 +596,11 @@ export function registerAllCommands() {
   }
   if (typeof crypto.cryptoChart === "function") {
     reg("cryptochart", crypto.cryptoChart);
-    count += 1;
+    count++;
   }
   if (typeof crypto.cryptoConvert === "function") {
     reg("cryptoconvert", crypto.cryptoConvert);
-    count += 1;
+    count++;
   }
 
   // ── DICTIONARY ───────────────────────────────────────────
@@ -659,7 +670,7 @@ export function registerAllCommands() {
   }
   if (typeof games.coinFlip === "function") {
     reg("flip", games.coinFlip);
-    count += 1;
+    count++;
   }
   if (typeof games.trivia === "function") {
     reg("trivia", games.trivia);
@@ -686,7 +697,7 @@ export function registerAllCommands() {
   }
   if (typeof imageTools.toGif === "function") {
     reg("togif", imageTools.toGif);
-    count += 1;
+    count++;
   }
   if (typeof imageTools.toAudio === "function") {
     reg("toaudio", imageTools.toAudio);
@@ -701,25 +712,25 @@ export function registerAllCommands() {
   }
   if (typeof imageTools.meme === "function") {
     reg("meme", imageTools.meme);
-    count += 1;
+    count++;
   }
 
   // ── IP LOOKUP (fallback only — basic.js registers primary) ─
   if (typeof ipLookup.ip === "function" && !commands.has("ip")) {
     reg("ipinfo", ipLookup.ip);
-    count += 1;
+    count++;
   }
   if (typeof ipLookup.whois === "function" && !commands.has("whois")) {
     reg("whois", ipLookup.whois);
-    count += 1;
+    count++;
   }
   if (typeof ipLookup.myip === "function" && !commands.has("myip")) {
     reg("myip", ipLookup.myip);
-    count += 1;
+    count++;
   }
   if (typeof ipLookup.dns === "function" && !commands.has("dns")) {
     reg("dns", ipLookup.dns);
-    count += 1;
+    count++;
   }
 
   // ── JOKES ────────────────────────────────────────────────
@@ -776,11 +787,11 @@ export function registerAllCommands() {
   }
   if (typeof music.musicArtist === "function") {
     reg("artist", music.musicArtist);
-    count += 1;
+    count++;
   }
   if (typeof music.musicAlbum === "function") {
     reg("album", music.musicAlbum);
-    count += 1;
+    count++;
   }
   if (typeof music.musicSearch === "function") {
     reg("musicsearch", music.musicSearch);
@@ -789,7 +800,7 @@ export function registerAllCommands() {
   }
   if (typeof music.musicGenius === "function") {
     reg("genius", music.musicGenius);
-    count += 1;
+    count++;
   }
 
   // ── NEWS ─────────────────────────────────────────────────
@@ -824,7 +835,7 @@ export function registerAllCommands() {
   }
   if (typeof notes.clearAll === "function") {
     reg("clearnotes", notes.clearAll);
-    count += 1;
+    count++;
   }
 
   // ── QR ───────────────────────────────────────────────────
@@ -850,6 +861,18 @@ export function registerAllCommands() {
     reg("later", reminder.reminder);
     reg("alarm", reminder.reminder);
     count += 4;
+  }
+  if (typeof reminder.listReminders === "function") {
+    reg("reminders", reminder.listReminders);
+    reg("myreminders", reminder.listReminders);
+    reg("rlist", reminder.listReminders);
+    count += 3;
+  }
+  if (typeof reminder.cancelReminder === "function") {
+    reg("cancelreminder", reminder.cancelReminder);
+    reg("delreminder", reminder.cancelReminder);
+    reg("rmreminder", reminder.cancelReminder);
+    count += 3;
   }
 
   // ── SECURITY ─────────────────────────────────────────────
@@ -899,7 +922,7 @@ export function registerAllCommands() {
   }
   if (typeof tts.ttsVoice === "function") {
     reg("voices", tts.ttsVoice);
-    count += 1;
+    count++;
   }
 
   // ── UNIT CONVERTER ───────────────────────────────────────
@@ -911,11 +934,11 @@ export function registerAllCommands() {
   }
   if (typeof unitConverter.units === "function") {
     reg("units", unitConverter.units);
-    count += 1;
+    count++;
   }
   if (typeof unitConverter.allunits === "function") {
     reg("allunits", unitConverter.allunits);
-    count += 1;
+    count++;
   }
 
   // ── GROUP CORE ───────────────────────────────────────────
@@ -982,11 +1005,11 @@ export function registerAllCommands() {
         adminOnly: true,
         requireBotAdmin: true,
       });
-      count += 1;
+      count++;
     }
     if (typeof gm.unban === "function") {
       reg("unban", gm.unban, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gm.listBanned === "function") {
       reg("listbanned", gm.listBanned, { groupOnly: true, adminOnly: true });
@@ -995,7 +1018,7 @@ export function registerAllCommands() {
     }
     if (typeof gm.warn === "function") {
       reg("warn", gm.warn, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gm.warnings === "function") {
       reg("warnings", gm.warnings, { groupOnly: true });
@@ -1014,44 +1037,43 @@ export function registerAllCommands() {
     const gs = group.settings;
     if (typeof gs.mute === "function") {
       reg("mute", gs.mute, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.unmute === "function") {
       reg("unmute", gs.unmute, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
-    // NEW: lock / unlock — restrict group-info edits to admins only. — AYOCODES
     if (typeof gs.lock === "function") {
       reg("lock", gs.lock, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.unlock === "function") {
       reg("unlock", gs.unlock, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.antiLink === "function") {
       reg("antilink", gs.antiLink, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.antiSpam === "function") {
       reg("antispam", gs.antiSpam, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.welcomeToggle === "function") {
       reg("welcome", gs.welcomeToggle, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.setWelcome === "function") {
       reg("setwelcome", gs.setWelcome, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.goodbyeToggle === "function") {
       reg("goodbye", gs.goodbyeToggle, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.setGoodbye === "function") {
       reg("setgoodbye", gs.setGoodbye, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.groupInfo === "function") {
       reg("groupinfo", gs.groupInfo, { groupOnly: true });
@@ -1066,15 +1088,15 @@ export function registerAllCommands() {
     }
     if (typeof gs.setRules === "function") {
       reg("setrules", gs.setRules, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.link === "function") {
       reg("link", gs.link, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.revoke === "function") {
       reg("revoke", gs.revoke, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.tagAll === "function") {
       reg("tagall", gs.tagAll, { groupOnly: true, adminOnly: true });
@@ -1087,21 +1109,19 @@ export function registerAllCommands() {
       reg("htag", gs.hideTag, { groupOnly: true, adminOnly: true });
       count += 2;
     }
-    // NEW: pin / unpin — pin messages in the group. Bot must be admin. — AYOCODES
     if (typeof gs.pin === "function") {
       reg("pin", gs.pin, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.unpin === "function") {
       reg("unpin", gs.unpin, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.deleteMsg === "function") {
       reg("delete", gs.deleteMsg, { groupOnly: true, adminOnly: true });
       reg("del", gs.deleteMsg, { groupOnly: true, adminOnly: true });
       count += 2;
     }
-    // NEW: settings overview & reset. — AYOCODES
     if (typeof gs.settingsOverview === "function") {
       reg("settings", gs.settingsOverview, { groupOnly: true });
       reg("gsettings", gs.settingsOverview, { groupOnly: true });
@@ -1120,11 +1140,11 @@ export function registerAllCommands() {
     }
     if (typeof gs.leave === "function") {
       reg("leave", gs.leave, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof gs.debug === "function") {
       reg("debuggroup", gs.debug, { groupOnly: true, adminOnly: true });
-      count += 1;
+      count++;
     }
   }
 
@@ -1167,11 +1187,11 @@ export function registerAllCommands() {
     }
     if (typeof admin.superBan === "function") {
       reg("superban", admin.superBan, { adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof admin.clearBans === "function") {
       reg("clearbans", admin.clearBans, { adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof admin.restart === "function") {
       reg("restart", admin.restart, { adminOnly: true });
@@ -1185,7 +1205,7 @@ export function registerAllCommands() {
     }
     if (typeof admin.botStatus === "function") {
       reg("botstatus", admin.botStatus, { adminOnly: true });
-      count += 1;
+      count++;
     }
     if (typeof admin.adminEval === "function") {
       reg("eval", admin.adminEval, { adminOnly: true });
@@ -1234,6 +1254,15 @@ export async function handleCommand(message, sock) {
     const isDM = from.endsWith("@s.whatsapp.net") || from.endsWith("@lid");
     const fromMe = !!message.key.fromMe;
 
+    // ── Pull session context injected by index.js ───────────
+    // index.js sets these on the message object before calling handleCommand.
+    // ownerPhone + sessionMode are used for ALL permission checks. — AYOCODES
+    const session = message._session || null;
+    const ownerPhone = message._ownerPhone || session?.ownerPhone || "";
+    const sessionMode =
+      message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
+    const sessionId = message._sessionId || session?.id || "";
+
     // ── Resolve sender JID ──────────────────────────────────
     // In groups, sender is key.participant (includes device suffix like :56).
     // In DMs, fromMe = owner sending from their own phone.
@@ -1242,7 +1271,6 @@ export async function handleCommand(message, sock) {
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
     } else if (fromMe) {
-      // Owner sending from their phone — build clean JID from socket user
       const phone = (sock?.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
       rawSenderJid = phone ? `${phone}@s.whatsapp.net` : from;
     } else {
@@ -1256,11 +1284,12 @@ export async function handleCommand(message, sock) {
     if (!userJid) return;
 
     // ── Permission flags ────────────────────────────────────
-    // fromMe = this message was sent by the bot owner from their own phone.
-    // The owner is ALWAYS admin — no JID comparison needed for fromMe messages.
-    // This is the definitive fix for "owner blocked in groups". — AYOCODES
-    const isAdminUser = fromMe || isAdmin(userJid);
-    const isAuthorizedUser = isAdminUser || isAuthorized(userJid);
+    // fromMe = message sent by the bot owner from their own phone → always admin.
+    // isAdmin now receives ownerPhone so it checks the RIGHT owner per session. — AYOCODES
+    const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
+    // isAuthorized receives sessionMode so private mode actually blocks people. — AYOCODES
+    const isAuthorizedUser =
+      isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
     // ── Extract message text ────────────────────────────────
     const m = message.message || {};
@@ -1279,22 +1308,18 @@ export async function handleCommand(message, sock) {
     const trimmed = msgText.trim();
 
     // ── Non-command messages ────────────────────────────────
-    // Not a command prefix → skip entirely. Auto-reply is disabled. — AYOCODES
     if (!trimmed.startsWith(ENV.PREFIX)) return;
-
-    // ── fromMe command guard ────────────────────────────────
-    // Owner sending .command from their own phone (fromMe = true).
-    // We allow this — owner should be able to use all commands
-    // from their own device. Just skip if it's not a command. — AYOCODES
 
     // ── Log ─────────────────────────────────────────────────
     const tag = isAdminUser
       ? "👑ADMIN"
       : isAuthorizedUser
         ? "✅USER"
-        : "👤PUBLIC";
+        : "🔒BLOCKED";
     const loc = isGroup ? "GROUP" : "DM";
-    log.cmd(`[${tag}][${loc}] ${trimmed.substring(0, 60)} ← ${cleanPhone}`);
+    log.cmd(
+      `[${tag}][${loc}][${sessionMode.toUpperCase()}] ${trimmed.substring(0, 60)} ← ${cleanPhone}`,
+    );
 
     // ── Parse command ────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
@@ -1327,7 +1352,23 @@ export async function handleCommand(message, sock) {
       return;
     }
 
-    // ── Permission checks ────────────────────────────────────
+    // ── PRIVATE MODE GATE ────────────────────────────────────
+    // This is the fix. In private mode ONLY the owner can use ANY command.
+    // This check runs BEFORE adminOnly/groupOnly so it blocks everyone. — AYOCODES
+    if (sessionMode === "private" && !isAdminUser) {
+      log.warn(
+        `[${sessionId.slice(0, 8)}] PRIVATE MODE blocked: ${cleanPhone} tried ${ENV.PREFIX}${commandName}`,
+      );
+      return sock.sendMessage(from, {
+        text:
+          `🔒 *PRIVATE MODE*\n\n` +
+          `This bot is currently set to *private*.\n` +
+          `Only the bot owner can use commands.\n\n` +
+          `⚡ _AYOBOT v1 by AYOCODES_`,
+      });
+    }
+
+    // ── Admin-only commands ──────────────────────────────────
     if (command.adminOnly && !isAdminUser) {
       return sock.sendMessage(from, {
         text: formatError(
@@ -1337,6 +1378,7 @@ export async function handleCommand(message, sock) {
       });
     }
 
+    // ── Group-only commands ──────────────────────────────────
     if (command.groupOnly && !isGroup) {
       return sock.sendMessage(from, {
         text: formatError(
@@ -1346,6 +1388,7 @@ export async function handleCommand(message, sock) {
       });
     }
 
+    // ── Bot must be group admin ──────────────────────────────
     if (command.requireBotAdmin && isGroup) {
       let botIsAdmin = false;
       try {
@@ -1355,7 +1398,7 @@ export async function handleCommand(message, sock) {
         return sock.sendMessage(from, {
           text: formatGroupError(
             "BOT NOT ADMIN",
-            `❌ I need group admin rights for *.${commandName}*. Please promote me first!`,
+            `❌ I need group admin rights for *.${commandName}*.\n\nPlease promote me to admin first!`,
           ),
         });
       }
@@ -1377,6 +1420,21 @@ export async function handleCommand(message, sock) {
         isAuthorized: isAuthorizedUser,
         commandName,
         prefix: ENV.PREFIX,
+        // Pass session context so commands can access mode, owner etc. — AYOCODES
+        session,
+        sessionId,
+        sessionMode,
+        ownerPhone,
+        // Helper so admin.js mode command can change mode properly. — AYOCODES
+        setMode: async (newMode) => {
+          if (session) {
+            session.mode = newMode;
+            try {
+              const { setSessionMode: ssm } = await import("../index.js");
+              await ssm(sessionId, newMode);
+            } catch (_) {}
+          }
+        },
       });
       log.ok(`Done: ${ENV.PREFIX}${commandName} ← ${cleanPhone}`);
     } catch (cmdError) {

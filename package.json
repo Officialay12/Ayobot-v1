@@ -47,6 +47,7 @@
     "form-data": "^4.0.5",
     "google-tts-api": "0.0.4",
     "gtts": "^0.2.1",
+    "jszip": "^3.10.1",
     "mammoth": "^1.6.0",
     "mathjs": "^12.3.1",
     "moment-timezone": "^0.5.43",

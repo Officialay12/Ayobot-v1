@@ -67,16 +67,18 @@ export const log = {
 //   that feature — no crashes. — AYOCODES
 // ============================================================
 export const ENV = {
+  // ── BOT CONFIG ─────────────────────────────────────────────
   PREFIX: process.env.PREFIX || ".",
   BOT_NAME: process.env.BOT_NAME || "AYOBOT",
   BOT_VERSION: process.env.BOT_VERSION || "1.0.0",
   ADMIN: process.env.ADMIN,
   CO_DEVELOPER: process.env.CO_DEVELOPER || process.env.ADMIN,
-  OPENWEATHER_KEY: process.env.OPENWEATHER_KEY,
-  NEWS_API_KEY: process.env.NEWS_API_KEY,
-  TMDB_API_KEY: process.env.TMDB_API_KEY,
-  COINMARKETCAP_KEY: process.env.COINMARKETCAP_KEY,
-  REMOVEBG_KEY: process.env.REMOVEBG_KEY,
+  MAX_WARNINGS: parseInt(process.env.MAX_WARNINGS) || 3,
+  AUTO_REPLY_ENABLED: process.env.AUTO_REPLY_ENABLED === "true",
+  BOT_MODE: process.env.BOT_MODE || "public",
+  ANTI_DELETE_ENABLED: process.env.ANTI_DELETE_ENABLED !== "false",
+
+  // ── MEDIA & SOCIAL ─────────────────────────────────────────
   WELCOME_IMAGE_URL:
     process.env.WELCOME_IMAGE_URL ||
     "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
@@ -90,29 +92,56 @@ export const ENV = {
   WHATSAPP_GROUP:
     process.env.WHATSAPP_GROUP ||
     "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN",
+
+  // ── CREATOR ─────────────────────────────────────────────────
   CREATOR_NAME: "AYOCODES",
   CREATOR_CONTACT: process.env.CREATOR_CONTACT || process.env.ADMIN,
   CREATOR_EMAIL: process.env.CREATOR_EMAIL,
   CREATOR_GITHUB: "https://github.com/Officialay12",
-  MAX_WARNINGS: parseInt(process.env.MAX_WARNINGS) || 3,
-  AUTO_REPLY_ENABLED: false,
-  BOT_MODE: process.env.BOT_MODE || "public",
+
+  // ── AI & LLM KEYS ──────────────────────────────────────────
+  GEMINI_KEY: process.env.GEMINI_KEY, // Google Gemini — primary AI
+  GROQ_API_KEY: process.env.GROQ_API_KEY, // Groq — fast LLM fallback
+  OPENROUTER_KEY: process.env.OPENROUTER_KEY, // OpenRouter — multi-model
+  TOGETHER_KEY: process.env.TOGETHER_KEY, // Together AI
+  HF_TOKEN: process.env.HF_TOKEN, // HuggingFace — image gen etc
+  POLLINATIONS_KEY: process.env.POLLINATIONS_API_KEY, // Pollinations AI image gen
+
+  // ── MEDIA & SEARCH KEYS ────────────────────────────────────
+  OPENWEATHER_KEY: process.env.OPENWEATHER_KEY, // Weather
+  NEWS_API_KEY: process.env.NEWS_API_KEY, // NewsData.io
+  TMDB_API_KEY: process.env.TMDB_API_KEY, // Movies & TV
+  OMDB_API_KEY: process.env.OMDB_API_KEY, // OMDb movies fallback
+  COINMARKETCAP_KEY: process.env.COINMARKETCAP_KEY, // Crypto prices
+  REMOVEBG_KEY: process.env.REMOVEBG_KEY, // Remove background
+  GIPHY_KEY: process.env.GIPHY_KEY, // GIF search
+  TENOR_KEY: process.env.TENOR_KEY || process.env.GEMINI_KEY,
+  PIXABAY_KEY: process.env.PIXABAY_KEY, // Stock images
+  UNSPLASH_KEY: process.env.UNSPLASH_KEY, // Stock photos
+  RAPIDAPI_KEY: process.env.RAPIDAPI_KEY, // RapidAPI hub
+
+  // ── SECURITY KEYS ─────────────────────────────────────────
+  VIRUSTOTAL_KEY: process.env.VIRUSTOTAL_KEY, // Virus/malware scan
+  GOOGLE_SAFE_BROWSING: process.env.GOOGLE_SAFE_BROWSING_KEY, // Safe browsing check
+  URLSCAN_KEY: process.env.URLSCAN_KEY, // URL scanner
+
+  // ── SHORTENER ─────────────────────────────────────────────
   SHORTENER_API: process.env.SHORTENER_API || "https://ayo-link.onrender.com",
   SHORTENER_API_KEY: process.env.SHORTENER_API_KEY,
-  ANTI_DELETE_ENABLED: process.env.ANTI_DELETE_ENABLED !== "false",
-  HF_TOKEN: process.env.HF_TOKEN,
-  GEMINI_KEY: process.env.GEMINI_KEY,
-  TENOR_KEY: process.env.TENOR_KEY || process.env.GEMINI_KEY,
-  GIPHY_KEY: process.env.GIPHY_KEY,
-  PIXABAY_KEY: process.env.PIXABAY_KEY,
-  UNSPLASH_KEY: process.env.UNSPLASH_KEY,
-  RAPIDAPI_KEY: process.env.RAPIDAPI_KEY,
+
+  // ── RENDER & SERVER ───────────────────────────────────────
   PORT: process.env.PORT || 3000,
-  // ── MULTI-SESSION ─────────────────────────────────────────
+  RENDER_API_KEY: process.env.RENDER_API_KEY,
+
+  // ── MULTI-SESSION (MongoDB) ───────────────────────────────
   MONGODB_URI: process.env.MONGODB_URI || "",
   MAX_SESSIONS: parseInt(process.env.MAX_SESSIONS) || 100,
-  // ── ADMIN PANEL ────────────────────────────────────────────
+
+  // ── ADMIN PANEL ───────────────────────────────────────────
   AYOCODES_ADMIN_KEY: process.env.AYOCODES_ADMIN_KEY || null,
+  CENTRAL_SERVER_URL:
+    process.env.CENTRAL_SERVER_URL || "https://ayobot-v1-wo21.onrender.com",
+  INSTANCE_ID: process.env.INSTANCE_ID || null,
 };
 
 // Hard stop if MongoDB URI is missing — nothing works without it. — AYOCODES
@@ -125,10 +154,62 @@ if (!ENV.MONGODB_URI) {
 }
 
 function checkEnvVars() {
+  // Show loaded API keys on startup. — AYOCODES
+  const loaded = [];
   const missing = [];
-  if (!ENV.GEMINI_KEY) missing.push("GEMINI_KEY (AI disabled)");
-  if (!ENV.NEWS_API_KEY) missing.push("NEWS_API_KEY (News disabled)");
-  if (!ENV.OPENWEATHER_KEY) missing.push("OPENWEATHER_KEY (Weather disabled)");
+
+  const checks = [
+    { key: ENV.GEMINI_KEY, name: "GEMINI_KEY", feature: "AI Chat" },
+    {
+      key: ENV.GROQ_API_KEY,
+      name: "GROQ_API_KEY",
+      feature: "AI Fallback (Groq)",
+    },
+    {
+      key: ENV.OPENROUTER_KEY,
+      name: "OPENROUTER_KEY",
+      feature: "AI Fallback (OpenRouter)",
+    },
+    {
+      key: ENV.TOGETHER_KEY,
+      name: "TOGETHER_KEY",
+      feature: "AI Fallback (Together)",
+    },
+    { key: ENV.NEWS_API_KEY, name: "NEWS_API_KEY", feature: "News" },
+    { key: ENV.OPENWEATHER_KEY, name: "OPENWEATHER_KEY", feature: "Weather" },
+    { key: ENV.TMDB_API_KEY, name: "TMDB_API_KEY", feature: "Movies/TV" },
+    { key: ENV.OMDB_API_KEY, name: "OMDB_API_KEY", feature: "Movies fallback" },
+    {
+      key: ENV.COINMARKETCAP_KEY,
+      name: "COINMARKETCAP_KEY",
+      feature: "Crypto",
+    },
+    {
+      key: ENV.REMOVEBG_KEY,
+      name: "REMOVEBG_KEY",
+      feature: "Remove Background",
+    },
+    { key: ENV.GIPHY_KEY, name: "GIPHY_KEY", feature: "GIFs" },
+    { key: ENV.PIXABAY_KEY, name: "PIXABAY_KEY", feature: "Images" },
+    { key: ENV.UNSPLASH_KEY, name: "UNSPLASH_KEY", feature: "Photos" },
+    { key: ENV.RAPIDAPI_KEY, name: "RAPIDAPI_KEY", feature: "RapidAPI hub" },
+    { key: ENV.VIRUSTOTAL_KEY, name: "VIRUSTOTAL_KEY", feature: "Virus Scan" },
+    {
+      key: ENV.GOOGLE_SAFE_BROWSING,
+      name: "GOOGLE_SAFE_BROWSING_KEY",
+      feature: "Safe Browsing",
+    },
+    { key: ENV.HF_TOKEN, name: "HF_TOKEN", feature: "HuggingFace" },
+  ];
+
+  for (const { key, name, feature } of checks) {
+    if (key) loaded.push(`${feature}`);
+    else missing.push(`${name} (${feature} disabled)`);
+  }
+
+  if (loaded.length) {
+    console.log(`\n${C.green}✅ APIs loaded: ${loaded.join(", ")}${C.reset}`);
+  }
   if (missing.length) {
     console.log(`\n${C.yellow}⚠️  Missing optional ENV vars:${C.reset}`);
     missing.forEach((x) => console.log(`   • ${x}`));
@@ -267,11 +348,25 @@ export function isAdmin(userJid, ownerPhone) {
   return false;
 }
 
-// Backwards compatible isAuthorized — works with 1 or 2 args. — AYOCODES
-export function isAuthorized(userJid, ownerPhone) {
+// Backwards compatible isAuthorized — works with 1, 2, or 3 args.
+// sessionMode = the per-session mode ("public" or "private"). — AYOCODES
+export function isAuthorized(userJid, ownerPhone, sessionMode) {
   if (isAdmin(userJid, ownerPhone)) return true;
+  // Check per-session whitelist if ownerPhone provided. — AYOCODES
+  if (ownerPhone) {
+    for (const session of sessions.values()) {
+      if (
+        session.ownerPhone === ownerPhone &&
+        session.authorizedUsers?.has(userJid)
+      )
+        return true;
+    }
+  }
+  // Check global whitelist (legacy compat). — AYOCODES
   if (authorizedUsers.has(userJid)) return true;
-  if (ENV.BOT_MODE === "public") return true;
+  // Use the passed session mode, or fall back to ENV default. — AYOCODES
+  const mode = sessionMode || ENV.BOT_MODE || "public";
+  if (mode === "public") return true;
   return false;
 }
 export const authorizedUsers = new Set();
@@ -429,7 +524,12 @@ async function restoreAllSessions() {
   log.info(`Restoring ${saved.length} saved session(s)...`);
   for (const s of saved) {
     try {
-      await startSession(s.sessionId, false);
+      const session = await startSession(s.sessionId, false);
+      // Restore saved mode so private bots stay private after restart. — AYOCODES
+      if (session && s.mode) {
+        session.mode = s.mode;
+        log.info(`[${s.sessionId.slice(0, 8)}] Mode restored: ${s.mode}`);
+      }
     } catch (e) {
       log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
     }
@@ -544,9 +644,11 @@ function attachListeners(session) {
         return;
       }
 
-      // Inject session context so command handler knows which bot this is. — AYOCODES
+      // Inject full session context — commandHandler reads this. — AYOCODES
       msg._session = session;
       msg._sessionId = session.id;
+      msg._sessionMode = session.mode || "public";
+      msg._ownerPhone = session.ownerPhone || "";
 
       await session.commandHandler(msg, sock);
     } catch (e) {
