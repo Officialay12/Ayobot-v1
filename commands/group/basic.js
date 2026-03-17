@@ -927,6 +927,13 @@ export async function creator({ from, sock }) {
 
   await delay(800);
 
+  const channel =
+    ENV.WHATSAPP_CHANNEL ||
+    "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25";
+  const group =
+    ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN";
+  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
+
   await sock.sendMessage(from, {
     text:
       `━ 📢 *JOIN THE COMMUNITY* ━\n\n` +
@@ -953,8 +960,7 @@ export async function creatorGit({ from, sock }) {
       `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
       `🔗 *GitHub Profile:*\n${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
       `💻 _Check out my projects!_\n\n` +
-      `🤖 *Featured Project:* AYOBOT v1.5.0\n` +
-      `📚 Full-featured WhatsApp bot with 50+ commands\n\n` +
+      `🤖 *Featured Project:* AYOBOT v1.0.0\n` +
       `👑 _AYOCODES_`,
   });
 }
@@ -1168,7 +1174,6 @@ export async function shorten({ fullArgs, from, sock }) {
             "URL SHORTENED",
             `📎 *Original:*\n${longUrl}\n\n` +
               `🔗 *Shortened:*\n${short}\n\n` +
-              `🌐 *Service:* ${svc.name}\n` +
               `📊 *Saved:* ${longUrl.length - short.length} characters`,
           ),
         });
