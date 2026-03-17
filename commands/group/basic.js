@@ -440,19 +440,19 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.spotify <url>`",
         emoji: "● 🎧",
-        desc: "Spotify track download",
+        desc: "Spotify download",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.tiktok <url>`",
         emoji: "● 🎵",
-        desc: "Download TikTok video",
+        desc: "Download TikTok",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
         cmd: "`.youtube <url>`",
         emoji: "● 📺",
-        desc: "YouTube video info/download",
+        desc: "YouTube info/download",
       },
 
       // ── AI & INTELLIGENCE ────────────────────────────────────────────────
@@ -470,27 +470,9 @@ export async function menu({ from, sock, isAdmin }) {
       },
       {
         category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.jarvisv <text>`",
-        emoji: "● 🔊",
-        desc: "Jarvis text-to-voice",
-      },
-      {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.jarvisstatus`",
-        emoji: "● 🛡️",
-        desc: "Jarvis system status",
-      },
-      {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.ironman`",
-        emoji: "● ⚙️",
-        desc: "Iron Man suit status",
-      },
-      {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
         cmd: "`.summarize <text>`",
         emoji: "● 📋",
-        desc: "Summarize / TL;DR text",
+        desc: "Summarizer",
       },
       {
         category: "> *_🤖 AI & INTELLIGENCE_*",
@@ -510,7 +492,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_🔭 LOOKUP & INFO_*",
         cmd: "`.time <timezone>`",
         emoji: "● ⏰",
-        desc: "World time by timezone",
+        desc: "World time ",
       },
       {
         category: "> *_🔭 LOOKUP & INFO_*",
@@ -522,7 +504,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_🔭 LOOKUP & INFO_*",
         cmd: "`.movie <title>`",
         emoji: "● 🎬",
-        desc: "Movie / IMDB info",
+        desc: "Movie info",
       },
       {
         category: "> *_🔭 LOOKUP & INFO_*",
