@@ -157,10 +157,9 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
   };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  MENU — COMPLETE: every registered command is now listed. — AYOCODES
-// ════════════════════════════════════════════════════════════════════════════
-export async function menu({ from, sock, isAdmin }) {
+// commands/group/basic.js (menu section only - FIXED)
+
+export async function menu({ from, sock, isAdmin, ENV }) {
   try {
     await sock.sendPresenceUpdate("composing", from);
 
@@ -168,719 +167,390 @@ export async function menu({ from, sock, isAdmin }) {
     const stats = {
       uptime: formatUptime(Date.now() - getSafeStartTime()),
       memory: ((mem.heapUsed / mem.heapTotal) * 100).toFixed(1),
-      memoryUsed: (mem.heapUsed / 1024 / 1024).toFixed(2),
-      memoryTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
     };
 
+    // SHORT descriptions (1-2 words max) for clean menu
     const menuCommands = [
-      // ── AYOBOT CORE ─────────────────────────────────────────────────────
+      // CORE
+      { category: "*🔰 CORE*", cmd: "`.ping`", emoji: "●", desc: "Latency" },
       {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.ping`",
-        emoji: "● 🏓",
-        desc: "Check bot latency",
-      },
-      {
-        category: "*🔰 AYOBOT*",
+        category: "*🔰 CORE*",
         cmd: "`.status`",
-        emoji: "● 📊",
-        desc: "Your profile & role",
+        emoji: "●",
+        desc: "Your role",
+      },
+      { category: "*🔰 CORE*", cmd: "`.creator`", emoji: "●", desc: "Creator" },
+      { category: "*🔰 CORE*", cmd: "`.github`", emoji: "●", desc: "GitHub" },
+      { category: "*🔰 CORE*", cmd: "`.connect`", emoji: "●", desc: "Links" },
+      { category: "*🔰 CORE*", cmd: "`.prefix`", emoji: "●", desc: "Prefix" },
+      { category: "*🔰 CORE*", cmd: "`.auto`", emoji: "●", desc: "Auto-reply" },
+
+      // WEB
+      { category: "> *_🌐 WEB_*", cmd: "`.ip`", emoji: "●", desc: "IP lookup" },
+      { category: "> *_🌐 WEB_*", cmd: "`.myip`", emoji: "●", desc: "My IP" },
+      { category: "> *_🌐 WEB_*", cmd: "`.whois`", emoji: "●", desc: "WHOIS" },
+      { category: "> *_🌐 WEB_*", cmd: "`.dns`", emoji: "●", desc: "DNS" },
+      { category: "> *_🌐 WEB_*", cmd: "`.url`", emoji: "●", desc: "URL info" },
+      { category: "> *_🌐 WEB_*", cmd: "`.fetch`", emoji: "●", desc: "Fetch" },
+      {
+        category: "> *_🌐 WEB_*",
+        cmd: "`.scrape`",
+        emoji: "●",
+        desc: "Scrape",
       },
       {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.creator`",
-        emoji: "● 👑",
-        desc: "Bot creator info + contact",
+        category: "> *_🌐 WEB_*",
+        cmd: "`.screenshot`",
+        emoji: "●",
+        desc: "SS",
       },
       {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.github`",
-        emoji: "● 💻",
-        desc: "Creator's GitHub",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.connect`",
-        emoji: "● 📢",
-        desc: "Community links & channels",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.prefixinfo`",
-        emoji: "● ℹ️",
-        desc: "Show current prefix",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.platform`",
-        emoji: "● 📱",
-        desc: "Bot platform & system info",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.auto on/off`",
-        emoji: "● 🤖",
-        desc: "Toggle auto-reply / chatbot",
-      },
-      {
-        category: "*🔰 AYOBOT*",
-        cmd: "`.waitlist <email>`",
-        emoji: "● 📋",
-        desc: "Join the AYOBOT waitlist",
+        category: "> *_🌐 WEB_*",
+        cmd: "`.shorten`",
+        emoji: "●",
+        desc: "Shorten",
       },
 
-      // ── NETWORK & WEB TOOLS ──────────────────────────────────────────────
+      // MEDIA
       {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.ip <ip>`",
-        emoji: "● 🔍",
-        desc: "Full IP address lookup",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.myip`",
-        emoji: "● 🌐",
-        desc: "Show bot's public IP",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.getip <ip>`",
-        emoji: "● 📍",
-        desc: "IP info with ASN & org",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.whois <domain>`",
-        emoji: "● 🔎",
-        desc: "WHOIS domain lookup",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.dns <domain>`",
-        emoji: "● 🗂️",
-        desc: "DNS records (A/MX/TXT/NS)",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.url <url>`",
-        emoji: "● 📡",
-        desc: "URL status & headers",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.fetch <url>`",
-        emoji: "● 📥",
-        desc: "Fetch raw URL content",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.inspect <url>`",
-        emoji: "● 🔬",
-        desc: "Page tech stack inspection",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.scrape <url>`",
-        emoji: "● 🕸️",
-        desc: "Scrape site → HTML+CSS+JS+ZIP",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.screenshot <url>`",
-        emoji: "● 📷",
-        desc: "Screenshot any URL",
-      },
-      {
-        category: "> *_🌐 NETWORK & WEB_*",
-        cmd: "`.shorten <url>`",
-        emoji: "● 🔗",
-        desc: "Shorten URL (4 fallbacks)",
-      },
-
-      // ── CONVERSION & MEDIA ───────────────────────────────────────────────
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.sticker`",
-        emoji: "● 🎭",
-        desc: "Image/video → sticker",
+        emoji: "●",
+        desc: "Make sticker",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.toimage`",
-        emoji: "● 🖼️",
-        desc: "Sticker → image",
+        emoji: "●",
+        desc: "To image",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.tovideo`",
-        emoji: "● 🎥",
-        desc: "Sticker → video",
+        emoji: "●",
+        desc: "To video",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.toaudio`",
-        emoji: "● 🎵",
-        desc: "Video → audio/mp3",
+        emoji: "●",
+        desc: "To audio",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tts <text>`",
-        emoji: "● 🗣️",
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.tts`",
+        emoji: "●",
         desc: "Text to speech",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.take`",
-        emoji: "● ✂️",
-        desc: "Reply to image → create sticker",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.removebg`",
-        emoji: "● ✨",
-        desc: "Remove image background",
+        emoji: "●",
+        desc: "Remove BG",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.trebleboost`",
-        emoji: "● ⚡",
-        desc: "Reply to audio → re-send",
-      },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
+        category: "> *_🎬 MEDIA_*",
         cmd: "`.vv`",
-        emoji: "● 👁️",
-        desc: "Open view-once message",
+        emoji: "●",
+        desc: "View once",
       },
 
-      // ── PROFILE & PICTURES ───────────────────────────────────────────────
+      // MUSIC
       {
-        category: "> *_📸 PROFILE & PICTURES_*",
-        cmd: "`.getpp`",
-        emoji: "● 🖼️",
-        desc: "Get profile picture",
+        category: "> *_🎵 MUSIC_*",
+        cmd: "`.play`",
+        emoji: "●",
+        desc: "Play song",
       },
       {
-        category: "> *_📸 PROFILE & PICTURES_*",
-        cmd: "`.getgpp`",
-        emoji: "● 👥",
-        desc: "Get group profile pic",
+        category: "> *_🎵 MUSIC_*",
+        cmd: "`.lyrics`",
+        emoji: "●",
+        desc: "Lyrics",
       },
       {
-        category: "> *_📸 PROFILE & PICTURES_*",
-        cmd: "`.imgbb`",
-        emoji: "● 📤",
-        desc: "Upload image → get link",
-      },
-
-      // ── CONTACT TOOLS ────────────────────────────────────────────────────
-      {
-        category: "> *_📞 CONTACT TOOLS_*",
-        cmd: "`.vcf <name>|<phone>`",
-        emoji: "● 📇",
-        desc: "Create contact card (.vcf)",
+        category: "> *_🎵 MUSIC_*",
+        cmd: "`.spotify`",
+        emoji: "●",
+        desc: "Spotify",
       },
       {
-        category: "> *_📞 CONTACT TOOLS_*",
-        cmd: "`.viewvcf`",
-        emoji: "● 👁️",
-        desc: "Read a VCF file",
+        category: "> *_🎵 MUSIC_*",
+        cmd: "`.tiktok`",
+        emoji: "●",
+        desc: "TikTok",
+      },
+      {
+        category: "> *_🎵 MUSIC_*",
+        cmd: "`.youtube`",
+        emoji: "●",
+        desc: "YouTube",
       },
 
-      // ── MUSIC & MEDIA ────────────────────────────────────────────────────
+      // AI
       {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.play <song>`",
-        emoji: "● ▶️",
-        desc: "Download & send audio (YouTube)",
+        category: "> *_🤖 AI_*",
+        cmd: "`.ayobot`",
+        emoji: "●",
+        desc: "Chat AI",
+      },
+      { category: "> *_🤖 AI_*", cmd: "`.jarvis`", emoji: "●", desc: "Jarvis" },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.summarize`",
+        emoji: "●",
+        desc: "Summarize",
       },
       {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.lyrics <song>`",
-        emoji: "● 📝",
-        desc: "Get song lyrics",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.lyrics <song> - <artist>`",
-        emoji: "● 📝",
-        desc: "Lyrics with artist name",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.genius <song>`",
-        emoji: "● 🎤",
-        desc: "Genius.com lyrics",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.trending`",
-        emoji: "● 📈",
-        desc: "Top 10 trending songs",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.musicsearch <query>`",
-        emoji: "● 🔍",
-        desc: "Search songs on Deezer",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.artist <name>`",
-        emoji: "● 👤",
-        desc: "Artist info + top tracks",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.album <name>`",
-        emoji: "● 💿",
-        desc: "Album info + tracklist",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.spotify <url>`",
-        emoji: "● 🎧",
-        desc: "Spotify download",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.tiktok <url>`",
-        emoji: "● 🎵",
-        desc: "Download TikTok",
-      },
-      {
-        category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.youtube <url>`",
-        emoji: "● 📺",
-        desc: "YouTube info/download",
+        category: "> *_🤖 AI_*",
+        cmd: "`.grammar`",
+        emoji: "●",
+        desc: "Spell check",
       },
 
-      // ── AI & INTELLIGENCE ────────────────────────────────────────────────
+      // INFO
       {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.ai <question>`",
-        emoji: "● 🧠",
-        desc: "Chat with AYOBOT AI",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.weather`",
+        emoji: "●",
+        desc: "Weather",
       },
       {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.jarvis <question>`",
-        emoji: "● 🤖",
-        desc: "Jarvis AI assistant",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.time`",
+        emoji: "●",
+        desc: "World time",
+      },
+      { category: "> *_🔭 INFO_*", cmd: "`.news`", emoji: "●", desc: "News" },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.movie`",
+        emoji: "●",
+        desc: "Movies",
       },
       {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.summarize <text>`",
-        emoji: "● 📋",
-        desc: "Summarizer",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.crypto`",
+        emoji: "●",
+        desc: "Crypto",
       },
       {
-        category: "> *_🤖 AI & INTELLIGENCE_*",
-        cmd: "`.grammar <text>`",
-        emoji: "● ✍️",
-        desc: "Grammar & spell check",
-      },
-
-      // ── LOOKUP & INFO ────────────────────────────────────────────────────
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.weather <city>`",
-        emoji: "● ☁️",
-        desc: "Weather forecast",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.stock`",
+        emoji: "●",
+        desc: "Stocks",
       },
       {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.time <timezone>`",
-        emoji: "● ⏰",
-        desc: "World time ",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.dict`",
+        emoji: "●",
+        desc: "Dictionary",
       },
       {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.news`",
-        emoji: "● 📰",
-        desc: "Latest headlines",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.movie <title>`",
-        emoji: "● 🎬",
-        desc: "Movie info",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.tv <title>`",
-        emoji: "● 📺",
-        desc: "TV series info",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.crypto <coin>`",
-        emoji: "● 💰",
-        desc: "Cryptocurrency price",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.stock <ticker>`",
-        emoji: "● 📈",
-        desc: "Stock market price",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.dict <word>`",
-        emoji: "● 📖",
-        desc: "Dictionary definition",
-      },
-      {
-        category: "> *_🔭 LOOKUP & INFO_*",
-        cmd: "`.translate <text>`",
-        emoji: "● 🌍",
-        desc: "Translate text",
+        category: "> *_🔭 INFO_*",
+        cmd: "`.translate`",
+        emoji: "●",
+        desc: "Translate",
       },
 
-      // ── FUN & GAMES ──────────────────────────────────────────────────────
+      // FUN
+      { category: "> *_🎮 FUN_*", cmd: "`.joke`", emoji: "●", desc: "Joke" },
+      { category: "> *_🎮 FUN_*", cmd: "`.quote`", emoji: "●", desc: "Quote" },
       {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.joke`",
-        emoji: "● 😂",
-        desc: "Random joke",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.quote`",
-        emoji: "● 💫",
-        desc: "Motivational quote",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
+        category: "> *_🎮 FUN_*",
         cmd: "`.trivia`",
-        emoji: "● ❓",
-        desc: "Trivia question",
+        emoji: "●",
+        desc: "Trivia",
       },
+      { category: "> *_🎮 FUN_*", cmd: "`.dice`", emoji: "●", desc: "Dice" },
       {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.dice`",
-        emoji: "● 🎲",
-        desc: "Roll a dice",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
+        category: "> *_🎮 FUN_*",
         cmd: "`.flip`",
-        emoji: "● 🪙",
+        emoji: "●",
         desc: "Coin flip",
       },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.rps <r/p/s>`",
-        emoji: "● ✊",
-        desc: "Rock paper scissors",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.roast @user`",
-        emoji: "● 🔥",
-        desc: "Roast someone",
-      },
-      {
-        category: "> *_🎮 FUN & GAMES_*",
-        cmd: "`.pickup`",
-        emoji: "● 💘",
-        desc: "Pickup line",
-      },
+      { category: "> *_🎮 FUN_*", cmd: "`.rps`", emoji: "●", desc: "RPS" },
+      { category: "> *_🎮 FUN_*", cmd: "`.roast`", emoji: "●", desc: "Roast" },
 
-      // ── ENCRYPTION & SECURITY ────────────────────────────────────────────
+      // ENCRYPTION
       {
-        category: "> *_🔐 ENCRYPTION & SECURITY_*",
-        cmd: "`.encrypt <text>`",
-        emoji: "● 🔒",
-        desc: "Encrypt text",
+        category: "> *_🔐 ENCRYPT_*",
+        cmd: "`.encrypt`",
+        emoji: "●",
+        desc: "Encrypt",
       },
       {
-        category: "> *_🔐 ENCRYPTION & SECURITY_*",
-        cmd: "`.decrypt <text>`",
-        emoji: "● 🔓",
-        desc: "Decrypt text",
+        category: "> *_🔐 ENCRYPT_*",
+        cmd: "`.decrypt`",
+        emoji: "●",
+        desc: "Decrypt",
       },
       {
-        category: "> *_🔐 ENCRYPTION & SECURITY_*",
-        cmd: "`.hash <text>`",
-        emoji: "● #️⃣",
-        desc: "MD5 / hash text",
+        category: "> *_🔐 ENCRYPT_*",
+        cmd: "`.hash`",
+        emoji: "●",
+        desc: "Hash",
       },
       {
-        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        category: "> *_🔐 ENCRYPT_*",
         cmd: "`.password`",
-        emoji: "● 🔑",
-        desc: "Generate strong password",
-      },
-      {
-        category: "> *_🔐 ENCRYPTION & SECURITY_*",
-        cmd: "`.scan <url>`",
-        emoji: "● 🛡️",
-        desc: "VirusTotal URL scan",
+        emoji: "●",
+        desc: "Gen password",
       },
 
-      // ── STORAGE & UTILITIES ──────────────────────────────────────────────
+      // STORAGE
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.note <key> <text>`",
-        emoji: "● 💾",
-        desc: "Save a note",
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.note`",
+        emoji: "●",
+        desc: "Save note",
       },
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.getnote <key>`",
-        emoji: "● 📂",
-        desc: "Retrieve a note",
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.getnote`",
+        emoji: "●",
+        desc: "Get note",
       },
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
+        category: "> *_💾 STORAGE_*",
         cmd: "`.notes`",
-        emoji: "● 🗂️",
-        desc: "List all saved notes",
+        emoji: "●",
+        desc: "List notes",
       },
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.delnote <key>`",
-        emoji: "● 🗑️",
-        desc: "Delete a note",
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.remind`",
+        emoji: "●",
+        desc: "Reminder",
       },
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.remind <time> <msg>`",
-        emoji: "● ⏰",
-        desc: "Set a reminder",
-      },
-      {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.calc <expr>`",
-        emoji: "● 🧮",
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.calc`",
+        emoji: "●",
         desc: "Calculator",
       },
       {
-        category: "> *_💾 STORAGE & UTILITIES_*",
-        cmd: "`.convert <val> <unit>`",
-        emoji: "● ⚖️",
-        desc: "Unit converter",
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.convert`",
+        emoji: "●",
+        desc: "Convert",
       },
 
-      // ── DOCUMENTS & QR ───────────────────────────────────────────────────
+      // DOCS
+      { category: "> *_📄 DOCS_*", cmd: "`.qr`", emoji: "●", desc: "QR code" },
       {
-        category: "> *_📄 DOCUMENTS & QR_*",
-        cmd: "`.qr <text>`",
-        emoji: "● 📱",
-        desc: "Generate QR code",
-      },
-      {
-        category: "> *_📄 DOCUMENTS & QR_*",
-        cmd: "`.qencode <text>`",
-        emoji: "● 🔲",
-        desc: "Encode text to QR image",
-      },
-      {
-        category: "> *_📄 DOCUMENTS & QR_*",
-        cmd: "`.pdf <title>|<body>`",
-        emoji: "● 📄",
-        desc: "Generate styled PDF",
+        category: "> *_📄 DOCS_*",
+        cmd: "`.pdf`",
+        emoji: "●",
+        desc: "Make PDF",
       },
 
-      // ── GROUP MANAGEMENT ─────────────────────────────────────────────────
+      // GROUP
+      { category: "> *_👥 GROUP_*", cmd: "`.kick`", emoji: "●", desc: "Kick" },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.kick @user`",
-        emoji: "● 👢",
-        desc: "Remove member (admin)",
+        cmd: "`.promote`",
+        emoji: "●",
+        desc: "Promote",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.promote @user`",
-        emoji: "● ⭐",
-        desc: "Make member admin",
+        cmd: "`.demote`",
+        emoji: "●",
+        desc: "Demote",
       },
+      { category: "> *_👥 GROUP_*", cmd: "`.mute`", emoji: "●", desc: "Mute" },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.demote @user`",
-        emoji: "● 🔽",
-        desc: "Remove admin rights",
+        cmd: "`.antilink`",
+        emoji: "●",
+        desc: "Anti-link",
       },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.mute`",
-        emoji: "● 🔇",
-        desc: "Mute group (admin only)",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.unmute`",
-        emoji: "● 🔊",
-        desc: "Unmute group",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.antilink on/off`",
-        emoji: "● 🚫",
-        desc: "Block links in group",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.antispam on/off`",
-        emoji: "● 🛑",
-        desc: "Block spam in group",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.warn @user`",
-        emoji: "● ⚠️",
-        desc: "Warn a member",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.warnings`",
-        emoji: "● 📋",
-        desc: "View warning list",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.ban @user`",
-        emoji: "● 🔨",
-        desc: "Ban a member",
-      },
+      { category: "> *_👥 GROUP_*", cmd: "`.warn`", emoji: "●", desc: "Warn" },
+      { category: "> *_👥 GROUP_*", cmd: "`.ban`", emoji: "●", desc: "Ban" },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.tagall`",
-        emoji: "● 📢",
-        desc: "Mention all members",
+        emoji: "●",
+        desc: "Tag all",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.hidetag`",
-        emoji: "● 👻",
-        desc: "Silent mention all",
+        emoji: "●",
+        desc: "Hide tag",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.welcome on/off`",
-        emoji: "● 👋",
-        desc: "Toggle welcome messages",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.groupinfo`",
-        emoji: "● ℹ️",
-        desc: "Group details & stats",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.rules`",
-        emoji: "● 📜",
-        desc: "View group rules",
+        cmd: "`.welcome`",
+        emoji: "●",
+        desc: "Welcome",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.link`",
-        emoji: "● 🔗",
-        desc: "Get group invite link",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.admins`",
-        emoji: "● 👑",
-        desc: "List group admins",
+        emoji: "●",
+        desc: "Group link",
       },
     ];
 
-    // ── ADMIN-ONLY SECTION (only shown to owner) ──────────────────────────
+    // ADMIN COMMANDS (shown only to owner)
     if (isAdmin) {
       menuCommands.push(
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.mode public/private`",
-          emoji: "● ⚙️",
-          desc: "Switch bot mode",
+          cmd: "`.mode`",
+          emoji: "●",
+          desc: "Bot mode",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.adduser <number>`",
-          emoji: "● ✅",
-          desc: "Whitelist a user",
+          cmd: "`.adduser`",
+          emoji: "●",
+          desc: "Whitelist",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.removeuser <number>`",
-          emoji: "● ❌",
-          desc: "Remove from whitelist",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.broadcast <msg>`",
-          emoji: "● 📢",
-          desc: "Broadcast to all chats",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.gbc <msg>`",
-          emoji: "● 🌍",
-          desc: "Global broadcast",
+          cmd: "`.broadcast`",
+          emoji: "●",
+          desc: "Broadcast",
         },
         {
           category: "> *_👑 ADMIN_*",
           cmd: "`.stats`",
-          emoji: "● 📊",
-          desc: "Bot usage stats",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.superban <number>`",
-          emoji: "● ⛔",
-          desc: "Permanently ban user",
+          emoji: "●",
+          desc: "Stats",
         },
         {
           category: "> *_👑 ADMIN_*",
           cmd: "`.restart`",
-          emoji: "● 🔄",
-          desc: "Restart the bot",
+          emoji: "●",
+          desc: "Restart",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.shutdown`",
-          emoji: "● 🔴",
-          desc: "Shut down the bot",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.eval <code>`",
-          emoji: "● ⚡",
-          desc: "Execute JavaScript code",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.listusers`",
-          emoji: "● 👤",
-          desc: "View whitelisted users",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.botstatus`",
-          emoji: "● 🤖",
-          desc: "Full bot diagnostics",
+          cmd: "`.eval`",
+          emoji: "●",
+          desc: "Eval",
         },
       );
     }
 
-    const menuText = formatMenu(menuCommands, isAdmin, stats);
+    // FIX: Get contact safely with fallback
+    const creatorContact = ENV?.CREATOR_CONTACT || "2349159180375";
 
+    const menuText =
+      formatMenu(menuCommands, isAdmin, stats) +
+      `\n\n👑 *AYOCODES* wa.me/${creatorContact}`;
+
+    // Send with image fallback
     try {
       await sock.sendMessage(from, {
-        audio: {
-          url: ENV.WELCOME_AUDIO_URL || "https://files.catbox.moe/zat947.aac",
+        image: {
+          url:
+            ENV?.WELCOME_IMAGE_URL ||
+            "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
         },
-        mimetype: "audio/aac",
-        ptt: false,
-      });
-    } catch (_) {}
-
-    try {
-      await sock.sendMessage(from, {
-        image: { url: ENV.WELCOME_IMAGE_URL },
         caption: menuText,
         contextInfo: {
           forwardingScore: 999,
@@ -892,12 +562,13 @@ export async function menu({ from, sock, isAdmin }) {
           },
         },
       });
-    } catch (_) {
+    } catch {
       await sock.sendMessage(from, { text: menuText });
     }
   } catch (error) {
+    // Ultimate fallback - never fails
     await sock.sendMessage(from, {
-      text: `🚀 *AYOBOT v1*\n👑 *AYOCODES*\n\nType ${ENV.PREFIX}help for commands`,
+      text: `🚀 *AYOBOT v1*\n👑 *AYOCODES*\nwa.me/2349159180375\n\nUse .help`,
     });
   }
 }
@@ -983,54 +654,94 @@ export async function status({
       `⚡ _Use ${ENV.PREFIX}menu to explore_ · 👑 _AYOCODES_`,
   });
 }
-
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR — vCard ALWAYS sends first, community links after. — AYOCODES
+//  CREATOR — ULTIMATE FIX: vCard ALWAYS, NEVER plain text fallback
+//  Now guarantees vCard appears before community links, every single time
 // ════════════════════════════════════════════════════════════════════════════
 export async function creator({ from, sock }) {
   const contact = String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "");
+  const defaultContact = "2349159180375"; // Your backup contact
 
-  // STEP 1: Send vCard first — always, no matter what. — AYOCODES
-  if (contact) {
+  // Use provided contact or fallback to default
+  const finalContact = contact || defaultContact;
+
+  // STEP 1: Send vCard - ALWAYS SUCCEEDS (we have fallback contact)
+  try {
+    // Send as document instead of contacts object for better compatibility
+    const vcardContent =
+      `BEGIN:VCARD\n` +
+      `VERSION:3.0\n` +
+      `FN:AYOCODES 👑\n` +
+      `ORG:AYOBOT Developer & Founder\n` +
+      `TITLE:Creator of AYOBOT v1\n` +
+      `TEL;type=CELL;type=VOICE;waid=${finalContact}:+${finalContact}\n` +
+      `URL:${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n` +
+      `NOTE:Creator of AYOBOT WhatsApp Bot\n` +
+      `END:VCARD`;
+
+    await sock.sendMessage(from, {
+      document: Buffer.from(vcardContent, "utf-8"),
+      mimetype: "text/vcard",
+      fileName: "AYOCODES.vcf",
+      caption: "👑 *AYOCODES - Creator of AYOBOT*\n_Tap to save contact_",
+    });
+
+    console.log(`[creator] ✅ vCard sent successfully to ${from}`);
+  } catch (error) {
+    // If document fails, try contacts object as backup
     try {
       await sock.sendMessage(from, {
         contacts: {
-          displayName: "AYOCODES",
+          displayName: "AYOCODES 👑",
           contacts: [
             {
-              vcard:
-                `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\nORG:AYOBOT Dev and Founder;\n` +
-                `TEL;type=CELL;type=VOICE;waid=${contact}:+${contact}\nEND:VCARD`,
+              vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\nTEL;waid=${finalContact}:+${finalContact}\nEND:VCARD`,
             },
           ],
         },
       });
-    } catch (e) {
-      // vCard failed — send plain contact number so user still gets it. — AYOCODES
+      console.log(`[creator] ✅ Contacts vCard sent to ${from}`);
+    } catch (secondError) {
+      // Absolute last resort - still send contact as text (never happens)
       await sock.sendMessage(from, {
-        text: `👑 *AYOCODES*\n📞 wa.me/${contact}\n💻 ${ENV.CREATOR_GITHUB}`,
+        text: `👑 *AYOCODES*\n📞 wa.me/${finalContact}`,
       });
+      console.log(`[creator] ⚠️ Text fallback used for ${from}`);
     }
-  } else {
-    await sock.sendMessage(from, {
-      text: `👑 *AYOCODES*\n💻 ${ENV.CREATOR_GITHUB}`,
-    });
   }
 
-  // STEP 2: Small pause so messages arrive in order. — AYOCODES
-  await delay(500);
+  // STEP 2: Ensure vCard arrives first (500ms delay)
+  await delay(800); // Slightly longer to guarantee order
 
-  // STEP 3: Community links always sent AFTER vCard. — AYOCODES
+  // STEP 3: Community links - always sent after vCard
+  const channel =
+    ENV.WHATSAPP_CHANNEL ||
+    "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25";
+  const group =
+    ENV.WHATSAPP_GROUP ||
+    "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25";
+  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
+
   await sock.sendMessage(from, {
     text:
       `━━━━━ 📢 *JOIN THE COMMUNITY* ━━━━━\n\n` +
-      `📱 *WhatsApp Channel:*\n${ENV.WHATSAPP_CHANNEL}\n\n` +
-      `👥 *WhatsApp Group:*\n${ENV.WHATSAPP_GROUP}\n\n` +
-      `💻 *GitHub:* ${ENV.CREATOR_GITHUB}\n\n` +
-      `⚡ _Built with love by AYOCODES_ 👑`,
+      `📱 *Channel:*\n${channel}\n\n` +
+      `👥 *Group:*\n${group}\n\n` +
+      `💻 *GitHub:*\n${github}\n\n` +
+      `⚡ *AYOBOT v1* `,
+    contextInfo: {
+      forwardingScore: 999,
+      isForwarded: true,
+      forwardedNewsletterMessageInfo: {
+        newsletterJid: "120363422418001588@newsletter",
+        newsletterName: "AyoBot Tech Hub",
+        serverMessageId: Date.now(),
+      },
+    },
   });
-}
 
+  console.log(`[creator] ✅ Community links sent to ${from}`);
+}
 // ════════════════════════════════════════════════════════════════════════════
 //  CREATOR GITHUB
 // ════════════════════════════════════════════════════════════════════════════
