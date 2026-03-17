@@ -25,7 +25,6 @@ import {
   formatData,
   formatError,
   formatInfo,
-  formatMenu,
   formatSuccess,
   formatUptime,
 } from "../../utils/formatters.js";
@@ -370,7 +369,12 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
 
       // ── AI ───────────────────────────────────────────────────
-      { category: "> *_🤖 AI_*", cmd: "`.ai`", emoji: "● 🧠", desc: "Chat AI" },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.ayobot`",
+        emoji: "● 🧠",
+        desc: "Chat AI",
+      },
       {
         category: "> *_🤖 AI_*",
         cmd: "`.jarvis`",
