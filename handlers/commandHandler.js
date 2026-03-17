@@ -459,37 +459,43 @@ export function registerAllCommands() {
   // ── AI COMMANDS ────────────────────────────────────────────────────────
   if (modules.ai.loaded) {
     const a = modules.ai.exports;
+
+    // FIXED: Register "ayobot" as main command with proper aliases
     if (typeof a.ai === "function") {
-      reg("ai", a.ai, {
+      reg("ayobot", a.ai, {
         category: "ai",
-        description: "Chat AI",
-        aliases: ["ayobot", "ask"],
+        description: "Chat with AI",
+        aliases: ["ai", "ask", "chat", "bot"], // Removed duplicate "ayobot"
       });
-      totalCount += 3;
+      totalCount += 4;
+      console.log(`✅ Registered: .ayobot (aliases: .ai, .ask, .chat)`);
     }
+
     if (typeof a.aiClear === "function") {
       reg("aiclear", a.aiClear, {
         category: "ai",
         description: "Clear AI chat",
-        aliases: ["clearchat"],
+        aliases: ["clearchat", "resetai"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
+
     if (typeof a.summarize === "function") {
       reg("summarize", a.summarize, {
         category: "ai",
         description: "Summarize text",
-        aliases: ["summary", "tldr"],
+        aliases: ["summary", "tldr", "sum"],
       });
-      totalCount += 3;
+      totalCount += 4;
     }
+
     if (typeof a.grammar === "function") {
       reg("grammar", a.grammar, {
         category: "ai",
-        description: "Spell check",
-        aliases: ["spell"],
+        description: "Spell & grammar check",
+        aliases: ["spell", "spellcheck"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
   }
 
