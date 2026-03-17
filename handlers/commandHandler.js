@@ -9,33 +9,20 @@
 // — AYOCODES
 
 import {
-  autoReplyEnabled,
   commandUsage,
   deletedMessages,
   ENV,
-  groupSettings,
   isAdmin,
   isAuthorized,
-  normalizePhone,
-  userConversations,
-  userCooldown,
 } from "../index.js";
 
-import {
-  containsLink,
-  extractText,
-  getRateLimitMessage,
-  isBotGroupAdminCached,
-  isRateLimited,
-  isSpam,
-} from "../utils/validators.js";
+import { isBotGroupAdminCached } from "../utils/validators.js";
 
 import {
   formatError,
   formatGroupError,
   formatInfo,
 } from "../utils/formatters.js";
-import { handleRuleViolation } from "./ruleHandler.js";
 
 // ========== TERMINAL HELPERS ==========
 const log = {

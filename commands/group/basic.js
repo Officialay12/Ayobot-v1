@@ -18,6 +18,9 @@
 //    - dns: A, AAAA, MX, TXT, NS records all in one call
 //    - pdf: styled with header/footer, proper font sizing
 //    - ping: cleaner animated output
+//    - MENU FIX: All registered commands now listed — auto, vv, time, url,
+//                fetch, qencode, take, imgbb, inspect, trebleboost, jarvisv,
+//                jarvisstatus, ironman, connect, jointrend, creatorsgit
 //  — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -155,7 +158,7 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MENU
+//  MENU — COMPLETE: every registered command is now listed. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function menu({ from, sock, isAdmin }) {
   try {
@@ -170,23 +173,36 @@ export async function menu({ from, sock, isAdmin }) {
     };
 
     const menuCommands = [
+      // ── AYOBOT CORE ─────────────────────────────────────────────────────
       {
         category: "*🔰 AYOBOT*",
-        cmd: "`.getip`",
-        emoji: "● 🌐",
-        desc: "Get IP address",
+        cmd: "`.ping`",
+        emoji: "● 🏓",
+        desc: "Check bot latency",
       },
       {
         category: "*🔰 AYOBOT*",
-        cmd: "`.getpp`",
-        emoji: "● 🖼️",
-        desc: "Get profile picture",
+        cmd: "`.status`",
+        emoji: "● 📊",
+        desc: "Your profile & role",
       },
       {
         category: "*🔰 AYOBOT*",
-        cmd: "`.getgpp`",
-        emoji: "● 👥",
-        desc: "Get group profile pic",
+        cmd: "`.creator`",
+        emoji: "● 👑",
+        desc: "Bot creator info + contact",
+      },
+      {
+        category: "*🔰 AYOBOT*",
+        cmd: "`.github`",
+        emoji: "● 💻",
+        desc: "Creator's GitHub",
+      },
+      {
+        category: "*🔰 AYOBOT*",
+        cmd: "`.connect`",
+        emoji: "● 📢",
+        desc: "Community links & channels",
       },
       {
         category: "*🔰 AYOBOT*",
@@ -198,152 +214,348 @@ export async function menu({ from, sock, isAdmin }) {
         category: "*🔰 AYOBOT*",
         cmd: "`.platform`",
         emoji: "● 📱",
-        desc: "Show bot platform",
+        desc: "Bot platform & system info",
       },
       {
         category: "*🔰 AYOBOT*",
+        cmd: "`.auto on/off`",
+        emoji: "● 🤖",
+        desc: "Toggle auto-reply / chatbot",
+      },
+      {
+        category: "*🔰 AYOBOT*",
+        cmd: "`.waitlist <email>`",
+        emoji: "● 📋",
+        desc: "Join the AYOBOT waitlist",
+      },
+
+      // ── NETWORK & WEB TOOLS ──────────────────────────────────────────────
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.ip <ip>`",
+        emoji: "● 🔍",
+        desc: "Full IP address lookup",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
         cmd: "`.myip`",
         emoji: "● 🌐",
-        desc: "Show your public IP",
+        desc: "Show bot's public IP",
       },
       {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.shorten`",
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.getip <ip>`",
+        emoji: "● 📍",
+        desc: "IP info with ASN & org",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.whois <domain>`",
+        emoji: "● 🔎",
+        desc: "WHOIS domain lookup",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.dns <domain>`",
+        emoji: "● 🗂️",
+        desc: "DNS records (A/MX/TXT/NS)",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.url <url>`",
+        emoji: "● 📡",
+        desc: "URL status & headers",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.fetch <url>`",
+        emoji: "● 📥",
+        desc: "Fetch raw URL content",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.inspect <url>`",
+        emoji: "● 🔬",
+        desc: "Page tech stack inspection",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.scrape <url>`",
+        emoji: "● 🕸️",
+        desc: "Scrape site → HTML+CSS+JS+ZIP",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.screenshot <url>`",
+        emoji: "● 📷",
+        desc: "Screenshot any URL",
+      },
+      {
+        category: "> *_🌐 NETWORK & WEB_*",
+        cmd: "`.shorten <url>`",
         emoji: "● 🔗",
-        desc: "Shorten URL",
+        desc: "Shorten URL (4 fallbacks)",
       },
-      {
-        category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tiktok`",
-        emoji: "● 🎵",
-        desc: "Download TikTok",
-      },
+
+      // ── CONVERSION & MEDIA ───────────────────────────────────────────────
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.sticker`",
         emoji: "● 🎭",
-        desc: "Create sticker",
+        desc: "Image/video → sticker",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
         cmd: "`.toimage`",
         emoji: "● 🖼️",
-        desc: "Sticker to image",
+        desc: "Sticker → image",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.tts`",
+        cmd: "`.tovideo`",
+        emoji: "● 🎥",
+        desc: "Sticker → video",
+      },
+      {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.toaudio`",
+        emoji: "● 🎵",
+        desc: "Video → audio/mp3",
+      },
+      {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.tts <text>`",
         emoji: "● 🗣️",
         desc: "Text to speech",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.removebg`",
-        emoji: "● ✨",
-        desc: "Remove background",
+        cmd: "`.take`",
+        emoji: "● ✂️",
+        desc: "Reply to image → create sticker",
       },
       {
         category: "> *_🎬 CONVERSION & MEDIA_*",
-        cmd: "`.jarvis`",
-        emoji: "● 🤖",
-        desc: "Jarvis AI chat",
+        cmd: "`.removebg`",
+        emoji: "● ✨",
+        desc: "Remove image background",
       },
       {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.trebleboost`",
+        emoji: "● ⚡",
+        desc: "Reply to audio → re-send",
+      },
+      {
+        category: "> *_🎬 CONVERSION & MEDIA_*",
+        cmd: "`.vv`",
+        emoji: "● 👁️",
+        desc: "Open view-once message",
+      },
+
+      // ── PROFILE & PICTURES ───────────────────────────────────────────────
+      {
+        category: "> *_📸 PROFILE & PICTURES_*",
+        cmd: "`.getpp`",
+        emoji: "● 🖼️",
+        desc: "Get profile picture",
+      },
+      {
+        category: "> *_📸 PROFILE & PICTURES_*",
+        cmd: "`.getgpp`",
+        emoji: "● 👥",
+        desc: "Get group profile pic",
+      },
+      {
+        category: "> *_📸 PROFILE & PICTURES_*",
+        cmd: "`.imgbb`",
+        emoji: "● 📤",
+        desc: "Upload image → get link",
+      },
+
+      // ── CONTACT TOOLS ────────────────────────────────────────────────────
+      {
         category: "> *_📞 CONTACT TOOLS_*",
-        cmd: "`.vcf`",
+        cmd: "`.vcf <name>|<phone>`",
         emoji: "● 📇",
-        desc: "Create contact card",
+        desc: "Create contact card (.vcf)",
       },
       {
         category: "> *_📞 CONTACT TOOLS_*",
         cmd: "`.viewvcf`",
         emoji: "● 👁️",
-        desc: "View VCF file",
+        desc: "Read a VCF file",
       },
+
+      // ── MUSIC & MEDIA ────────────────────────────────────────────────────
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.play`",
+        cmd: "`.play <song>`",
         emoji: "● ▶️",
-        desc: "Play music",
+        desc: "Download & send audio (YouTube)",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.lyrics`",
+        cmd: "`.lyrics <song>`",
         emoji: "● 📝",
         desc: "Get song lyrics",
       },
       {
         category: "> *_🎵 MUSIC & MEDIA_*",
-        cmd: "`.spotify`",
+        cmd: "`.lyrics <song> - <artist>`",
+        emoji: "● 📝",
+        desc: "Lyrics with artist name",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.genius <song>`",
+        emoji: "● 🎤",
+        desc: "Genius.com lyrics",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.trending`",
+        emoji: "● 📈",
+        desc: "Top 10 trending songs",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.musicsearch <query>`",
+        emoji: "● 🔍",
+        desc: "Search songs on Deezer",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.artist <name>`",
+        emoji: "● 👤",
+        desc: "Artist info + top tracks",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.album <name>`",
+        emoji: "● 💿",
+        desc: "Album info + tracklist",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.spotify <url>`",
         emoji: "● 🎧",
-        desc: "Spotify download",
+        desc: "Spotify track download",
       },
       {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.ai`",
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.tiktok <url>`",
+        emoji: "● 🎵",
+        desc: "Download TikTok video",
+      },
+      {
+        category: "> *_🎵 MUSIC & MEDIA_*",
+        cmd: "`.youtube <url>`",
+        emoji: "● 📺",
+        desc: "YouTube video info/download",
+      },
+
+      // ── AI & INTELLIGENCE ────────────────────────────────────────────────
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.ai <question>`",
         emoji: "● 🧠",
-        desc: "Chat with AI",
+        desc: "Chat with AYOBOT AI",
       },
       {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.weather`",
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.jarvis <question>`",
+        emoji: "● 🤖",
+        desc: "Jarvis AI assistant",
+      },
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.jarvisv <text>`",
+        emoji: "● 🔊",
+        desc: "Jarvis text-to-voice",
+      },
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.jarvisstatus`",
+        emoji: "● 🛡️",
+        desc: "Jarvis system status",
+      },
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.ironman`",
+        emoji: "● ⚙️",
+        desc: "Iron Man suit status",
+      },
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.summarize <text>`",
+        emoji: "● 📋",
+        desc: "Summarize / TL;DR text",
+      },
+      {
+        category: "> *_🤖 AI & INTELLIGENCE_*",
+        cmd: "`.grammar <text>`",
+        emoji: "● ✍️",
+        desc: "Grammar & spell check",
+      },
+
+      // ── LOOKUP & INFO ────────────────────────────────────────────────────
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.weather <city>`",
         emoji: "● ☁️",
         desc: "Weather forecast",
       },
       {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.calc`",
-        emoji: "● 🧮",
-        desc: "Calculator",
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.time <timezone>`",
+        emoji: "● ⏰",
+        desc: "World time by timezone",
       },
       {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.translate`",
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.news`",
+        emoji: "● 📰",
+        desc: "Latest headlines",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.movie <title>`",
+        emoji: "● 🎬",
+        desc: "Movie / IMDB info",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.tv <title>`",
+        emoji: "● 📺",
+        desc: "TV series info",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.crypto <coin>`",
+        emoji: "● 💰",
+        desc: "Cryptocurrency price",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.stock <ticker>`",
+        emoji: "● 📈",
+        desc: "Stock market price",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.dict <word>`",
+        emoji: "● 📖",
+        desc: "Dictionary definition",
+      },
+      {
+        category: "> *_🔭 LOOKUP & INFO_*",
+        cmd: "`.translate <text>`",
         emoji: "● 🌍",
         desc: "Translate text",
       },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.news`",
-        emoji: "● 📰",
-        desc: "Latest news",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.movie`",
-        emoji: "● 🎬",
-        desc: "Movie info",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.ip`",
-        emoji: "● 🔍",
-        desc: "IP lookup",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.whois`",
-        emoji: "● 🔎",
-        desc: "WHOIS lookup",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.dns`",
-        emoji: "● 🌐",
-        desc: "DNS lookup",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.scrape`",
-        emoji: "● 🕸️",
-        desc: "Scrape website",
-      },
-      {
-        category: "> *_🤖 AI & TOOLS_*",
-        cmd: "`.screenshot`",
-        emoji: "● 📷",
-        desc: "Screenshot URL",
-      },
+
+      // ── FUN & GAMES ──────────────────────────────────────────────────────
       {
         category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.joke`",
@@ -354,7 +566,7 @@ export async function menu({ from, sock, isAdmin }) {
         category: "> *_🎮 FUN & GAMES_*",
         cmd: "`.quote`",
         emoji: "● 💫",
-        desc: "Random quote",
+        desc: "Motivational quote",
       },
       {
         category: "> *_🎮 FUN & GAMES_*",
@@ -363,158 +575,311 @@ export async function menu({ from, sock, isAdmin }) {
         desc: "Trivia question",
       },
       {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.encrypt`",
+        category: "> *_🎮 FUN & GAMES_*",
+        cmd: "`.dice`",
+        emoji: "● 🎲",
+        desc: "Roll a dice",
+      },
+      {
+        category: "> *_🎮 FUN & GAMES_*",
+        cmd: "`.flip`",
+        emoji: "● 🪙",
+        desc: "Coin flip",
+      },
+      {
+        category: "> *_🎮 FUN & GAMES_*",
+        cmd: "`.rps <r/p/s>`",
+        emoji: "● ✊",
+        desc: "Rock paper scissors",
+      },
+      {
+        category: "> *_🎮 FUN & GAMES_*",
+        cmd: "`.roast @user`",
+        emoji: "● 🔥",
+        desc: "Roast someone",
+      },
+      {
+        category: "> *_🎮 FUN & GAMES_*",
+        cmd: "`.pickup`",
+        emoji: "● 💘",
+        desc: "Pickup line",
+      },
+
+      // ── ENCRYPTION & SECURITY ────────────────────────────────────────────
+      {
+        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        cmd: "`.encrypt <text>`",
         emoji: "● 🔒",
         desc: "Encrypt text",
       },
       {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.decrypt`",
+        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        cmd: "`.decrypt <text>`",
         emoji: "● 🔓",
         desc: "Decrypt text",
       },
       {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.note`",
+        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        cmd: "`.hash <text>`",
+        emoji: "● #️⃣",
+        desc: "MD5 / hash text",
+      },
+      {
+        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        cmd: "`.password`",
+        emoji: "● 🔑",
+        desc: "Generate strong password",
+      },
+      {
+        category: "> *_🔐 ENCRYPTION & SECURITY_*",
+        cmd: "`.scan <url>`",
+        emoji: "● 🛡️",
+        desc: "VirusTotal URL scan",
+      },
+
+      // ── STORAGE & UTILITIES ──────────────────────────────────────────────
+      {
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.note <key> <text>`",
         emoji: "● 💾",
-        desc: "Save note",
+        desc: "Save a note",
       },
       {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.getnote`",
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.getnote <key>`",
         emoji: "● 📂",
-        desc: "Get note",
+        desc: "Retrieve a note",
       },
       {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.qr`",
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.notes`",
+        emoji: "● 🗂️",
+        desc: "List all saved notes",
+      },
+      {
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.delnote <key>`",
+        emoji: "● 🗑️",
+        desc: "Delete a note",
+      },
+      {
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.remind <time> <msg>`",
+        emoji: "● ⏰",
+        desc: "Set a reminder",
+      },
+      {
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.calc <expr>`",
+        emoji: "● 🧮",
+        desc: "Calculator",
+      },
+      {
+        category: "> *_💾 STORAGE & UTILITIES_*",
+        cmd: "`.convert <val> <unit>`",
+        emoji: "● ⚖️",
+        desc: "Unit converter",
+      },
+
+      // ── DOCUMENTS & QR ───────────────────────────────────────────────────
+      {
+        category: "> *_📄 DOCUMENTS & QR_*",
+        cmd: "`.qr <text>`",
         emoji: "● 📱",
-        desc: "Generate QR",
+        desc: "Generate QR code",
       },
       {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.pdf`",
+        category: "> *_📄 DOCUMENTS & QR_*",
+        cmd: "`.qencode <text>`",
+        emoji: "● 🔲",
+        desc: "Encode text to QR image",
+      },
+      {
+        category: "> *_📄 DOCUMENTS & QR_*",
+        cmd: "`.pdf <title>|<body>`",
         emoji: "● 📄",
-        desc: "Make PDF",
+        desc: "Generate styled PDF",
       },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.menu`",
-        emoji: "● 📋",
-        desc: "Show menu",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.ping`",
-        emoji: "● 🏓",
-        desc: "Check bot latency",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.status`",
-        emoji: "● 📊",
-        desc: "Bot status",
-      },
-      {
-        category: "> *_📋 BASIC_*",
-        cmd: "`.creator`",
-        emoji: "● 👑",
-        desc: "Bot creator info",
-      },
+
+      // ── GROUP MANAGEMENT ─────────────────────────────────────────────────
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.kick`",
+        cmd: "`.kick @user`",
         emoji: "● 👢",
-        desc: "Remove member",
+        desc: "Remove member (admin)",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.promote`",
+        cmd: "`.promote @user`",
         emoji: "● ⭐",
-        desc: "Make admin",
+        desc: "Make member admin",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.demote @user`",
+        emoji: "● 🔽",
+        desc: "Remove admin rights",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.mute`",
         emoji: "● 🔇",
-        desc: "Mute group",
+        desc: "Mute group (admin only)",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.antilink`",
+        cmd: "`.unmute`",
+        emoji: "● 🔊",
+        desc: "Unmute group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.antilink on/off`",
         emoji: "● 🚫",
-        desc: "Block links",
+        desc: "Block links in group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.antispam on/off`",
+        emoji: "● 🛑",
+        desc: "Block spam in group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.warn @user`",
+        emoji: "● ⚠️",
+        desc: "Warn a member",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.warnings`",
+        emoji: "● 📋",
+        desc: "View warning list",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.ban @user`",
+        emoji: "● 🔨",
+        desc: "Ban a member",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.tagall`",
         emoji: "● 📢",
-        desc: "Mention all",
+        desc: "Mention all members",
       },
       {
         category: "> *_👥 GROUP_*",
-        cmd: "`.warn`",
-        emoji: "● ⚠️",
-        desc: "Warn member",
+        cmd: "`.hidetag`",
+        emoji: "● 👻",
+        desc: "Silent mention all",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.welcome on/off`",
+        emoji: "● 👋",
+        desc: "Toggle welcome messages",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.groupinfo`",
         emoji: "● ℹ️",
-        desc: "Group details",
+        desc: "Group details & stats",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.rules`",
+        emoji: "● 📜",
+        desc: "View group rules",
       },
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.link`",
         emoji: "● 🔗",
-        desc: "Group link",
+        desc: "Get group invite link",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.admins`",
+        emoji: "● 👑",
+        desc: "List group admins",
       },
     ];
 
+    // ── ADMIN-ONLY SECTION (only shown to owner) ──────────────────────────
     if (isAdmin) {
       menuCommands.push(
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.mode`",
+          cmd: "`.mode public/private`",
           emoji: "● ⚙️",
-          desc: "Change bot mode (public/private)",
+          desc: "Switch bot mode",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.adduser`",
+          cmd: "`.adduser <number>`",
           emoji: "● ✅",
           desc: "Whitelist a user",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.removeuser`",
+          cmd: "`.removeuser <number>`",
           emoji: "● ❌",
           desc: "Remove from whitelist",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.broadcast`",
+          cmd: "`.broadcast <msg>`",
           emoji: "● 📢",
-          desc: "Broadcast message",
+          desc: "Broadcast to all chats",
+        },
+        {
+          category: "> *_👑 ADMIN_*",
+          cmd: "`.gbc <msg>`",
+          emoji: "● 🌍",
+          desc: "Global broadcast",
         },
         {
           category: "> *_👑 ADMIN_*",
           cmd: "`.stats`",
           emoji: "● 📊",
-          desc: "Bot stats",
+          desc: "Bot usage stats",
+        },
+        {
+          category: "> *_👑 ADMIN_*",
+          cmd: "`.superban <number>`",
+          emoji: "● ⛔",
+          desc: "Permanently ban user",
         },
         {
           category: "> *_👑 ADMIN_*",
           cmd: "`.restart`",
           emoji: "● 🔄",
-          desc: "Restart bot",
+          desc: "Restart the bot",
         },
         {
           category: "> *_👑 ADMIN_*",
-          cmd: "`.eval`",
+          cmd: "`.shutdown`",
+          emoji: "● 🔴",
+          desc: "Shut down the bot",
+        },
+        {
+          category: "> *_👑 ADMIN_*",
+          cmd: "`.eval <code>`",
           emoji: "● ⚡",
-          desc: "Execute code",
+          desc: "Execute JavaScript code",
+        },
+        {
+          category: "> *_👑 ADMIN_*",
+          cmd: "`.listusers`",
+          emoji: "● 👤",
+          desc: "View whitelisted users",
+        },
+        {
+          category: "> *_👑 ADMIN_*",
+          cmd: "`.botstatus`",
+          emoji: "● 🤖",
+          desc: "Full bot diagnostics",
         },
       );
     }
@@ -638,7 +1003,7 @@ export async function status({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR — FIX: vCard ALWAYS sends first, community links after. — AYOCODES
+//  CREATOR — vCard ALWAYS sends first, community links after. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function creator({ from, sock }) {
   const contact = String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "");
@@ -665,7 +1030,6 @@ export async function creator({ from, sock }) {
       });
     }
   } else {
-    // No contact configured — send GitHub link instead. — AYOCODES
     await sock.sendMessage(from, {
       text: `👑 *AYOCODES*\n💻 ${ENV.CREATOR_GITHUB}`,
     });
@@ -730,7 +1094,7 @@ export async function auto({ args, from, userJid, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WEATHER — Enhanced with wind direction, humidity bar, UV index
+//  WEATHER — wind direction, humidity bar, UV index. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function weather({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -756,7 +1120,6 @@ export async function weather({ fullArgs, from, sock }) {
       { timeout: 10_000 },
     );
     const d = res.data;
-    // Wind direction compass. — AYOCODES
     const windDirs = [
       "N",
       "NNE",
@@ -776,10 +1139,8 @@ export async function weather({ fullArgs, from, sock }) {
       "NNW",
     ];
     const windDir = windDirs[Math.round((d.wind?.deg || 0) / 22.5) % 16];
-    // Humidity visual bar. — AYOCODES
     const humBars = Math.round(d.main.humidity / 10);
     const humBar = "█".repeat(humBars) + "░".repeat(10 - humBars);
-    // Condition emoji map. — AYOCODES
     const condId = d.weather[0]?.id || 800;
     const condEmoji =
       condId >= 800
@@ -1003,27 +1364,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCRAPE — MASSIVELY UPGRADED — AYOCODES
-//
-//  Bypass stack (tried in order until one succeeds):
-//    1. Direct fetch with full browser headers + cookie consent bypass
-//    2. Rotate through 3 different UA + referer profiles
-//    3. Mobile UA fallback (some sites serve simpler mobile HTML)
-//    4. Google cache fallback (cache.google.com)
-//    5. Archive.org Wayback Machine fallback
-//
-//  Output (all sent as files):
-//    - Full self-contained HTML (CSS + JS + images all inlined as base64)
-//    - Extracted CSS file (all stylesheets combined)
-//    - Extracted JS file (all scripts combined)
-//    - ZIP archive containing all three + original HTML
-//    - Summary message with page metadata
-//
-//  Handles:
-//    - Cloudflare detection (tells user to try specific workaround)
-//    - JavaScript-rendered sites (notifies user)
-//    - Redirects (follows up to 15)
-//    - Large pages (streams to buffer, no memory crash)
+//  SCRAPE — Full bypass stack. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function scrape({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -1047,12 +1388,10 @@ export async function scrape({ fullArgs, from, sock }) {
     text: "🕸️ *Scraping website...*\n_This may take 15-30 seconds for complex sites_",
   });
 
-  // ── PHASE 1: Fetch raw HTML ───────────────────────────────────────────────
   let html = null;
   let finalUrl = url;
   let fetchMethod = "unknown";
 
-  // Build all header profiles to try. — AYOCODES
   const headerProfiles = [
     {
       label: "Chrome/Windows",
@@ -1076,7 +1415,6 @@ export async function scrape({ fullArgs, from, sock }) {
     },
   ];
 
-  // Try direct fetch with each profile. — AYOCODES
   for (const profile of headerProfiles) {
     if (html) break;
     try {
@@ -1089,7 +1427,6 @@ export async function scrape({ fullArgs, from, sock }) {
         validateStatus: (s) => s < 500,
       });
       if (res.data && typeof res.data === "string" && res.data.length > 500) {
-        // Check for Cloudflare JS challenge page. — AYOCODES
         if (
           res.data.includes("cf-browser-verification") ||
           res.data.includes("challenges.cloudflare.com")
@@ -1130,7 +1467,7 @@ export async function scrape({ fullArgs, from, sock }) {
     } catch (_) {}
   }
 
-  // Fallback 2: Wayback Machine latest snapshot. — AYOCODES
+  // Fallback 2: Wayback Machine. — AYOCODES
   if (!html) {
     try {
       const waRes = await axios.get(
@@ -1172,7 +1509,6 @@ export async function scrape({ fullArgs, from, sock }) {
     text: `✅ *Page fetched via ${fetchMethod}*\n⚙️ _Processing and inlining assets..._`,
   });
 
-  // ── PHASE 2: Parse + inline all assets ───────────────────────────────────
   try {
     const $ = cheerio.load(html, { decodeEntities: false });
     let baseUrl;
@@ -1183,7 +1519,6 @@ export async function scrape({ fullArgs, from, sock }) {
     }
     const domain = baseUrl.hostname.replace("www.", "");
 
-    // Helper: fetch asset with timeout. — AYOCODES
     const fetchAsset = async (assetUrl, type = "text") => {
       try {
         const res = await axios.get(assetUrl, {
@@ -1198,7 +1533,6 @@ export async function scrape({ fullArgs, from, sock }) {
       }
     };
 
-    // Resolve relative URL to absolute. — AYOCODES
     const toAbs = (href) => {
       if (!href || href.startsWith("data:") || href.startsWith("blob:"))
         return href;
@@ -1211,7 +1545,6 @@ export async function scrape({ fullArgs, from, sock }) {
       }
     };
 
-    // ── Inline all CSS ──────────────────────────────────────
     let extractedCSS = `/* AYOBOT Scraper — Extracted CSS from ${url} */\n\n`;
     const cssLinks = [];
     $('link[rel="stylesheet"][href]').each((_, el) =>
@@ -1226,13 +1559,10 @@ export async function scrape({ fullArgs, from, sock }) {
         $(el).replaceWith(`<style>/* inlined: ${href} */\n${data}</style>`);
       }
     }
-
-    // Inline all <style> tags into extractedCSS too. — AYOCODES
     $("style").each((_, el) => {
       extractedCSS += `/* Inline style */\n${$(el).html()}\n\n`;
     });
 
-    // ── Inline all JS ───────────────────────────────────────
     let extractedJS = `/* AYOBOT Scraper — Extracted JS from ${url} */\n\n`;
     const scriptTags = [];
     $("script[src]").each((_, el) =>
@@ -1253,15 +1583,11 @@ export async function scrape({ fullArgs, from, sock }) {
         );
       }
     }
-
-    // Inline all <script> without src. — AYOCODES
     $("script:not([src])").each((_, el) => {
       const content = $(el).html();
       if (content?.trim()) extractedJS += `/* Inline script */\n${content}\n\n`;
     });
 
-    // ── Inline all images as base64 ─────────────────────────
-    // Limit to first 20 images to avoid massive file size. — AYOCODES
     let imgCount = 0;
     const imgTags = [];
     $("img[src]").each((_, el) => {
@@ -1287,18 +1613,6 @@ export async function scrape({ fullArgs, from, sock }) {
       } catch (_) {}
     }
 
-    // ── Inline CSS background images (url(...)) ─────────────
-    // This handles inline style="background-image:url(...)" patterns. — AYOCODES
-    $("[style]").each((_, el) => {
-      const style = $(el).attr("style") || "";
-      const urlMatch = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
-      if (urlMatch && !urlMatch[1].startsWith("data:")) {
-        // Leave as-is for now — would require fetch per element
-        // Mark for reference in the HTML comment. — AYOCODES
-      }
-    });
-
-    // ── Add AYOBOT stamp ────────────────────────────────────
     const title = $("title").text().trim() || "No title";
     const desc = $('meta[name="description"]').attr("content")?.trim() || "N/A";
     const linkCount = $("a[href]").length;
@@ -1317,13 +1631,10 @@ export async function scrape({ fullArgs, from, sock }) {
     const finalHtml = stamp + $.html();
     const domain2 = domain.replace(/[^a-z0-9]/gi, "_");
     const ts = Date.now();
-
-    // ── Build file buffers ──────────────────────────────────
     const htmlBuf = Buffer.from(finalHtml, "utf-8");
     const cssBuf = Buffer.from(extractedCSS, "utf-8");
     const jsBuf = Buffer.from(extractedJS, "utf-8");
 
-    // ── Send summary first ──────────────────────────────────
     await sock.sendMessage(from, {
       text:
         `🕸️ *SCRAPE COMPLETE*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1339,17 +1650,14 @@ export async function scrape({ fullArgs, from, sock }) {
         `✅ *Assets inlined:* CSS, JS, Images (first 20)\n━━━━━━━━━━━━━━━━━━━━━━━\n`,
     });
 
-    // ── Send HTML file ──────────────────────────────────────
     await sock.sendMessage(from, {
       document: htmlBuf,
       mimetype: "text/html",
       fileName: `${domain2}_${ts}_full.html`,
       caption: `📄 *Full page (HTML+CSS+JS+Images inlined)*\n🌐 Open in any browser — works offline`,
     });
-
     await delay(500);
 
-    // ── Send CSS file ───────────────────────────────────────
     if (cssBuf.length > 100) {
       await sock.sendMessage(from, {
         document: cssBuf,
@@ -1360,7 +1668,6 @@ export async function scrape({ fullArgs, from, sock }) {
       await delay(300);
     }
 
-    // ── Send JS file ────────────────────────────────────────
     if (jsBuf.length > 100) {
       await sock.sendMessage(from, {
         document: jsBuf,
@@ -1371,7 +1678,6 @@ export async function scrape({ fullArgs, from, sock }) {
       await delay(300);
     }
 
-    // ── Send ZIP archive (if jszip available) ───────────────
     const JSZip = await getJSZip();
     if (JSZip) {
       try {
@@ -1445,7 +1751,6 @@ export async function time({ fullArgs, from, sock }) {
       timeout: 8_000,
     });
     const d = new Date(res.data.datetime);
-    // Day progress bar. — AYOCODES
     const dayPct = Math.round(
       ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100,
     );
@@ -1514,7 +1819,6 @@ export async function pdf({ fullArgs, from, sock }) {
       doc.on("end", resolve);
       doc.on("error", reject);
 
-      // Header bar. — AYOCODES
       doc.rect(0, 0, doc.page.width, 50).fill("#1a1a2e");
       doc
         .fillColor("#ffffff")
@@ -1530,7 +1834,6 @@ export async function pdf({ fullArgs, from, sock }) {
           width: doc.page.width - 60,
         });
 
-      // Title. — AYOCODES
       doc.moveDown(2);
       doc
         .fillColor("#1a1a2e")
@@ -1543,15 +1846,12 @@ export async function pdf({ fullArgs, from, sock }) {
         .lineTo(doc.page.width - 60, doc.y)
         .stroke("#cccccc");
       doc.moveDown(1);
-
-      // Content. — AYOCODES
       doc
         .fillColor("#333333")
         .font("Helvetica")
         .fontSize(12)
         .text(content, { lineGap: 6, paragraphGap: 8 });
 
-      // Footer. — AYOCODES
       doc.moveDown(2);
       const footerY = doc.page.height - 50;
       doc
@@ -1586,7 +1886,7 @@ export async function pdf({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IP LOOKUP — Enhanced with ASN, org type, threat info. — AYOCODES
+//  IP LOOKUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -1602,15 +1902,13 @@ export async function getip({ fullArgs, from, sock }) {
 
   let data = null;
   const apis = [
-    async () => {
-      const r = (
+    async () =>
+      (
         await axios.get(
           `http://ip-api.com/json/${cleanIP}?fields=status,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query`,
           { timeout: 8_000 },
         )
-      ).data;
-      return r;
-    },
+      ).data,
     async () => {
       const r = (
         await axios.get(`https://ipapi.co/${cleanIP}/json/`, { timeout: 8_000 })
@@ -1666,7 +1964,6 @@ export async function getip({ fullArgs, from, sock }) {
     });
   }
 
-  // Map emoji flag. — AYOCODES
   const flag = data.countryCode
     ? String.fromCodePoint(
         ...[...data.countryCode.toUpperCase()].map(
@@ -1713,7 +2010,7 @@ export async function myip({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WHOIS — Enhanced with expiry, registrar, status. — AYOCODES
+//  WHOIS — expiry, registrar, status. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -1736,17 +2033,12 @@ export async function whois({ fullArgs, from, sock }) {
       timeout: 10_000,
     });
     const d = res.data;
-
     const ns = d.nameservers?.map((n) => n.ldhName).join(", ") || "Unknown";
     const status = d.status?.join(", ") || "Unknown";
-
-    // Parse events for creation, expiry, update dates. — AYOCODES
     const evtMap = {};
     (d.events || []).forEach((e) => {
       evtMap[e.eventAction] = e.eventDate?.split("T")[0];
     });
-
-    // Parse registrar from entities. — AYOCODES
     const registrar =
       d.entities
         ?.find((e) => e.roles?.includes("registrar"))
@@ -1774,7 +2066,7 @@ export async function whois({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DNS LOOKUP — A, AAAA, MX, TXT, NS all in one call. — AYOCODES
+//  DNS LOOKUP — A, AAAA, MX, TXT, NS. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -1791,7 +2083,6 @@ export async function dns({ fullArgs, from, sock }) {
       .trim()
       .replace(/^https?:\/\//, "")
       .replace(/\/.*/, "");
-    // Fetch all 5 record types in parallel. — AYOCODES
     const [aRes, aaaaRes, mxRes, txtRes, nsRes] = await Promise.allSettled([
       axios.get(`https://dns.google/resolve?name=${domain}&type=A`, {
         timeout: 8_000,
@@ -1809,12 +2100,10 @@ export async function dns({ fullArgs, from, sock }) {
         timeout: 8_000,
       }),
     ]);
-
-    const parse = (res, key = "data") =>
+    const parse = (res) =>
       res.status === "fulfilled"
         ? res.value.data.Answer?.map((a) => a.data).join("\n") || "No records"
         : "Failed";
-
     const aRecords =
       aRes.status === "fulfilled"
         ? aRes.value.data.Answer?.map((a) => a.data).join(", ") ||
@@ -1842,23 +2131,20 @@ export async function dns({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GETPP — Get profile picture
+//  GETPP
 // ════════════════════════════════════════════════════════════════════════════
 export async function getpp({ message, from, sock }) {
   try {
     const msg = message.message;
     const senderJid =
       message.key?.participant || message.key?.remoteJid || from;
-
     const quotedParticipant =
       msg?.extendedTextMessage?.contextInfo?.participant ||
       msg?.imageMessage?.contextInfo?.participant ||
       msg?.videoMessage?.contextInfo?.participant ||
       null;
-
     const mentionedJid =
       msg?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || null;
-
     const targetJid = quotedParticipant || mentionedJid || senderJid;
     const displayNum = targetJid.split("@")[0];
 
@@ -1922,7 +2208,6 @@ export async function getgpp({ from, sock, isGroup }) {
         ppUrl = await sock.profilePictureUrl(from, "preview");
       } catch (_) {}
     }
-
     if (ppUrl) {
       await sock.sendMessage(from, {
         image: { url: ppUrl },
@@ -2154,7 +2439,7 @@ export async function imgbb({ message, from, sock }) {
 
     if (result) {
       await sock.sendMessage(from, {
-        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}`,
+        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}\n🌐 *Service:* ${result.service}`,
       });
     } else {
       await sock.sendMessage(from, {
@@ -2172,7 +2457,7 @@ export async function imgbb({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCREENSHOT — 4 services with validation. — AYOCODES
+//  SCREENSHOT — 4 services. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function screenshot({ fullArgs, from, sock }) {
   if (!fullArgs)
@@ -2295,9 +2580,7 @@ export async function trebleboost({ message, from, sock }) {
       mimetype: "audio/mpeg",
       ptt: false,
     });
-    await sock.sendMessage(from, {
-      text: "⚡ *Audio processed!*",
-    });
+    await sock.sendMessage(from, { text: "⚡ *Audio processed!*" });
   } catch (err) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", `Could not process audio: ${err.message}`),
