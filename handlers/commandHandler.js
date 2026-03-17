@@ -1,41 +1,32 @@
-// handlers/commandHandler.js - AYOBOT v1.5.0 ENHANCED EDITION
+// handlers/commandHandler.js - AYOBOT v1.5.0 MULTI-SESSION EDITION
 // ════════════════════════════════════════════════════════════════════════════
-//  Command Handler - Complete System with ALL Features
+//  Command Handler - COMPATIBLE with MongoDB multi-session
 //  Author  : AYOCODES
-//  Version : 1.5.0 ENHANCED
-//  Features: 60+ command registration, full permission system, session management
+//  Version : 1.5.0
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
+  bannedUsers,
   commandUsage,
-  deletedMessages,
   ENV,
   isAdmin,
   isAuthorized,
-  messageCount,
-  sessionManager,
-  userRateLimits,
 } from "../index.js";
 
-import { isBotGroupAdminCached } from "../utils/validators.js";
 import {
   formatError,
   formatGroupError,
   formatInfo,
-  formatSuccess,
 } from "../utils/formatters.js";
+import { isBotGroupAdminCached } from "../utils/validators.js";
 
 // ════════════════════════════════════════════════════════════════════════════
-//  LOGGING UTILITIES - ENHANCED
+//  LOGGING UTILITIES
 // ════════════════════════════════════════════════════════════════════════════
+
 const Colors = {
   reset: "\x1b[0m",
   bright: "\x1b[1m",
-  dim: "\x1b[2m",
-  underscore: "\x1b[4m",
-  blink: "\x1b[5m",
-  reverse: "\x1b[7m",
-  hidden: "\x1b[8m",
   fg: {
     black: "\x1b[30m",
     red: "\x1b[31m",
@@ -54,8 +45,7 @@ const log = {
   warn: (msg) => console.log(`${Colors.fg.yellow}⚠️${Colors.reset} ${msg}`),
   info: (msg) => console.log(`${Colors.fg.cyan}ℹ️${Colors.reset} ${msg}`),
   cmd: (msg) => console.log(`${Colors.fg.magenta}⚡${Colors.reset} ${msg}`),
-  success: (msg) =>
-    console.log(`${Colors.fg.green}${Colors.bright}✓${Colors.reset} ${msg}`),
+  success: (msg) => console.log(`${Colors.fg.green}✓${Colors.reset} ${msg}`),
   title: (msg) =>
     console.log(`\n${Colors.fg.blue}${Colors.bright}${msg}${Colors.reset}\n`),
   divider: () =>
@@ -65,8 +55,9 @@ const log = {
 // ════════════════════════════════════════════════════════════════════════════
 //  RATE LIMITING SYSTEM
 // ════════════════════════════════════════════════════════════════════════════
+
 class RateLimiter {
-  constructor(maxRequests = 10, windowMs = 60000) {
+  constructor(maxRequests = 15, windowMs = 60000) {
     this.maxRequests = maxRequests;
     this.windowMs = windowMs;
     this.requests = new Map();
@@ -92,15 +83,6 @@ class RateLimiter {
     return true;
   }
 
-  getRemaining(userId) {
-    const now = Date.now();
-    const userRequests = this.requests.get(userId) || [];
-    const recentRequests = userRequests.filter(
-      (time) => now - time < this.windowMs,
-    );
-    return Math.max(0, this.maxRequests - recentRequests.length);
-  }
-
   getRemainingTime(userId) {
     const now = Date.now();
     const userRequests = this.requests.get(userId) || [];
@@ -110,12 +92,13 @@ class RateLimiter {
   }
 }
 
-const rateLimiter = new RateLimiter(15, 60000); // 15 requests per minute
+const rateLimiter = new RateLimiter();
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MODULE LOADING SYSTEM - ENHANCED WITH DEPENDENCY TRACKING
+//  MODULE LOADING SYSTEM
 // ════════════════════════════════════════════════════════════════════════════
-log.title("📦 AYOBOT v1.5.0 - MODULE LOADING SYSTEM");
+
+log.title("📦 AYOBOT v1.5.0 - LOADING MODULES");
 
 const modules = {
   admin: { loaded: false, path: "../commands/group/admin.js", exports: {} },
@@ -182,7 +165,6 @@ async function loadAllModules() {
   const results = await Promise.allSettled(
     moduleKeys.map((key) => loadModule(key)),
   );
-
   const loaded = results.filter(
     (r) => r.status === "fulfilled" && r.value,
   ).length;
@@ -191,22 +173,16 @@ async function loadAllModules() {
   console.log();
 }
 
-// Load all modules on startup
 await loadAllModules();
 
 // ════════════════════════════════════════════════════════════════════════════
-//  COMMAND REGISTRY SYSTEM - ADVANCED
+//  COMMAND REGISTRY
 // ════════════════════════════════════════════════════════════════════════════
+
 const commands = new Map();
 const commandStats = new Map();
 const commandMetadata = new Map();
 
-/**
- * Register a command with metadata and options
- * @param {string} name - Command name
- * @param {Function} handler - Command handler function
- * @param {Object} options - Command options
- */
 function reg(name, handler, options = {}) {
   if (typeof handler !== "function") {
     log.warn(`Cannot register ${name}: not a function`);
@@ -229,11 +205,7 @@ function reg(name, handler, options = {}) {
     createdAt: new Date(),
   };
 
-  commands.set(cmdName, {
-    handler,
-    ...metadata,
-  });
-
+  commands.set(cmdName, { handler, ...metadata });
   commandMetadata.set(cmdName, metadata);
   commandStats.set(cmdName, { uses: 0, errors: 0, avgTime: 0 });
 
@@ -242,9 +214,10 @@ function reg(name, handler, options = {}) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  COMMAND REGISTRATION - COMPLETE SYSTEM
+//  COMMAND REGISTRATION - COMPLETE
 // ════════════════════════════════════════════════════════════════════════════
-log.title("📝 COMMAND REGISTRATION SYSTEM");
+
+log.title("📝 REGISTERING COMMANDS");
 
 export function registerAllCommands() {
   log.divider();
@@ -256,55 +229,55 @@ export function registerAllCommands() {
     if (typeof b.menu === "function") {
       reg("menu", b.menu, {
         category: "core",
-        description: "Display all available commands",
-        aliases: ["help", "commands", "cmds", "h"],
+        description: "Show all commands",
+        aliases: ["help", "commands", "h"],
       });
       totalCount += 4;
     }
     if (typeof b.ping === "function") {
       reg("ping", b.ping, {
         category: "core",
-        description: "Check bot response time",
-        aliases: ["pong", "latency", "speed"],
+        description: "Check latency",
+        aliases: ["pong", "latency"],
       });
-      totalCount += 4;
+      totalCount += 3;
     }
     if (typeof b.status === "function") {
       reg("status", b.status, {
         category: "core",
-        description: "View your user status",
-        aliases: ["me", "profile", "whoami"],
+        description: "Your status",
+        aliases: ["me", "profile"],
       });
-      totalCount += 4;
+      totalCount += 3;
     }
     if (typeof b.creator === "function") {
       reg("creator", b.creator, {
         category: "core",
-        description: "Get creator contact info",
-        aliases: ["maker", "dev", "owner"],
-      });
-      totalCount += 4;
-    }
-    if (typeof b.creatorGit === "function") {
-      reg("creatorsgit", b.creatorGit, {
-        category: "core",
-        description: "View creator GitHub",
-        aliases: ["github", "git"],
+        description: "Creator info",
+        aliases: ["dev", "owner"],
       });
       totalCount += 3;
+    }
+    if (typeof b.creatorGit === "function") {
+      reg("github", b.creatorGit, {
+        category: "core",
+        description: "GitHub",
+        aliases: ["git"],
+      });
+      totalCount += 2;
     }
     if (typeof b.auto === "function") {
       reg("auto", b.auto, {
         category: "core",
-        description: "Toggle auto-reply",
-        aliases: ["autoreply", "chatbot"],
+        description: "Auto-reply",
+        aliases: ["autoreply"],
       });
-      totalCount += 3;
+      totalCount += 2;
     }
     if (typeof b.weather === "function") {
       reg("weather", b.weather, {
         category: "info",
-        description: "Get weather information",
+        description: "Weather",
         aliases: ["w", "forecast"],
       });
       totalCount += 3;
@@ -312,46 +285,43 @@ export function registerAllCommands() {
     if (typeof b.connectInfo === "function") {
       reg("connect", b.connectInfo, {
         category: "core",
-        description: "Get community links",
-        aliases: ["connectinfo"],
+        description: "Community links",
+        aliases: ["community"],
       });
       totalCount += 2;
     }
     if (typeof b.time === "function") {
       reg("time", b.time, {
         category: "info",
-        description: "Get world time",
+        description: "World time",
         aliases: ["worldtime"],
       });
       totalCount += 2;
     }
     if (typeof b.prefixinfo === "function") {
-      reg("prefixinfo", b.prefixinfo, {
+      reg("prefix", b.prefixinfo, {
         category: "core",
-        description: "Show prefix info",
+        description: "Prefix info",
         aliases: ["preinfo"],
       });
       totalCount += 2;
     }
     if (typeof b.getip === "function") {
-      reg("getip", b.getip, {
+      reg("ip", b.getip, {
         category: "web",
-        description: "Lookup IP address",
-        aliases: ["ip", "iplookup"],
+        description: "IP lookup",
+        aliases: ["getip", "iplookup"],
       });
       totalCount += 3;
     }
     if (typeof b.myip === "function") {
-      reg("myip", b.myip, {
-        category: "web",
-        description: "Get your public IP",
-      });
+      reg("myip", b.myip, { category: "web", description: "Your IP" });
       totalCount++;
     }
     if (typeof b.whois === "function") {
       reg("whois", b.whois, {
         category: "web",
-        description: "WHOIS domain lookup",
+        description: "WHOIS lookup",
         aliases: ["domain"],
       });
       totalCount += 2;
@@ -359,7 +329,7 @@ export function registerAllCommands() {
     if (typeof b.dns === "function") {
       reg("dns", b.dns, {
         category: "web",
-        description: "DNS records lookup",
+        description: "DNS lookup",
         aliases: ["dnslookup"],
       });
       totalCount += 2;
@@ -367,121 +337,122 @@ export function registerAllCommands() {
     if (typeof b.jarvis === "function") {
       reg("jarvis", b.jarvis, {
         category: "ai",
-        description: "Jarvis AI assistant",
+        description: "Jarvis AI",
         aliases: ["j", "ask"],
       });
       totalCount += 3;
     }
-    if (typeof b.test === "function") {
-      reg("test", b.test, {
-        category: "debug",
-        description: "Test bot functionality",
+    if (typeof b.jarvisVoice === "function") {
+      reg("jarvisv", b.jarvisVoice, {
+        category: "ai",
+        description: "Jarvis voice",
+        aliases: ["jv", "speak"],
       });
+      totalCount += 3;
+    }
+    if (typeof b.test === "function") {
+      reg("test", b.test, { category: "debug", description: "Test command" });
       totalCount++;
     }
     if (typeof b.shorten === "function") {
       reg("shorten", b.shorten, {
         category: "web",
         description: "Shorten URL",
-        aliases: ["short"],
+        aliases: ["short", "tiny"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof b.viewOnce === "function") {
       reg("vv", b.viewOnce, {
         category: "media",
-        description: "View once messages",
-        aliases: ["viewonce"],
+        description: "View once",
+        aliases: ["viewonce", "open"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof b.joinWaitlist === "function") {
-      reg("jointrend", b.joinWaitlist, {
+      reg("waitlist", b.joinWaitlist, {
         category: "misc",
         description: "Join waitlist",
-        aliases: ["waitlist"],
+        aliases: ["jointrend"],
       });
       totalCount += 2;
     }
     if (typeof b.scrape === "function") {
       reg("scrape", b.scrape, {
         category: "web",
-        description: "Advanced web scraping",
+        description: "Web scrape",
+        aliases: ["scraper"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof b.url === "function") {
-      reg("url", b.url, {
-        category: "web",
-        description: "Get URL information",
-      });
+      reg("url", b.url, { category: "web", description: "URL info" });
       totalCount++;
     }
     if (typeof b.fetch === "function") {
-      reg("fetch", b.fetch, {
-        category: "web",
-        description: "Fetch web content",
-      });
+      reg("fetch", b.fetch, { category: "web", description: "Fetch URL" });
       totalCount++;
     }
     if (typeof b.qencode === "function") {
-      reg("qencode", b.qencode, {
+      reg("qr", b.qencode, {
         category: "tools",
-        description: "Encode QR code",
-        aliases: ["qr"],
+        description: "QR code",
+        aliases: ["qrcode", "qencode"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof b.take === "function") {
       reg("take", b.take, {
         category: "media",
-        description: "Take sticker from image",
+        description: "Take sticker",
+        aliases: ["takesticker"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof b.screenshot === "function") {
       reg("screenshot", b.screenshot, {
         category: "web",
-        description: "Take website screenshot",
-        aliases: ["ss"],
+        description: "Screenshot",
+        aliases: ["ss", "capture"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof b.inspect === "function") {
       reg("inspect", b.inspect, {
         category: "web",
-        description: "Inspect webpage",
+        description: "Inspect page",
       });
       totalCount++;
     }
     if (typeof b.imgbb === "function") {
       reg("imgbb", b.imgbb, {
         category: "media",
-        description: "Upload image to ImgBB",
+        description: "Upload image",
+        aliases: ["upload"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof b.pdf === "function") {
-      reg("pdf", b.pdf, {
-        category: "tools",
-        description: "Generate PDF document",
-      });
+      reg("pdf", b.pdf, { category: "tools", description: "Make PDF" });
       totalCount++;
     }
     if (typeof b.getpp === "function") {
       reg("getpp", b.getpp, {
         category: "profile",
-        description: "Get profile picture",
+        description: "Profile pic",
+        aliases: ["pp", "profilepic"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof b.getgpp === "function") {
       reg("getgpp", b.getgpp, {
         category: "profile",
-        description: "Get group picture",
+        description: "Group pic",
         groupOnly: true,
+        aliases: ["gpp"],
       });
-      totalCount++;
+      totalCount += 2;
     }
   }
 
@@ -491,8 +462,16 @@ export function registerAllCommands() {
     if (typeof a.ai === "function") {
       reg("ai", a.ai, {
         category: "ai",
-        description: "Chat with AI",
-        aliases: ["ayobot"],
+        description: "Chat AI",
+        aliases: ["ayobot", "ask"],
+      });
+      totalCount += 3;
+    }
+    if (typeof a.aiClear === "function") {
+      reg("aiclear", a.aiClear, {
+        category: "ai",
+        description: "Clear AI chat",
+        aliases: ["clearchat"],
       });
       totalCount += 2;
     }
@@ -500,15 +479,15 @@ export function registerAllCommands() {
       reg("summarize", a.summarize, {
         category: "ai",
         description: "Summarize text",
-        aliases: ["summary"],
+        aliases: ["summary", "tldr"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof a.grammar === "function") {
       reg("grammar", a.grammar, {
         category: "ai",
-        description: "Check grammar",
-        aliases: ["spellcheck"],
+        description: "Spell check",
+        aliases: ["spell"],
       });
       totalCount += 2;
     }
@@ -521,9 +500,9 @@ export function registerAllCommands() {
       reg("calc", c.calculate, {
         category: "tools",
         description: "Calculator",
-        aliases: ["calculate", "math", "="],
+        aliases: ["math", "="],
       });
-      totalCount += 4;
+      totalCount += 3;
     }
   }
 
@@ -533,8 +512,16 @@ export function registerAllCommands() {
     if (typeof cr.crypto === "function") {
       reg("crypto", cr.crypto, {
         category: "info",
-        description: "Crypto prices",
-        aliases: ["coin"],
+        description: "Crypto price",
+        aliases: ["coin", "btc"],
+      });
+      totalCount += 3;
+    }
+    if (typeof cr.cryptoTop === "function") {
+      reg("cryptotop", cr.cryptoTop, {
+        category: "info",
+        description: "Top crypto",
+        aliases: ["top10"],
       });
       totalCount += 2;
     }
@@ -546,8 +533,8 @@ export function registerAllCommands() {
     if (typeof d.dict === "function") {
       reg("dict", d.dict, {
         category: "info",
-        description: "Dictionary lookup",
-        aliases: ["dictionary", "define"],
+        description: "Dictionary",
+        aliases: ["define", "meaning"],
       });
       totalCount += 3;
     }
@@ -559,25 +546,58 @@ export function registerAllCommands() {
     if (typeof dl.youtube === "function") {
       reg("youtube", dl.youtube, {
         category: "downloader",
-        description: "Download YouTube video",
-        aliases: ["yt"],
+        description: "YouTube",
+        aliases: ["yt", "ytdl"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof dl.tiktok === "function") {
       reg("tiktok", dl.tiktok, {
         category: "downloader",
-        description: "Download TikTok video",
-        aliases: ["tt"],
+        description: "TikTok",
+        aliases: ["tt", "tok"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof dl.spotify === "function") {
       reg("spotify", dl.spotify, {
         category: "downloader",
-        description: "Get Spotify track",
+        description: "Spotify",
+        aliases: ["sp"],
       });
-      totalCount++;
+      totalCount += 2;
+    }
+    if (typeof dl.play === "function") {
+      reg("play", dl.play, {
+        category: "downloader",
+        description: "Play music",
+        aliases: ["mp3"],
+      });
+      totalCount += 2;
+    }
+    if (typeof dl.instagram === "function") {
+      reg("instagram", dl.instagram, {
+        category: "downloader",
+        description: "Instagram",
+        aliases: ["ig", "insta"],
+      });
+      totalCount += 3;
+    }
+    if (typeof dl.facebook === "function") {
+      reg("facebook", dl.facebook, {
+        category: "downloader",
+        description: "Facebook",
+        aliases: ["fb"],
+      });
+      totalCount += 2;
+    }
+    if (typeof dl.twitter === "function") {
+      reg("twitter", dl.twitter, {
+        category: "downloader",
+        description: "Twitter",
+        aliases: ["x", "tweet"],
+      });
+      totalCount += 3;
     }
   }
 
@@ -588,29 +608,33 @@ export function registerAllCommands() {
       reg("encrypt", e.encrypt, {
         category: "security",
         description: "Encrypt text",
+        aliases: ["enc"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof e.decrypt === "function") {
       reg("decrypt", e.decrypt, {
         category: "security",
         description: "Decrypt text",
+        aliases: ["dec"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof e.hash === "function") {
       reg("hash", e.hash, {
         category: "security",
         description: "Hash text",
+        aliases: ["md5"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof e.password === "function") {
       reg("password", e.password, {
         category: "security",
-        description: "Generate password",
+        description: "Gen password",
+        aliases: ["genpass"],
       });
-      totalCount++;
+      totalCount += 2;
     }
   }
 
@@ -621,22 +645,33 @@ export function registerAllCommands() {
       reg("rps", g.rps, {
         category: "games",
         description: "Rock paper scissors",
+        aliases: ["rpsgame"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof g.dice === "function") {
       reg("dice", g.dice, {
         category: "games",
         description: "Roll dice",
+        aliases: ["roll"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof g.coinFlip === "function") {
       reg("flip", g.coinFlip, {
         category: "games",
         description: "Flip coin",
+        aliases: ["coin"],
       });
-      totalCount++;
+      totalCount += 2;
+    }
+    if (typeof g.trivia === "function") {
+      reg("trivia", g.trivia, {
+        category: "games",
+        description: "Trivia",
+        aliases: ["quiz"],
+      });
+      totalCount += 2;
     }
   }
 
@@ -647,37 +682,41 @@ export function registerAllCommands() {
       reg("sticker", img.sticker, {
         category: "media",
         description: "Make sticker",
-        aliases: ["s"],
+        aliases: ["s", "stiker"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
     if (typeof img.toimage === "function") {
       reg("toimage", img.toimage, {
         category: "media",
-        description: "Convert to image",
+        description: "To image",
+        aliases: ["toimg"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof img.tovideo === "function") {
       reg("tovideo", img.tovideo, {
         category: "media",
-        description: "Convert to video",
+        description: "To video",
+        aliases: ["tovid"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof img.toaudio === "function") {
       reg("toaudio", img.toaudio, {
         category: "media",
-        description: "Convert to audio",
+        description: "To audio",
+        aliases: ["tomp3"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof img.removebg === "function") {
       reg("removebg", img.removebg, {
         category: "media",
-        description: "Remove background",
+        description: "Remove BG",
+        aliases: ["nobg", "rmbg"],
       });
-      totalCount++;
+      totalCount += 3;
     }
   }
 
@@ -688,7 +727,23 @@ export function registerAllCommands() {
       reg("joke", j.joke, {
         category: "fun",
         description: "Tell joke",
-        aliases: ["laugh"],
+        aliases: ["laugh", "funny"],
+      });
+      totalCount += 3;
+    }
+    if (typeof j.roast === "function") {
+      reg("roast", j.roast, {
+        category: "fun",
+        description: "Roast someone",
+        aliases: ["burn"],
+      });
+      totalCount += 2;
+    }
+    if (typeof j.pickupLine === "function") {
+      reg("pickup", j.pickupLine, {
+        category: "fun",
+        description: "Pickup line",
+        aliases: ["flirt"],
       });
       totalCount += 2;
     }
@@ -700,28 +755,39 @@ export function registerAllCommands() {
     if (typeof m.movie === "function") {
       reg("movie", m.movie, {
         category: "info",
-        description: "Get movie info",
+        description: "Movie info",
+        aliases: ["film", "imdb"],
       });
-      totalCount++;
+      totalCount += 3;
+    }
+    if (typeof m.tv === "function") {
+      reg("tv", m.tv, {
+        category: "info",
+        description: "TV series info",
+        aliases: ["series", "show"],
+      });
+      totalCount += 3;
     }
   }
 
   // ── MUSIC ──────────────────────────────────────────────────────────────
   if (modules.music.loaded) {
     const mu = modules.music.exports;
-    if (typeof mu.play === "function") {
-      reg("play", mu.play, {
-        category: "music",
-        description: "Play song",
-      });
-      totalCount++;
-    }
     if (typeof mu.lyrics === "function") {
       reg("lyrics", mu.lyrics, {
         category: "music",
         description: "Get lyrics",
+        aliases: ["lyric", "words"],
       });
-      totalCount++;
+      totalCount += 3;
+    }
+    if (typeof mu.trending === "function") {
+      reg("trending", mu.trending, {
+        category: "music",
+        description: "Trending songs",
+        aliases: ["chart"],
+      });
+      totalCount += 2;
     }
   }
 
@@ -731,9 +797,10 @@ export function registerAllCommands() {
     if (typeof n.news === "function") {
       reg("news", n.news, {
         category: "info",
-        description: "Get news",
+        description: "Latest news",
+        aliases: ["headlines", "breaking"],
       });
-      totalCount++;
+      totalCount += 3;
     }
   }
 
@@ -744,22 +811,33 @@ export function registerAllCommands() {
       reg("note", nt.note, {
         category: "storage",
         description: "Save note",
+        aliases: ["store"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof nt.getnote === "function") {
       reg("getnote", nt.getnote, {
         category: "storage",
         description: "Get note",
+        aliases: ["recall"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof nt.notes === "function") {
       reg("notes", nt.notes, {
         category: "storage",
         description: "List notes",
+        aliases: ["mynotes"],
       });
-      totalCount++;
+      totalCount += 2;
+    }
+    if (typeof nt.deleteKey === "function") {
+      reg("delnote", nt.deleteKey, {
+        category: "storage",
+        description: "Delete note",
+        aliases: ["forget"],
+      });
+      totalCount += 2;
     }
   }
 
@@ -769,10 +847,10 @@ export function registerAllCommands() {
     if (typeof q.quote === "function") {
       reg("quote", q.quote, {
         category: "fun",
-        description: "Get quote",
-        aliases: ["motivation"],
+        description: "Random quote",
+        aliases: ["motivation", "inspire"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
   }
 
@@ -783,7 +861,31 @@ export function registerAllCommands() {
       reg("remind", r.reminder, {
         category: "storage",
         description: "Set reminder",
-        aliases: ["reminder"],
+        aliases: ["reminder", "later"],
+      });
+      totalCount += 3;
+    }
+    if (typeof r.listReminders === "function") {
+      reg("reminders", r.listReminders, {
+        category: "storage",
+        description: "List reminders",
+        aliases: ["myreminders"],
+      });
+      totalCount += 2;
+    }
+    if (typeof r.cancelReminder === "function") {
+      reg("cancelreminder", r.cancelReminder, {
+        category: "storage",
+        description: "Cancel reminder",
+        aliases: ["delreminder"],
+      });
+      totalCount += 2;
+    }
+    if (typeof r.snooze === "function") {
+      reg("snooze", r.snooze, {
+        category: "storage",
+        description: "Snooze reminder",
+        aliases: ["snoozereminder"],
       });
       totalCount += 2;
     }
@@ -792,12 +894,13 @@ export function registerAllCommands() {
   // ── SECURITY ───────────────────────────────────────────────────────────
   if (modules.security.loaded) {
     const sec = modules.security.exports;
-    if (typeof sec.security === "function") {
-      reg("security", sec.security, {
+    if (typeof sec.scan === "function") {
+      reg("scan", sec.scan, {
         category: "security",
-        description: "Security tools",
+        description: "Scan URL",
+        aliases: ["virustotal"],
       });
-      totalCount++;
+      totalCount += 2;
     }
   }
 
@@ -807,9 +910,10 @@ export function registerAllCommands() {
     if (typeof s.stock === "function") {
       reg("stock", s.stock, {
         category: "info",
-        description: "Stock prices",
+        description: "Stock price",
+        aliases: ["stocks", "share"],
       });
-      totalCount++;
+      totalCount += 3;
     }
   }
 
@@ -820,7 +924,23 @@ export function registerAllCommands() {
       reg("translate", t.translate, {
         category: "tools",
         description: "Translate text",
-        aliases: ["tr"],
+        aliases: ["tr", "tl"],
+      });
+      totalCount += 3;
+    }
+    if (typeof t.detect === "function") {
+      reg("detect", t.detect, {
+        category: "tools",
+        description: "Detect language",
+        aliases: ["langdetect"],
+      });
+      totalCount += 2;
+    }
+    if (typeof t.languages === "function") {
+      reg("languages", t.languages, {
+        category: "tools",
+        description: "Supported languages",
+        aliases: ["langs"],
       });
       totalCount += 2;
     }
@@ -833,9 +953,9 @@ export function registerAllCommands() {
       reg("tts", tt.tts, {
         category: "media",
         description: "Text to speech",
-        aliases: ["voice"],
+        aliases: ["voice", "say"],
       });
-      totalCount += 2;
+      totalCount += 3;
     }
   }
 
@@ -846,9 +966,16 @@ export function registerAllCommands() {
       reg("convert", uc.convert, {
         category: "tools",
         description: "Unit converter",
-        aliases: ["conv"],
+        aliases: ["conv", "uconvert"],
       });
-      totalCount += 2;
+      totalCount += 3;
+    }
+    if (typeof uc.units === "function") {
+      reg("units", uc.units, {
+        category: "tools",
+        description: "Available units",
+      });
+      totalCount++;
     }
   }
 
@@ -862,8 +989,9 @@ export function registerAllCommands() {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
+        aliases: ["remove"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof gc.add === "function") {
       reg("add", gc.add, {
@@ -871,8 +999,9 @@ export function registerAllCommands() {
         description: "Add member",
         groupOnly: true,
         adminOnly: true,
+        aliases: ["invite"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof gc.promote === "function") {
       reg("promote", gc.promote, {
@@ -881,8 +1010,9 @@ export function registerAllCommands() {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
+        aliases: ["makeadmin"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof gc.demote === "function") {
       reg("demote", gc.demote, {
@@ -891,24 +1021,28 @@ export function registerAllCommands() {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
+        aliases: ["unadmin"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof gc.link === "function") {
       reg("link", gc.link, {
         category: "group",
         description: "Get group link",
         groupOnly: true,
+        adminOnly: true,
+        aliases: ["grouplink"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof gc.admins === "function") {
       reg("admins", gc.admins, {
         category: "group",
         description: "List admins",
         groupOnly: true,
+        aliases: ["listadmins", "adminlist"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof gc.tagall === "function") {
       reg("tagall", gc.tagall, {
@@ -916,8 +1050,9 @@ export function registerAllCommands() {
         description: "Tag all members",
         groupOnly: true,
         adminOnly: true,
+        aliases: ["everyone", "all"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof gc.hidetag === "function") {
       reg("hidetag", gc.hidetag, {
@@ -925,8 +1060,9 @@ export function registerAllCommands() {
         description: "Hidden tag",
         groupOnly: true,
         adminOnly: true,
+        aliases: ["htag", "silent"],
       });
-      totalCount++;
+      totalCount += 3;
     }
   }
 
@@ -940,8 +1076,19 @@ export function registerAllCommands() {
         groupOnly: true,
         adminOnly: true,
         requireBotAdmin: true,
+        aliases: ["block"],
       });
-      totalCount++;
+      totalCount += 2;
+    }
+    if (typeof gm.unban === "function") {
+      reg("unban", gm.unban, {
+        category: "group",
+        description: "Unban member",
+        groupOnly: true,
+        adminOnly: true,
+        aliases: ["unblock"],
+      });
+      totalCount += 2;
     }
     if (typeof gm.warn === "function") {
       reg("warn", gm.warn, {
@@ -949,27 +1096,68 @@ export function registerAllCommands() {
         description: "Warn member",
         groupOnly: true,
         adminOnly: true,
+        aliases: ["warning"],
       });
-      totalCount++;
+      totalCount += 2;
     }
-    if (typeof gm.mute === "function") {
-      reg("mute", gm.mute, {
+    if (typeof gm.warnings === "function") {
+      reg("warnings", gm.warnings, {
         category: "group",
-        description: "Mute group",
+        description: "List warnings",
+        groupOnly: true,
+        aliases: ["warnlist"],
+      });
+      totalCount += 2;
+    }
+    if (typeof gm.clearWarns === "function") {
+      reg("clearwarns", gm.clearWarns, {
+        category: "group",
+        description: "Clear warnings",
         groupOnly: true,
         adminOnly: true,
+        aliases: ["resetwarns"],
       });
-      totalCount++;
+      totalCount += 2;
     }
   }
 
   // ── GROUP SETTINGS ─────────────────────────────────────────────────────
   if (modules.groupSettings.loaded) {
     const gs = modules.groupSettings.exports;
+    if (typeof gs.mute === "function") {
+      reg("mute", gs.mute, {
+        category: "group",
+        description: "Mute group",
+        groupOnly: true,
+        adminOnly: true,
+        aliases: ["lock"],
+      });
+      totalCount += 2;
+    }
+    if (typeof gs.unmute === "function") {
+      reg("unmute", gs.unmute, {
+        category: "group",
+        description: "Unmute group",
+        groupOnly: true,
+        adminOnly: true,
+        aliases: ["unlock"],
+      });
+      totalCount += 2;
+    }
     if (typeof gs.antilink === "function") {
       reg("antilink", gs.antilink, {
         category: "group",
-        description: "Anti-link mode",
+        description: "Anti-link",
+        groupOnly: true,
+        adminOnly: true,
+        aliases: ["antilink"],
+      });
+      totalCount += 2;
+    }
+    if (typeof gs.antispam === "function") {
+      reg("antispam", gs.antispam, {
+        category: "group",
+        description: "Anti-spam",
         groupOnly: true,
         adminOnly: true,
       });
@@ -979,6 +1167,15 @@ export function registerAllCommands() {
       reg("welcome", gs.welcome, {
         category: "group",
         description: "Welcome message",
+        groupOnly: true,
+        adminOnly: true,
+      });
+      totalCount++;
+    }
+    if (typeof gs.goodbye === "function") {
+      reg("goodbye", gs.goodbye, {
+        category: "group",
+        description: "Goodbye message",
         groupOnly: true,
         adminOnly: true,
       });
@@ -994,84 +1191,104 @@ export function registerAllCommands() {
         category: "admin",
         description: "Whitelist user",
         adminOnly: true,
+        aliases: ["auth", "allow"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof adm.removeUser === "function") {
       reg("removeuser", adm.removeUser, {
         category: "admin",
         description: "Remove from whitelist",
         adminOnly: true,
+        aliases: ["deauth", "disallow"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof adm.listUsers === "function") {
       reg("listusers", adm.listUsers, {
         category: "admin",
         description: "List whitelisted users",
         adminOnly: true,
+        aliases: ["users", "whitelist"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof adm.mode === "function") {
       reg("mode", adm.mode, {
         category: "admin",
         description: "Change bot mode",
         adminOnly: true,
+        aliases: ["setmode", "botmode"],
       });
-      totalCount++;
+      totalCount += 3;
     }
     if (typeof adm.broadcast === "function") {
       reg("broadcast", adm.broadcast, {
         category: "admin",
         description: "Broadcast message",
         adminOnly: true,
+        aliases: ["bc", "announce"],
       });
-      totalCount++;
+      totalCount += 3;
+    }
+    if (typeof adm.globalBroadcast === "function") {
+      reg("globalbroadcast", adm.globalBroadcast, {
+        category: "admin",
+        description: "Global broadcast",
+        adminOnly: true,
+        aliases: ["gbc"],
+      });
+      totalCount += 2;
     }
     if (typeof adm.stats === "function") {
       reg("stats", adm.stats, {
         category: "admin",
         description: "Bot statistics",
         adminOnly: true,
+        aliases: ["botstats"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof adm.restart === "function") {
       reg("restart", adm.restart, {
         category: "admin",
         description: "Restart bot",
         adminOnly: true,
+        aliases: ["reboot"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof adm.shutdown === "function") {
       reg("shutdown", adm.shutdown, {
         category: "admin",
         description: "Shutdown bot",
         adminOnly: true,
+        aliases: ["off"],
       });
-      totalCount++;
+      totalCount += 2;
     }
     if (typeof adm.eval === "function") {
       reg("eval", adm.eval, {
         category: "admin",
         description: "Execute code",
         adminOnly: true,
+        aliases: ["exec", "run"],
       });
-      totalCount++;
+      totalCount += 3;
     }
   }
 
   log.divider();
-  log.success(`Successfully registered ${commands.size} commands`);
+  log.success(
+    `Successfully registered ${commands.size} commands (${totalCount} total aliases)`,
+  );
   console.log();
 }
 
 registerAllCommands();
 
 // ════════════════════════════════════════════════════════════════════════════
-//  HELPER FUNCTIONS - UTILITIES
+//  HELPER FUNCTIONS
 // ════════════════════════════════════════════════════════════════════════════
 
 function safeJid(jid) {
@@ -1102,7 +1319,7 @@ function parseCommandArguments(text) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MAIN COMMAND HANDLER - FULLY FEATURED
+//  MAIN COMMAND HANDLER
 // ════════════════════════════════════════════════════════════════════════════
 export async function handleCommand(message, sock) {
   const handleStartTime = Date.now();
@@ -1116,7 +1333,7 @@ export async function handleCommand(message, sock) {
     const isDM = from.endsWith("@s.whatsapp.net") || from.endsWith("@lid");
     const fromMe = !!message.key.fromMe;
 
-    // ── Session context ──────────────────────────────────────────────────
+    // ── Session context from message (injected by index.js) ─────────────
     const session = message._session || null;
     const ownerPhone =
       message._ownerPhone ||
@@ -1175,7 +1392,7 @@ export async function handleCommand(message, sock) {
 
     // ── LOGGING ─────────────────────────────────────────────────────────
     const cmdLog = `${ENV.PREFIX}${commandName}`;
-    const userLog = `${cleanPhone}${isGroup ? ` [GROUP: ${from}]` : ""}`;
+    const userLog = `${cleanPhone}${isGroup ? ` [GROUP]` : ""}`;
     log.info(`${cmdLog} from ${userLog}`);
 
     // ── Find command ────────────────────────────────────────────────────
@@ -1209,11 +1426,7 @@ export async function handleCommand(message, sock) {
     if (sessionMode === "private" && !isAdminUser) {
       log.warn(`PRIVATE MODE: ${cleanPhone} blocked`);
       return sock.sendMessage(from, {
-        text:
-          `🔒 *PRIVATE MODE*\n\n` +
-          `This bot is currently set to *private*.\n` +
-          `Only the bot owner can use commands.\n\n` +
-          `⚡ _AYOBOT v1.5.0 by AYOCODES_`,
+        text: `🔒 *PRIVATE MODE*\n\nThis bot is currently set to *private*.\nOnly the bot owner can use commands.\n\n⚡ _AYOBOT v1.5.0 by AYOCODES_`,
       });
     }
 
@@ -1263,11 +1476,16 @@ export async function handleCommand(message, sock) {
         return sock.sendMessage(from, {
           text: formatGroupError(
             "BOT NOT ADMIN",
-            `❌ I need group admin rights for *${ENV.PREFIX}${commandName}*.\n\n` +
-              `Please promote me to admin first!`,
+            `❌ I need group admin rights for *${ENV.PREFIX}${commandName}*.\n\nPlease promote me to admin first!`,
           ),
         });
       }
+    }
+
+    // ── Check if user is banned ─────────────────────────────────────────
+    if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
+      log.warn(`BANNED USER: ${cleanPhone} tried ${cmdLog}`);
+      return;
     }
 
     // ── Command execution ───────────────────────────────────────────────
@@ -1321,9 +1539,7 @@ export async function handleCommand(message, sock) {
         await sock.sendMessage(from, {
           text: formatError(
             "COMMAND ERROR",
-            `❌ *${ENV.PREFIX}${commandName}* encountered an error:\n\n` +
-              `${cmdError.message || "Unknown error"}\n\n` +
-              `_Please try again or contact support_`,
+            `❌ *${ENV.PREFIX}${commandName}* encountered an error:\n\n${cmdError.message || "Unknown error"}\n\n_Please try again or contact support_`,
           ),
         });
       } catch (_) {}
@@ -1337,7 +1553,7 @@ export async function handleCommand(message, sock) {
   } catch (fatalError) {
     log.err(`FATAL: ${fatalError.message}`);
     try {
-      await sock.sendMessage(from, {
+      await sock.sendMessage(message?.key?.remoteJid, {
         text: "❌ A fatal error occurred. Please try again.",
       });
     } catch (_) {}
@@ -1348,31 +1564,16 @@ export async function handleCommand(message, sock) {
 //  COMMAND METADATA & EXPORTS
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Get command metadata
- * @param {string} cmdName
- * @returns {Object|null}
- */
 export function getCommandMetadata(cmdName) {
   return commandMetadata.get(cmdName.toLowerCase()) || null;
 }
 
-/**
- * Get all commands by category
- * @param {string} category
- * @returns {Array}
- */
 export function getCommandsByCategory(category) {
   return Array.from(commands.values()).filter(
     (cmd) => cmd.category.toLowerCase() === category.toLowerCase(),
   );
 }
 
-/**
- * Get command statistics
- * @param {string} cmdName
- * @returns {Object}
- */
 export function getCommandStats(cmdName) {
   return (
     commandStats.get(cmdName.toLowerCase()) || {
@@ -1383,10 +1584,6 @@ export function getCommandStats(cmdName) {
   );
 }
 
-/**
- * Get all statistics
- * @returns {Object}
- */
 export function getAllStats() {
   return {
     totalCommands: commands.size,
@@ -1402,9 +1599,6 @@ export function getAllStats() {
   };
 }
 
-/**
- * Reload commands
- */
 export async function reloadCommands() {
   log.title("🔄 RELOADING COMMANDS");
   commands.clear();
