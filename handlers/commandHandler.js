@@ -911,77 +911,76 @@ export function registerAllCommands() {
     description: "List units",
     aliases: ["listunits", "unitlist", "availableunits", "unittypes", "showunits", "allunits"]
   });
+// ────────────────────────────────────────────────────────────────────────
+//  GROUP CORE.JS
+// ────────────────────────────────────────────────────────────────────────
+const gc = MODULES.groupCore;
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  GROUP CORE.JS
-  // ────────────────────────────────────────────────────────────────────────
-  const gc = MODULES.groupCore;
+if (gc.kick) safeRegister("kick", gc.kick, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  requireBotAdmin: true,
+  description: "Kick member",
+  aliases: ["remove", "kickmember", "removemember", "boot", "kickout", "removeuser"]
+});
 
-  if (gc.kick) safeRegister("kick", gc.kick, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    requireBotAdmin: true,
-    description: "Kick member",
-    aliases: ["remove", "kickmember", "removemember", "boot", "kickout", "removeuser"]
-  });
+if (gc.add) safeRegister("add", gc.add, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  description: "Add member",
+  aliases: ["invite", "addmember", "adduser", "addperson", "addtogroup", "addparticipant"]
+});
 
-  if (gc.add) safeRegister("add", gc.add, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    description: "Add member",
-    aliases: ["invite", "addmember", "adduser", "addperson", "addtogroup", "addparticipant"]
-  });
+if (gc.promote) safeRegister("promote", gc.promote, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  requireBotAdmin: true,
+  description: "Promote to admin",
+  aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin", "promoteuser", "promotemember"]
+});
 
-  if (gc.promote) safeRegister("promote", gc.promote, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    requireBotAdmin: true,
-    description: "Promote to admin",
-    aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin", "promoteuser", "promotemember"]
-  });
+if (gc.demote) safeRegister("demote", gc.demote, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  requireBotAdmin: true,
+  description: "Demote admin",
+  aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin", "demoteuser", "demotemember"]
+});
 
-  if (gc.demote) safeRegister("demote", gc.demote, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    requireBotAdmin: true,
-    description: "Demote admin",
-    aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin", "demoteuser", "demotemember"]
-  });
+if (gc.admins) safeRegister("admins", gc.admins, {
+  category: "group",
+  groupOnly: true,
+  description: "List admins",
+  aliases: ["listadmins", "adminlist", "groupadmins", "getadmins", "showadmins", "adminslist"]
+});
 
-  if (gc.link) safeRegister("link", gc.link, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    description: "Group link",
-    aliases: ["grouplink", "invitelink", "getlink", "grouplink", "linkgroup", "grouplink"]
-  });
+if (gc.tagall) safeRegister("tagall", gc.tagall, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  description: "Tag all members",
+  aliases: ["everyone", "all", "tageveryone", "mentionall", "pingall", "tag", "mentioneveryone"]
+});
 
-  if (gc.admins) safeRegister("admins", gc.admins, {
-    category: "group",
-    groupOnly: true,
-    description: "List admins",
-    aliases: ["listadmins", "adminlist", "groupadmins", "getadmins", "showadmins", "adminslist"]
-  });
+if (gc.hidetag) safeRegister("hidetag", gc.hidetag, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  description: "Silent tag all",
+  aliases: ["htag", "silent", "silentping", "hiddentag", "ghosttag", "silenttag", "hidetagall"]
+});
 
-  if (gc.tagall) safeRegister("tagall", gc.tagall, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    description: "Tag all members",
-    aliases: ["everyone", "all", "tageveryone", "mentionall", "pingall", "tag", "mentioneveryone"]
-  });
-
-  if (gc.hidetag) safeRegister("hidetag", gc.hidetag, {
-    category: "group",
-    groupOnly: true,
-    adminOnly: true,
-    description: "Silent tag all",
-    aliases: ["htag", "silent", "silentping", "hiddentag", "ghosttag", "silenttag", "hidetagall"]
-  });
+if (gc.link) safeRegister("link", gc.link, {
+  category: "group",
+  groupOnly: true,
+  adminOnly: true,
+  description: "Group link",
+  aliases: ["grouplink", "invitelink", "getlink", "grouplink", "linkgroup", "grouplink"]
+});
 
   // ────────────────────────────────────────────────────────────────────────
   //  GROUP MODERATION.JS
