@@ -759,6 +759,34 @@ export function registerAllCommands() {
     aliases: ["chart", "topsongs", "topmusic", "hotmusic", "trendingmusic", "trend", "trendingnow"]
   });
 
+// GIF Search - .gif
+if (dl.gif) safeRegister("gif", dl.gif, {
+  category: "dl",
+  description: "Search for animated GIFs",
+  aliases: ["giphy", "tenor", "gifsearch", "animated"]
+});
+
+// Image Search - .img
+if (dl.image) safeRegister("img", dl.image, {
+  category: "dl",
+  description: "Search for images",
+  aliases: ["image", "imgsearch", "pics", "photos", "picture"]
+});
+
+// Pinterest Search - .pin
+if (dl.pinterest) safeRegister("pin", dl.pinterest, {
+  category: "dl",
+  description: "Search Pinterest images",
+  aliases: ["pinterest", "pins", "pinsearch", "pinterestsearch"]
+});
+
+// Universal Downloader - .dl
+if (dl.download) safeRegister("dl", dl.download, {
+  category: "dl",
+  description: "Universal media downloader",
+  aliases: ["download", "get", "fetch", "dlfile"]
+});
+
   // ────────────────────────────────────────────────────────────────────────
   //  NEWS.JS
   // ────────────────────────────────────────────────────────────────────────
@@ -1351,11 +1379,13 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 // ======================================================================
-//  PHASE 5: TRIVIA ANSWER HANDLER - FIXED VERSION
+//  PHASE 5: TRIVIA ANSWER HANDLER - COMPLETELY FIXED
 //  This MUST come BEFORE the prefix check
 // ======================================================================
 if (!trimmed.startsWith(ENV.PREFIX)) {
-  // Check for trivia answers in non-command messages
+  // This is a non-command message
+
+  // Check for trivia answers (A, B, C, D)
   if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
     console.log(`🎯 [CMD] Potential trivia answer: "${trimmed}" in chat ${from}`);
     console.log(`📊 [CMD] activeTrivia.has(from)? ${global.activeTrivia?.has(from) || false}`);
@@ -1396,33 +1426,41 @@ if (!trimmed.startsWith(ENV.PREFIX)) {
           await sock.sendMessage(from, {
             text: "❌ Trivia system error. Please try again later."
           });
+          return;
         }
       } catch (error) {
         console.log(`❌ [CMD] Trivia error: ${error.message}`);
+        return;
       }
     } else {
-      console.log(`❌ [CMD] No active trivia for this chat`);
+      console.log(`❌ [CMD] No active trivia for this chat - ignoring message`);
+      // Don't return - let it be ignored silently
     }
   }
-  return; // Not a command and not trivia, ignore
-}
+
+
 // ======================================================================
-//  PHASE 5.5: ANTILINK HANDLER - DETECT AND DELETE LINKS
-//  This runs for EVERY message in groups BEFORE prefix check
+//  PHASE 5.5: ANTI-LINK DETECTION - RUNS FOR EVERY MESSAGE IN GROUPS
+//  This MUST come AFTER trivia check but BEFORE prefix check
 // ======================================================================
 if (isGroup) {
   try {
-    // Import antilink from automation module
-    const automationModule = MODULES.automation;
-
-    if (automationModule?.handleAntiLink) {
-      // Run in background - don't await to avoid blocking
-      automationModule.handleAntiLink(message, from, sock).catch(err => {
-        log.debug(`[${executionId}] Anti-link error: ${err.message}`);
+    // Import the antilink function from basic.js
+    const b = MODULES.basic;
+    if (b?.antilink) {
+      // Call with empty args for detection mode
+      await b.antilink({
+        args: [],           // Empty args = detection mode
+        message,
+        from,
+        sock,
+        isAdmin: isAdminUser,
+        isGroup,
+        userJid
       });
     }
   } catch (err) {
-    log.debug(`[${executionId}] Anti-link module error: ${err.message}`);
+    log.debug(`[${executionId}] Anti-link error: ${err.message}`);
   }
 }
     // ======================================================================
@@ -1527,50 +1565,72 @@ if (isGroup) {
       const message = messages[Math.floor(Math.random() * messages.length)];
       return sock.sendMessage(from, { text: message });
     }
+// ======================================================================
+//  PHASE 14: PERMISSION CHECKS - FIXED
+// ======================================================================
 
-    // ======================================================================
-    //  PHASE 14: PERMISSION CHECKS
-    // ======================================================================
+// Admin only check
+if (commandMeta.adminOnly && !isAdminUser) {
+  log.debug(`[${executionId}] Admin-only command blocked for non-admin`);
+  return sock.sendMessage(from, {
+    text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.`
+  });
+}
 
-    // Admin only check
-    if (commandMeta.adminOnly && !isAdminUser) {
-      log.debug(`[${executionId}] Admin-only command blocked for non-admin`);
-      return sock.sendMessage(from, {
-        text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.`
-      });
-    }
+// Group only check
+if (commandMeta.groupOnly && !isGroup) {
+  log.debug(`[${executionId}] Group-only command used in DM`);
+  return sock.sendMessage(from, {
+    text: `👥 *${ENV.PREFIX}${commandName}* only works inside a group.`
+  });
+}
 
-    // Group only check
-    if (commandMeta.groupOnly && !isGroup) {
-      log.debug(`[${executionId}] Group-only command used in DM`);
-      return sock.sendMessage(from, {
-        text: `👥 *${ENV.PREFIX}${commandName}* only works inside a group.`
-      });
-    }
+// IMPORTANT: Commands that require bot admin (like .mute, .lock, .tagall)
+if (commandMeta.requireBotAdmin && isGroup) {
 
-    // Bot admin check for group commands - FIXED to recognize group owner
-    if (commandMeta.requireBotAdmin && isGroup) {
-      // Check if user is group owner - they can execute even if bot isn't admin
-      const metadata = await sock.groupMetadata(from).catch(() => null);
-      const isGroupOwner = metadata?.owner === userJid;
+  // FIRST: Check if the USER is a group admin
+  let userIsGroupAdmin = false;
+  let groupMetadata = null;
 
-      if (!isGroupOwner) {
-        let botIsAdmin = false;
-        try {
-          botIsAdmin = await isBotGroupAdminCached(from, sock);
-        } catch (_) {
-          log.debug(`[${executionId}] Bot admin check failed`);
-        }
+  try {
+    groupMetadata = await sock.groupMetadata(from);
+    // Check if user is admin in the group
+    userIsGroupAdmin = groupMetadata.participants.some(
+      p => p.id === userJid && (p.admin === 'admin' || p.admin === 'superadmin')
+    );
+    log.debug(`[${executionId}] User group admin status: ${userIsGroupAdmin}`);
+  } catch (err) {
+    log.debug(`[${executionId}] Failed to check user admin status: ${err.message}`);
+  }
 
-        if (!botIsAdmin) {
-          log.debug(`[${executionId}] Bot not admin for admin-required command`);
-          return sock.sendMessage(from, {
-            text: `❌ *Bot Not Admin*\nI need to be a *group admin* for this.\nPromote me in group settings first.\n\n👑 *Note:* Group owners can still use this command even if bot isn't admin.`
-          });
-        }
-      }
-    }
+  // If user is NOT a group admin, deny access
+  if (!userIsGroupAdmin) {
+    log.debug(`[${executionId}] User is not a group admin - access denied`);
+    return sock.sendMessage(from, {
+      text: `⛔ *Group Admin Only*\nYou need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.`
+    });
+  }
 
+  // SECOND: Check if the BOT is a group admin (for commands that need bot actions)
+  // But don't block the command - just warn the user
+  let botIsAdmin = false;
+  try {
+    botIsAdmin = await isBotGroupAdminCached(from, sock);
+    log.debug(`[${executionId}] Bot admin status: ${botIsAdmin}`);
+  } catch (err) {
+    log.debug(`[${executionId}] Bot admin check failed: ${err.message}`);
+  }
+
+  // If bot is NOT admin, send a warning but STILL ALLOW THE COMMAND
+  // The command function itself will handle the error if it needs bot admin
+  if (!botIsAdmin) {
+    log.debug(`[${executionId}] Bot is not admin - command may fail`);
+    await sock.sendMessage(from, {
+      text: `⚠️ *Note:* I am not a group admin.\nSome features may not work. Please promote me to admin for full functionality.`
+    });
+    // Continue execution - let the command handle it
+  }
+}
     // ======================================================================
     //  PHASE 15: EXECUTE COMMAND WITH TIMING
     // ======================================================================

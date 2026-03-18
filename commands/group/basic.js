@@ -163,628 +163,947 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       mode: isAdmin ? "ADMIN 👑" : "USER",
     };
 
-    // Build comprehensive command menu
-    const menuCommands = [
-      // ── CORE ─────────────────────────────────────────────────
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.ping`",
-        emoji: "● 🏓",
-        desc: "Latency & uptime",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.menu`",
-        emoji: "● 📋",
-        desc: "Commands list",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.status`",
-        emoji: "● 📊",
-        desc: "Your status",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.creator`",
-        emoji: "● 👑",
-        desc: "Creator info",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.github`",
-        emoji: "● 💻",
-        desc: "GitHub",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.connect`",
-        emoji: "● 📢",
-        desc: "Community",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.prefix`",
-        emoji: "● ℹ️",
-        desc: "Prefix info",
-      },
-      {
-        category: "*🔰 CORE*",
-        cmd: "`.auto`",
-        emoji: "● 🤖",
-        desc: "Auto-reply",
-      },
+   // Build comprehensive command menu
+const menuCommands = [
+  // ── CORE ─────────────────────────────────────────────────
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.ping`",
+    emoji: "● 🏓",
+    desc: "Latency & uptime",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.menu`",
+    emoji: "● 📋",
+    desc: "Commands list",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.status`",
+    emoji: "● 📊",
+    desc: "Your status",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.creator`",
+    emoji: "● 👑",
+    desc: "Creator info",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.github`",
+    emoji: "● 💻",
+    desc: "GitHub",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.connect`",
+    emoji: "● 📢",
+    desc: "Community",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.prefix`",
+    emoji: "● ℹ️",
+    desc: "Prefix info",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.auto`",
+    emoji: "● 🤖",
+    desc: "Auto-reply",
+  },
+  {
+    category: "*🔰 CORE*",
+    cmd: "`.test`",
+    emoji: "● 🧪",
+    desc: "Test command",
+  },
 
-      // ── WEB TOOLS ────────────────────────────────────────────
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.ip`",
-        emoji: "● 🔍",
-        desc: "IP lookup",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.myip`",
-        emoji: "● 🌐",
-        desc: "Your IP",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.whois`",
-        emoji: "● 🔎",
-        desc: "Domain WHOIS",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.dns`",
-        emoji: "● 🗂️",
-        desc: "DNS lookup",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.url`",
-        emoji: "● 📡",
-        desc: "URL info",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.fetch`",
-        emoji: "● 📥",
-        desc: "Fetch data",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.scrape`",
-        emoji: "● 🕸️",
-        desc: "Web scrape",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.screenshot`",
-        emoji: "● 📷",
-        desc: "Screenshot",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.shorten`",
-        emoji: "● 🔗",
-        desc: "URL shorten",
-      },
-      {
-        category: "> *_🌐 WEB TOOLS_*",
-        cmd: "`.inspect`",
-        emoji: "● 🔍",
-        desc: "Inspect page",
-      },
+  // ── WEB TOOLS ────────────────────────────────────────────
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.ip`",
+    emoji: "● 🔍",
+    desc: "IP lookup",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.myip`",
+    emoji: "● 🌐",
+    desc: "Your IP",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.whois`",
+    emoji: "● 🔎",
+    desc: "Domain WHOIS",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.dns`",
+    emoji: "● 🗂️",
+    desc: "DNS lookup",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.url`",
+    emoji: "● 📡",
+    desc: "URL info",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.fetch`",
+    emoji: "● 📥",
+    desc: "Fetch data",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.scrape`",
+    emoji: "● 🕸️",
+    desc: "Web scrape",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.screenshot`",
+    emoji: "● 📷",
+    desc: "Screenshot",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.shorten`",
+    emoji: "● 🔗",
+    desc: "URL shorten",
+  },
+  {
+    category: "> *_🌐 WEB TOOLS_*",
+    cmd: "`.inspect`",
+    emoji: "● 🔍",
+    desc: "Inspect page",
+  },
 
-      // ── MEDIA ────────────────────────────────────────────────
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.sticker`",
-        emoji: "● 🎭",
-        desc: "Make sticker",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.toimage`",
-        emoji: "● 🖼️",
-        desc: "To image",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.tovideo`",
-        emoji: "● 🎥",
-        desc: "To video",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.toaudio`",
-        emoji: "● 🎵",
-        desc: "To audio",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.tts`",
-        emoji: "● 🗣️",
-        desc: "Text to speech",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.removebg`",
-        emoji: "● ✨",
-        desc: "Remove BG",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.vv`",
-        emoji: "● 👁️",
-        desc: "View once",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.take`",
-        emoji: "● ✂️",
-        desc: "Take sticker",
-      },
-      {
-        category: "> *_🎬 MEDIA_*",
-        cmd: "`.imgbb`",
-        emoji: "● 📤",
-        desc: "Upload image",
-      },
+  // ── MEDIA ────────────────────────────────────────────────
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.sticker`",
+    emoji: "● 🎭",
+    desc: "Make sticker",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.toimage`",
+    emoji: "● 🖼️",
+    desc: "Sticker to image",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.tovideo`",
+    emoji: "● 🎥",
+    desc: "Sticker to video",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.toaudio`",
+    emoji: "● 🎵",
+    desc: "Video to audio",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.tts`",
+    emoji: "● 🗣️",
+    desc: "Text to speech",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.removebg`",
+    emoji: "● ✨",
+    desc: "Remove background",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.vv`",
+    emoji: "● 👁️",
+    desc: "View once",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.take`",
+    emoji: "● ✂️",
+    desc: "Take sticker",
+  },
+  {
+    category: "> *_🎬 MEDIA_*",
+    cmd: "`.imgbb`",
+    emoji: "● 📤",
+    desc: "Upload image",
+  },
 
-      // ── MUSIC ────────────────────────────────────────────────
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.play`",
-        emoji: "● ▶️",
-        desc: "Play song",
-      },
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.lyrics`",
-        emoji: "● 📝",
-        desc: "Lyrics",
-      },
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.spotify`",
-        emoji: "● 🎧",
-        desc: "Spotify",
-      },
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.tiktok`",
-        emoji: "● 🎵",
-        desc: "TikTok",
-      },
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.youtube`",
-        emoji: "● 📺",
-        desc: "YouTube",
-      },
-      {
-        category: "> *_🎵 MUSIC_*",
-        cmd: "`.trending`",
-        emoji: "● 📈",
-        desc: "Trending",
-      },
+  // ── MUSIC & DOWNLOADS ─────────────────────────────────────
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.play`",
+    emoji: "● ▶️",
+    desc: "Download & play music",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.lyrics`",
+    emoji: "● 📝",
+    desc: "Get song lyrics",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.spotify`",
+    emoji: "● 🎧",
+    desc: "Spotify info",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.tiktok`",
+    emoji: "● 🎵",
+    desc: "Download TikTok",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.youtube`",
+    emoji: "● 📺",
+    desc: "YouTube info",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.instagram`",
+    emoji: "● 📸",
+    desc: "Download Instagram",
+    alias: "`.ig`"
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.facebook`",
+    emoji: "● 👤",
+    desc: "Download Facebook",
+    alias: "`.fb`"
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.twitter`",
+    emoji: "● 🐦",
+    desc: "Download Twitter/X",
+    alias: "`.x`"
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.trending`",
+    emoji: "● 📈",
+    desc: "Trending songs",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.random`",
+    emoji: "● 🎲",
+    desc: "Random song",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.artist`",
+    emoji: "● 👤",
+    desc: "Artist info",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.album`",
+    emoji: "● 💿",
+    desc: "Album info",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.musicsearch`",
+    emoji: "● 🔍",
+    desc: "Search music",
+  },
+  {
+    category: "> *_🎵 MUSIC & DOWNLOADS_*",
+    cmd: "`.genius`",
+    emoji: "● 🎤",
+    desc: "Genius lyrics",
+  },
 
-      // ── AI ───────────────────────────────────────────────────
-      {
-        category: "> *_🤖 AI_*",
-        cmd: "`.ayobot`",
-        emoji: "● 🧠",
-        desc: "Chat AI",
-      },
-      {
-        category: "> *_🤖 AI_*",
-        cmd: "`.jarvis`",
-        emoji: "● 🤖",
-        desc: "Jarvis AI",
-      },
-      {
-        category: "> *_🤖 AI_*",
-        cmd: "`.jarvisv`",
-        emoji: "● 🔊",
-        desc: "Jarvis voice",
-      },
-      {
-        category: "> *_🤖 AI_*",
-        cmd: "`.summarize`",
-        emoji: "● 📋",
-        desc: "Summarize text",
-      },
-      {
-        category: "> *_🤖 AI_*",
-        cmd: "`.grammar`",
-        emoji: "● ✍️",
-        desc: "Spell check",
-      },
+  // ── IMAGE & GIF SEARCH ───────────────────────────────────
+  {
+    category: "> *_🖼️ IMAGE & GIF_*",
+    cmd: "`.img`",
+    emoji: "● 🖼️",
+    desc: "Search images",
+    alias: "`.image`"
+  },
+  {
+    category: "> *_🖼️ IMAGE & GIF_*",
+    cmd: "`.gif`",
+    emoji: "● 🎞️",
+    desc: "Search GIFs",
+    alias: "`.giphy`"
+  },
+  {
+    category: "> *_🖼️ IMAGE & GIF_*",
+    cmd: "`.pin`",
+    emoji: "● 📌",
+    desc: "Pinterest search",
+    alias: "`.pinterest`"
+  },
 
-      // ── INFO ─────────────────────────────────────────────────
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.weather`",
-        emoji: "● ☁️",
-        desc: "Weather",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.time`",
-        emoji: "● ⏰",
-        desc: "World time",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.news`",
-        emoji: "● 📰",
-        desc: "News",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.movie`",
-        emoji: "● 🎬",
-        desc: "Movies",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.crypto`",
-        emoji: "● 💰",
-        desc: "Crypto",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.stock`",
-        emoji: "● 📈",
-        desc: "Stocks",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.dict`",
-        emoji: "● 📖",
-        desc: "Dictionary",
-      },
-      {
-        category: "> *_🔭 INFO_*",
-        cmd: "`.translate`",
-        emoji: "● 🌍",
-        desc: "Translate",
-      },
+  // ── UNIVERSAL DOWNLOADER ─────────────────────────────────
+  {
+    category: "> *_⬇️ UNIVERSAL DOWNLOADER_*",
+    cmd: "`.dl`",
+    emoji: "● ⬇️",
+    desc: "Download from URL",
+    alias: "`.download`"
+  },
 
-      // ── FUN ──────────────────────────────────────────────────
-      { category: "> *_🎮 FUN_*", cmd: "`.joke`", emoji: "● 😂", desc: "Joke" },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.quote`",
-        emoji: "● 💫",
-        desc: "Quote",
-      },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.trivia`",
-        emoji: "● ❓",
-        desc: "Trivia",
-      },
-      { category: "> *_🎮 FUN_*", cmd: "`.dice`", emoji: "● 🎲", desc: "Dice" },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.flip`",
-        emoji: "● 🪙",
-        desc: "Coin flip",
-      },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.rps`",
-        emoji: "● ✊",
-        desc: "Rock paper scissors",
-      },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.roast`",
-        emoji: "● 🔥",
-        desc: "Roast",
-      },
-      {
-        category: "> *_🎮 FUN_*",
-        cmd: "`.pickup`",
-        emoji: "● 💘",
-        desc: "Pickup line",
-      },
+  // ── AI ───────────────────────────────────────────────────
+  {
+    category: "> *_🤖 AI_*",
+    cmd: "`.ayobot`",
+    emoji: "● 🧠",
+    desc: "Chat with AI",
+  },
+  {
+    category: "> *_🤖 AI_*",
+    cmd: "`.jarvis`",
+    emoji: "● 🤖",
+    desc: "Jarvis AI",
+  },
+  {
+    category: "> *_🤖 AI_*",
+    cmd: "`.jarvisv`",
+    emoji: "● 🔊",
+    desc: "Jarvis voice",
+  },
+  {
+    category: "> *_🤖 AI_*",
+    cmd: "`.summarize`",
+    emoji: "● 📋",
+    desc: "Summarize text",
+  },
+  {
+    category: "> *_🤖 AI_*",
+    cmd: "`.grammar`",
+    emoji: "● ✍️",
+    desc: "Check grammar",
+  },
 
-      // ── ENCRYPTION ───────────────────────────────────────────
-      {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.encrypt`",
-        emoji: "● 🔒",
-        desc: "Encrypt text",
-      },
-      {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.decrypt`",
-        emoji: "● 🔓",
-        desc: "Decrypt text",
-      },
-      {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.hash`",
-        emoji: "● #️⃣",
-        desc: "Hash text",
-      },
-      {
-        category: "> *_🔐 ENCRYPTION_*",
-        cmd: "`.password`",
-        emoji: "● 🔑",
-        desc: "Gen password",
-      },
+  // ── INFO ─────────────────────────────────────────────────
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.weather`",
+    emoji: "● ☁️",
+    desc: "Weather forecast",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.time`",
+    emoji: "● ⏰",
+    desc: "World time",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.news`",
+    emoji: "● 📰",
+    desc: "Latest news",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.movie`",
+    emoji: "● 🎬",
+    desc: "Movie info",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.crypto`",
+    emoji: "● 💰",
+    desc: "Crypto prices",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.stock`",
+    emoji: "● 📈",
+    desc: "Stock prices",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.dict`",
+    emoji: "● 📖",
+    desc: "Dictionary",
+  },
+  {
+    category: "> *_🔭 INFO_*",
+    cmd: "`.translate`",
+    emoji: "● 🌍",
+    desc: "Translate text",
+  },
 
-      // ── STORAGE ──────────────────────────────────────────────
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.note`",
-        emoji: "● 💾",
-        desc: "Save note",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.getnote`",
-        emoji: "● 📂",
-        desc: "Get note",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.notes`",
-        emoji: "● 🗂️",
-        desc: "List notes",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.remind`",
-        emoji: "● ⏰",
-        desc: "Reminder",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.calc`",
-        emoji: "● 🧮",
-        desc: "Calculator",
-      },
-      {
-        category: "> *_💾 STORAGE_*",
-        cmd: "`.convert`",
-        emoji: "● ⚖️",
-        desc: "Unit convert",
-      },
+  // ── FUN ──────────────────────────────────────────────────
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.joke`",
+    emoji: "● 😂",
+    desc: "Random joke",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.quote`",
+    emoji: "● 💫",
+    desc: "Inspirational quote",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.trivia`",
+    emoji: "● ❓",
+    desc: "Trivia question",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.dice`",
+    emoji: "● 🎲",
+    desc: "Roll dice",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.flip`",
+    emoji: "● 🪙",
+    desc: "Flip coin",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.rps`",
+    emoji: "● ✊",
+    desc: "Rock paper scissors",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.roast`",
+    emoji: "● 🔥",
+    desc: "Roast someone",
+  },
+  {
+    category: "> *_🎮 FUN_*",
+    cmd: "`.pickup`",
+    emoji: "● 💘",
+    desc: "Pickup line",
+  },
 
-      // ── DOCUMENTS ────────────────────────────────────────────
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.qr`",
-        emoji: "● 📱",
-        desc: "QR code",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.qencode`",
-        emoji: "● 📱",
-        desc: "QR encode",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.pdf`",
-        emoji: "● 📄",
-        desc: "Make PDF",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.vcf`",
-        emoji: "● 📇",
-        desc: "Create VCF",
-      },
+  // ── ENCRYPTION ───────────────────────────────────────────
+  {
+    category: "> *_🔐 ENCRYPTION_*",
+    cmd: "`.encrypt`",
+    emoji: "● 🔒",
+    desc: "Encrypt text",
+  },
+  {
+    category: "> *_🔐 ENCRYPTION_*",
+    cmd: "`.decrypt`",
+    emoji: "● 🔓",
+    desc: "Decrypt text",
+  },
+  {
+    category: "> *_🔐 ENCRYPTION_*",
+    cmd: "`.hash`",
+    emoji: "● #️⃣",
+    desc: "Hash text",
+  },
+  {
+    category: "> *_🔐 ENCRYPTION_*",
+    cmd: "`.password`",
+    emoji: "● 🔑",
+    desc: "Generate password",
+  },
 
-      // ── PROFILE ──────────────────────────────────────────────
-      {
-        category: "> *_👤 PROFILE_*",
-        cmd: "`.getpp`",
-        emoji: "● 🖼️",
-        desc: "Get profile pic",
-      },
-      {
-        category: "> *_👤 PROFILE_*",
-        cmd: "`.getgpp`",
-        emoji: "● 👥",
-        desc: "Group pic",
-      },
+  // ── STORAGE & UTILITIES ─────────────────────────────────
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.note`",
+    emoji: "● 💾",
+    desc: "Save note",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.getnote`",
+    emoji: "● 📂",
+    desc: "Get note",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.notes`",
+    emoji: "● 🗂️",
+    desc: "List notes",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.delnote`",
+    emoji: "● 🗑️",
+    desc: "Delete note",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.remind`",
+    emoji: "● ⏰",
+    desc: "Set reminder",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.reminders`",
+    emoji: "● 📋",
+    desc: "List reminders",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.cancelreminder`",
+    emoji: "● ❌",
+    desc: "Cancel reminder",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.snooze`",
+    emoji: "● 💤",
+    desc: "Snooze reminder",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.calc`",
+    emoji: "● 🧮",
+    desc: "Calculator",
+  },
+  {
+    category: "> *_💾 STORAGE_*",
+    cmd: "`.convert`",
+    emoji: "● ⚖️",
+    desc: "Unit converter",
+  },
 
-      // ── GROUP ────────────────────────────────────────────────
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.kick`",
-        emoji: "● 👢",
-        desc: "Kick user",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.add`",
-        emoji: "● ➕",
-        desc: "Add user",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.promote`",
-        emoji: "● ⭐",
-        desc: "Make admin",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.demote`",
-        emoji: "● 🔽",
-        desc: "Remove admin",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.mute`",
-        emoji: "● 🔇",
-        desc: "Mute group",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.antilink`",
-        emoji: "● 🚫",
-        desc: "Anti-link",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.warn`",
-        emoji: "● ⚠️",
-        desc: "Warn user",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.ban`",
-        emoji: "● 🔨",
-        desc: "Ban user",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.tagall`",
-        emoji: "● 📢",
-        desc: "Tag all",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.hidetag`",
-        emoji: "● 👻",
-        desc: "Hide tag",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.welcome`",
-        emoji: "● 👋",
-        desc: "Welcome msg",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.link`",
-        emoji: "● 🔗",
-        desc: "Group link",
-      },
-      {
-        category: "> *_👥 GROUP_*",
-        cmd: "`.admins`",
-        emoji: "● 👑",
-        desc: "List admins",
-      },
-    ];
+  // ── DOCUMENTS ────────────────────────────────────────────
+  {
+    category: "> *_📄 DOCUMENTS_*",
+    cmd: "`.qr`",
+    emoji: "● 📱",
+    desc: "Generate QR code",
+  },
+  {
+    category: "> *_📄 DOCUMENTS_*",
+    cmd: "`.qencode`",
+    emoji: "● 📱",
+    desc: "QR encode",
+  },
+  {
+    category: "> *_📄 DOCUMENTS_*",
+    cmd: "`.pdf`",
+    emoji: "● 📄",
+    desc: "Create PDF",
+  },
+  {
+    category: "> *_📄 DOCUMENTS_*",
+    cmd: "`.vcf`",
+    emoji: "● 📇",
+    desc: "Create vCard",
+  },
 
-    // Add admin commands
-    if (isAdmin) {
-      menuCommands.push(
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.mode`",
-          emoji: "● ⚙️",
-          desc: "Set bot mode",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.adduser`",
-          emoji: "● ✅",
-          desc: "Whitelist user",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.removeuser`",
-          emoji: "● ❌",
-          desc: "Remove user",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.listusers`",
-          emoji: "● 👤",
-          desc: "List users",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.broadcast`",
-          emoji: "● 📢",
-          desc: "Broadcast msg",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.stats`",
-          emoji: "● 📊",
-          desc: "Bot stats",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.restart`",
-          emoji: "● 🔄",
-          desc: "Restart bot",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.shutdown`",
-          emoji: "● 🔴",
-          desc: "Shutdown bot",
-        },
-        {
-          category: "> *_👑 ADMIN_*",
-          cmd: "`.eval`",
-          emoji: "● ⚡",
-          desc: "Eval code",
-        },
-      );
-    }
+  // ── PROFILE ──────────────────────────────────────────────
+  {
+    category: "> *_👤 PROFILE_*",
+    cmd: "`.getpp`",
+    emoji: "● 🖼️",
+    desc: "Get profile pic",
+  },
+  {
+    category: "> *_👤 PROFILE_*",
+    cmd: "`.getgpp`",
+    emoji: "● 👥",
+    desc: "Get group pic",
+  },
 
-    // Build the formatted menu text
-    let menuText = `╔════════════════════════════════════════════╗\n`;
-    menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
-    menuText += `╚════════════════════════════════════════════╝\n\n`;
-    menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
-    menuText += `├ 💾 Memory: ${stats.memory}\n`;
-    menuText += `├ 👤 Mode: ${stats.mode}\n`;
-    menuText += `└ 📨 Messages: ${messageCount || 0}\n\n`;
+  // ── GROUP MANAGEMENT ─────────────────────────────────────
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.kick`",
+    emoji: "● 👢",
+    desc: "Kick member",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.add`",
+    emoji: "● ➕",
+    desc: "Add member",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.promote`",
+    emoji: "● ⭐",
+    desc: "Make admin",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.demote`",
+    emoji: "● 🔽",
+    desc: "Remove admin",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.mute`",
+    emoji: "● 🔇",
+    desc: "Mute group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.unmute`",
+    emoji: "● 🔊",
+    desc: "Unmute group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.lock`",
+    emoji: "● 🔒",
+    desc: "Lock group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.unlock`",
+    emoji: "● 🔓",
+    desc: "Unlock group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.antilink`",
+    emoji: "● 🚫",
+    desc: "Anti-link",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.antispam`",
+    emoji: "● 🛡️",
+    desc: "Anti-spam",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.warn`",
+    emoji: "● ⚠️",
+    desc: "Warn user",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.warnings`",
+    emoji: "● 📊",
+    desc: "View warnings",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.ban`",
+    emoji: "● 🔨",
+    desc: "Ban user",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.unban`",
+    emoji: "● ✅",
+    desc: "Unban user",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.tagall`",
+    emoji: "● 📢",
+    desc: "Tag all",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.hidetag`",
+    emoji: "● 👻",
+    desc: "Hidden tag",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.welcome`",
+    emoji: "● 👋",
+    desc: "Toggle welcome",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.setwelcome`",
+    emoji: "● ✏️",
+    desc: "Set welcome msg",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.goodbye`",
+    emoji: "● 👋",
+        desc: "Toggle goodbye",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.setgoodbye`",
+    emoji: "● ✏️",
+    desc: "Set goodbye msg",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.link`",
+    emoji: "● 🔗",
+    desc: "Group invite link",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.revoke`",
+    emoji: "● 🔄",
+    desc: "Revoke group link",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.admins`",
+    emoji: "● 👑",
+    desc: "List admins",
+    alias: "`.listadmins`"
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.groupinfo`",
+    emoji: "● ℹ️",
+    desc: "Group information",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.rules`",
+    emoji: "● 📜",
+    desc: "Show rules",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.setrules`",
+    emoji: "● ✏️",
+    desc: "Set group rules",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.pin`",
+    emoji: "● 📌",
+    desc: "Pin message",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.unpin`",
+    emoji: "● ❌",
+    desc: "Unpin message",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.delete`",
+    emoji: "● 🗑️",
+    desc: "Delete message",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.settings`",
+    emoji: "● 📜",
+        desc: "View group settings",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.resetsettings`",
+    emoji: "● 🔄",
+    desc: "Reset group settings",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.leave`",
+    emoji: "● 👋",
+    desc: "Bot leave group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.activate`",
+    emoji: "● ✅",
+    desc: "Activate bot in group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.deactivate`",
+    emoji: "● ❌",
+    desc: "Deactivate bot in group",
+  },
+  {
+    category: "> *_👥 GROUP_*",
+    cmd: "`.groupdebug`",
+    emoji: "● 🐛",
+    desc: "Debug group info",
+  },
 
-    let currentCategory = "";
-    for (const cmd of menuCommands) {
-      if (cmd.category !== currentCategory) {
-        currentCategory = cmd.category;
-        menuText += `\n${currentCategory}\n`;
-      }
-      menuText += `${cmd.emoji} ${cmd.cmd} — ${cmd.desc}\n`;
-    }
+  // ── ADMIN ─────────────────────────────────────────────────
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.mode`",
+    emoji: "● ⚙️",
+    desc: "Change bot mode",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.adduser`",
+    emoji: "● ✅",
+    desc: "Add authorized user",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.removeuser`",
+    emoji: "● ❌",
+    desc: "Remove authorized user",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.listusers`",
+    emoji: "● 📋",
+    desc: "List authorized users",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.broadcast`",
+    emoji: "● 📢",
+    desc: "Broadcast to users",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.globalbc`",
+    emoji: "● 🌍",
+    desc: "Broadcast to groups",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.stats`",
+    emoji: "● 📊",
+    desc: "Bot statistics",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.botstatus`",
+    emoji: "● 📈",
+    desc: "Detailed status",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.superban`",
+    emoji: "● 🔨",
+    desc: "Permanently ban user",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.unban`",
+    emoji: "● ✅",
+    desc: "Unban user",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.listbanned`",
+    emoji: "● 📋",
+    desc: "List banned users",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.clearbans`",
+    emoji: "● 🧹",
+    desc: "Clear all bans",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.restart`",
+    emoji: "● 🔄",
+    desc: "Restart bot",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.shutdown`",
+    emoji: "● ⛔",
+    desc: "Shutdown bot",
+  },
+  {
+    category: "> *_👑 ADMIN_*",
+    cmd: "`.eval`",
+    emoji: "● ⚡",
+    desc: "Execute code",
+  },
 
-    // Send with image
-    try {
-      await sock.sendMessage(from, {
-        image: {
-          url:
-            ENV?.WELCOME_IMAGE_URL ||
-            "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
-        },
-        caption: menuText,
-        contextInfo: {
-          forwardingScore: 999,
-          isForwarded: true,
-          forwardedNewsletterMessageInfo: {
-            newsletterJid: "120363422418001588@newsletter",
-            newsletterName: "AyoBot Tech Hub",
-            serverMessageId: Date.now(),
-          },
-        },
-      });
-    } catch (error) {
-      console.warn("[MENU] Image failed, sending text:", error.message);
-      await sock.sendMessage(from, { text: menuText });
-    }
-  } catch (error) {
-    console.error("[MENU ERROR]", error.message);
-    await sock.sendMessage(from, {
-      text: `🚀 *AYOBOT v1.0.0*\n👑 *AYOCODES*\nwa.me/2349159180375\n\nType ${ENV.PREFIX}help for commands`,
-    });
+  // ── WAITLIST ──────────────────────────────────────────────
+  {
+    category: "> *_📋 WAITLIST_*",
+    cmd: "`.waitlist`",
+    emoji: "● 📝",
+    desc: "Join waitlist",
+    alias: "`.jointrend`"
+  },
+  {
+    category: "> *_📋 WAITLIST_*",
+    cmd: "`.waitlistview`",
+    emoji: "● 👁️",
+    desc: "View waitlist (admin)",
+  },
+
+  // ── SECURITY ──────────────────────────────────────────────
+  {
+    category: "> *_🛡️ SECURITY_*",
+    cmd: "`.scan`",
+    emoji: "● 🔍",
+    desc: "Scan URL for threats",
+  },
+];
+
+// Add admin commands if user is admin
+if (isAdmin) {
+  // Admin commands are already included in the main list above
+  // This section can be used for any admin-specific additions
+}
+
+// Build the formatted menu text
+let menuText = `╔════════════════════════════════════════════╗\n`;
+menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
+menuText += `╚════════════════════════════════════════════╝\n\n`;
+menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
+menuText += `├ 💾 Memory: ${stats.memory}\n`;
+menuText += `├ 👤 Mode: ${stats.mode}\n`;
+menuText += `└ 📨 Messages: ${messageCount || 0}\n\n`;
+
+let currentCategory = "";
+for (const cmd of menuCommands) {
+  if (cmd.category !== currentCategory) {
+    currentCategory = cmd.category;
+    menuText += `\n${currentCategory}\n`;
   }
+  menuText += `${cmd.emoji} ${cmd.cmd}`;
+  if (cmd.alias) {
+    menuText += ` (${cmd.alias})`;
+  }
+  menuText += ` — ${cmd.desc}\n`;
+}
+
+// Add footer
+menuText += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+menuText += `⚡ _Total Commands: ${menuCommands.length}_\n`;
+menuText += `👑 _Created by AYOCODES_`;
+
+// Send with image
+try {
+  await sock.sendMessage(from, {
+    image: {
+      url:
+        ENV?.WELCOME_IMAGE_URL ||
+        "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
+    },
+    caption: menuText,
+    contextInfo: {
+      forwardingScore: 999,
+      isForwarded: true,
+      forwardedNewsletterMessageInfo: {
+        newsletterJid: "120363422418001588@newsletter",
+        newsletterName: "AyoBot Tech Hub",
+        serverMessageId: Date.now(),
+      },
+    },
+  });
+} catch (error) {
+  console.warn("[MENU] Image failed, sending text:", error.message);
+  await sock.sendMessage(from, { text: menuText });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1252,9 +1571,9 @@ export async function viewOnce({ message, from, sock }) {
   }
 }
 // ════════════════════════════════════════════════════════════════════════════
-//  WAITLIST / JOIN TREND - FIXED WITH ADMIN NOTIFICATION
+//  WAITLIST / JOIN TREND - FIXED (pushname error resolved)
 // ════════════════════════════════════════════════════════════════════════════
-export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
+export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const email = fullArgs?.trim() || "";
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1269,6 +1588,22 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
 
   const phone = userJid.split("@")[0];
   const timestamp = new Date().toLocaleString();
+
+  // FIX: Get pushname from message or use fallback
+  let pushname = "Unknown";
+  try {
+    // Try to get sender's name from the message
+    if (message?.pushName) {
+      pushname = message.pushName;
+    } else if (message?.verifiedBizName) {
+      pushname = message.verifiedBizName;
+    } else if (message?.notify) {
+      pushname = message.notify;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
   const userInfo = {
     email,
     phone,
@@ -1299,11 +1634,11 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
     const adminNumber = "2349159180375"; // Your number
     const adminJid = `${adminNumber}@s.whatsapp.net`;
 
-    // Check if bot can message admin
     const adminMessage =
       `╔══════════════════════════╗\n` +
       `║   📋 *NEW WAITLIST ENTRY* ║\n` +
       `╚══════════════════════════╝\n\n` +
+      `👤 *Name:* ${pushname}\n` +
       `📧 *Email:* ${email}\n` +
       `📱 *Phone:* +${phone}\n` +
       `🆔 *JID:* ${userJid}\n` +
@@ -1316,7 +1651,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
 
     await sock.sendMessage(adminJid, {
       text: adminMessage,
-      mentions: [userJid] // Mentions the user in admin's chat
+      mentions: [userJid]
     });
 
     console.log(`✅ Waitlist entry sent to admin: ${email} (${phone})`);
@@ -1329,11 +1664,10 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
       const adminNumber = "2349159180375";
       const adminJid = `${adminNumber}@s.whatsapp.net`;
 
-      // Send as vCard contact
       const vcard =
         `BEGIN:VCARD\n` +
         `VERSION:3.0\n` +
-        `FN:Waitlist User ${phone}\n` +
+        `FN:${pushname || phone}\n` +
         `TEL;type=CELL;type=VOICE;waid=${phone}:+${phone}\n` +
         `EMAIL:${email}\n` +
         `NOTE:Joined waitlist at ${timestamp}\n` +
@@ -1343,7 +1677,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock }) {
         document: Buffer.from(vcard, 'utf-8'),
         mimetype: 'text/vcard',
         fileName: `waitlist_${phone}.vcf`,
-        caption: `📋 *New Waitlist Entry*\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`
+        caption: `📋 *New Waitlist Entry*\n👤 ${pushname || phone}\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`
       });
 
       console.log(`✅ Waitlist vCard sent to admin`);
@@ -2407,7 +2741,7 @@ export async function getip({ fullArgs, from, sock }) {
 
 export const ip = getip;
 // ════════════════════════════════════════════════════════════════════════════
-//  MY IP - COMPLETELY FIXED
+//  MY IP - FIXED WITH EXPLANATION
 // ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock }) {
   await sock.sendMessage(from, {
@@ -2417,49 +2751,21 @@ export async function myip({ from, sock }) {
   let ipData = null;
   let errors = [];
 
-  // API 1: ipify.org (most reliable)
-  try {
-    const res = await axios.get("https://api.ipify.org?format=json", {
-      timeout: 5000,
-    });
-    ipData = res.data.ip;
-  } catch (err) {
-    errors.push(`ipify: ${err.message}`);
-  }
+  // Try multiple IP detection services
+  const ipServices = [
+    { url: "https://api.ipify.org?format=json", parser: (d) => d.ip },
+    { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
+    { url: "https://api.ip.sb/ip", parser: (d) => d.trim() },
+    { url: "https://icanhazip.com/", parser: (d) => d.trim() }
+  ];
 
-  // API 2: seeip.org
-  if (!ipData) {
+  for (const service of ipServices) {
     try {
-      const res = await axios.get("https://ip4.seeip.org/json", {
-        timeout: 5000,
-      });
-      ipData = res.data.ip;
+      const res = await axios.get(service.url, { timeout: 5000 });
+      ipData = service.parser(res.data);
+      if (ipData) break;
     } catch (err) {
-      errors.push(`seeip: ${err.message}`);
-    }
-  }
-
-  // API 3: icanhazip.com
-  if (!ipData) {
-    try {
-      const res = await axios.get("https://ipv4.icanhazip.com/", {
-        timeout: 5000,
-      });
-      ipData = res.data.trim();
-    } catch (err) {
-      errors.push(`icanhazip: ${err.message}`);
-    }
-  }
-
-  // API 4: api.ip.sb
-  if (!ipData) {
-    try {
-      const res = await axios.get("https://api.ip.sb/ip", {
-        timeout: 5000,
-      });
-      ipData = res.data.trim();
-    } catch (err) {
-      errors.push(`ip.sb: ${err.message}`);
+      errors.push(err.message);
     }
   }
 
@@ -2472,49 +2778,54 @@ export async function myip({ from, sock }) {
     });
   }
 
-  // Get additional info about this IP
+  // Get location info for the IP
+  let locationInfo = null;
   try {
     const infoRes = await axios.get(`http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`, {
       timeout: 5000,
     });
 
     if (infoRes.data.status === "success") {
-      const info = infoRes.data;
-      const mapUrl = info.lat && info.lon
-        ? `https://www.google.com/maps?q=${info.lat},${info.lon}`
-        : null;
-
-      await sock.sendMessage(from, {
-        text:
-          `╔══════════════════════════╗\n` +
-          `║     🌐 *YOUR PUBLIC IP*  ║\n` +
-          `╚══════════════════════════╝\n\n` +
-          `📍 *IP:* ${ipData}\n` +
-          `🌍 *Country:* ${info.country} (${info.countryCode})\n` +
-          `🏙️ *City:* ${info.city || 'Unknown'}\n` +
-          `🗺️ *Region:* ${info.regionName || 'Unknown'}\n` +
-          `📡 *ISP:* ${info.isp || 'Unknown'}\n` +
-          `🏢 *Organization:* ${info.org || 'N/A'}\n` +
-          `🔗 *ASN:* ${info.as || 'N/A'}\n` +
-          `⏰ *Timezone:* ${info.timezone || 'N/A'}\n` +
-          `🧭 *Coordinates:* ${info.lat ? `${info.lat.toFixed(4)}, ${info.lon.toFixed(4)}` : 'N/A'}\n` +
-          (mapUrl ? `━━━━━━━━━━━━━━━━━━━━━\n🗺️ ${mapUrl}\n` : '') +
-          `━━━━━━━━━━━━━━━━━━━━━\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
-      });
-      return;
+      locationInfo = infoRes.data;
     }
   } catch (_) {}
 
-  // Fallback - just show IP
-  await sock.sendMessage(from, {
-    text: formatSuccess(
-      "🌐 YOUR PUBLIC IP",
-      `📍 *IP Address:* ${ipData}\n\n` +
-      `💡 Use *${ENV.PREFIX}ip ${ipData}* for more details.`
-    ),
-  });
+  // Build response message
+  let response =
+    `╔══════════════════════════╗\n` +
+    `║     🌐 *YOUR PUBLIC IP*   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `📍 *IP Address:* ${ipData}\n`;
+
+  if (locationInfo) {
+    response +=
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🌍 *Location Info:*\n` +
+      `• Country: ${locationInfo.country} (${locationInfo.countryCode})\n` +
+      `• City: ${locationInfo.city || 'Unknown'}\n` +
+      `• Region: ${locationInfo.regionName || 'Unknown'}\n` +
+      `• ISP: ${locationInfo.isp || 'Unknown'}\n` +
+      `• Organization: ${locationInfo.org || 'N/A'}\n` +
+      `• ASN: ${locationInfo.as || 'N/A'}\n` +
+      `• Timezone: ${locationInfo.timezone || 'N/A'}\n`;
+
+    if (locationInfo.lat && locationInfo.lon) {
+      response +=
+        `• Coordinates: ${locationInfo.lat.toFixed(4)}, ${locationInfo.lon.toFixed(4)}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🗺️ https://www.google.com/maps?q=${locationInfo.lat},${locationInfo.lon}\n`;
+    }
+  }
+
+  response +=
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `⚠️ *Note:* This shows your SERVER's location, not your actual location.\n` +
+    `📱 Your bot runs on a cloud server, so the IP is from the server's datacenter.\n\n` +
+    `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+
+  await sock.sendMessage(from, { text: response });
 }
+
 // ════════════════════════════════════════════════════════════════════════════
 //  WHOIS - COMPLETELY FIXED WITH 4 APIs
 // ════════════════════════════════════════════════════════════════════════════
@@ -3597,56 +3908,336 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
     text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`
   });
 }
-
 // ════════════════════════════════════════════════════════════════════════════
-//  ANTILINK TOGGLE - NEW (FIXES ISSUE FROM SCREENSHOT)
+//  ANTILINK - ULTIMATE VERSION (Detects, Deletes & Warns)
+//  NO EXTRA FILES NEEDED - Everything in one function
 // ════════════════════════════════════════════════════════════════════════════
-export async function antilink({ args, from, sock, isAdmin, isGroup }) {
-  if (!isGroup) {
+export async function antilink({ args, message, from, sock, isAdmin, isGroup, userJid }) {
+  // ==========================================================================
+  //  PART 1: COMMAND TOGGLE (.antilink on/off)
+  // ==========================================================================
+  if (args && args.length > 0) {
+    if (!isGroup) {
+      return sock.sendMessage(from, {
+        text: "❌ This command only works in groups."
+      });
+    }
+
+    if (!isAdmin) {
+      return sock.sendMessage(from, {
+        text: "⛔ Only group admins can use this command."
+      });
+    }
+
+    const sub = args[0]?.toLowerCase();
+    let currentSetting = groupSettings.get(from) || {};
+
+    if (!sub || !["on", "off", "status"].includes(sub)) {
+      const status = currentSetting.antilink ? "ON ✅" : "OFF ❌";
+      return sock.sendMessage(from, {
+        text:
+          `╔══════════════════════════╗\n` +
+          `║     🔗 *ANTI-LINK*       ║\n` +
+          `╚══════════════════════════╝\n\n` +
+          `Current Status: *${status}*\n\n` +
+          `📌 *Commands:*\n` +
+          `${ENV.PREFIX}antilink on  — Enable protection\n` +
+          `${ENV.PREFIX}antilink off — Disable protection\n` +
+          `${ENV.PREFIX}antilink status — Check status\n\n` +
+          `⚠️ When enabled, ALL links will be:\n` +
+          `• Automatically deleted\n` +
+          `• User warned\n` +
+          `• Auto-kick after 3 warnings\n\n` +
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      });
+    }
+
+    if (sub === "on") {
+      currentSetting.antilink = true;
+      groupSettings.set(from, currentSetting);
+      return sock.sendMessage(from, {
+        text:
+          `✅ *Anti-Link ENABLED*\n\n` +
+          `🔗 All links will now be:\n` +
+          `• 🗑️ Deleted immediately\n` +
+          `• ⚠️ Users warned\n` +
+          `• 👢 Auto-kick after 3 warnings\n\n` +
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      });
+    }
+
+    if (sub === "off") {
+      currentSetting.antilink = false;
+      groupSettings.set(from, currentSetting);
+      return sock.sendMessage(from, {
+        text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      });
+    }
+
+    const status = currentSetting.antilink ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
-      text: "❌ This command only works in groups."
+      text: `🔗 *Anti-Link Status:* ${status}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
     });
   }
 
-  if (!isAdmin) {
-    return sock.sendMessage(from, {
-      text: "⛔ Only group admins can use this command."
-    });
+  // ==========================================================================
+  //  PART 2: LINK DETECTION & ACTION (Runs automatically for ALL messages)
+  // ==========================================================================
+
+  // Only process in groups when antilink is enabled
+  if (!isGroup) return;
+
+  const settings = groupSettings.get(from) || {};
+  if (!settings.antilink) return;
+
+  // Extract message text from all possible sources
+  const msgObj = message?.message || {};
+  const text =
+    msgObj.conversation ||
+    msgObj.extendedTextMessage?.text ||
+    msgObj.imageMessage?.caption ||
+    msgObj.videoMessage?.caption ||
+    msgObj.documentMessage?.caption ||
+    '';
+
+  if (!text) return;
+
+  // ==========================================================================
+  //  COMPREHENSIVE LINK DETECTION PATTERNS
+  //  Catches EVERY possible link format
+  // ==========================================================================
+  const LINK_PATTERNS = [
+    // Standard URLs
+    /https?:\/\/[^\s<>"']+/gi,
+    /www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(:[0-9]+)?(\/[^\s<>"']*)?/gi,
+
+    // URL shorteners
+    /bit\.ly\/[a-zA-Z0-9_-]+/gi,
+    /tinyurl\.com\/[a-zA-Z0-9_-]+/gi,
+    /ow\.ly\/[a-zA-Z0-9_-]+/gi,
+    /is\.gd\/[a-zA-Z0-9_-]+/gi,
+    /buff\.ly\/[a-zA-Z0-9_-]+/gi,
+    /adf\.ly\/[a-zA-Z0-9_-]+/gi,
+    /shorte\.st\/[a-zA-Z0-9_-]+/gi,
+    /goo\.gl\/[a-zA-Z0-9_-]+/gi,
+    /tiny\.cc\/[a-zA-Z0-9_-]+/gi,
+    /cli\.gs\/[a-zA-Z0-9_-]+/gi,
+    /ur1\.ca\/[a-zA-Z0-9_-]+/gi,
+    /cur\.lv\/[a-zA-Z0-9_-]+/gi,
+    /qr\.ae\/[a-zA-Z0-9_-]+/gi,
+    /v\.gd\/[a-zA-Z0-9_-]+/gi,
+    /t\.co\/[a-zA-Z0-9_-]+/gi,
+    /lnkd\.in\/[a-zA-Z0-9_-]+/gi,
+    /db\.tt\/[a-zA-Z0-9_-]+/gi,
+    /cutt\.ly\/[a-zA-Z0-9_-]+/gi,
+    /rebrand\.ly\/[a-zA-Z0-9_-]+/gi,
+    /short\.link\/[a-zA-Z0-9_-]+/gi,
+    /s\.id\/[a-zA-Z0-9_-]+/gi,
+    /rb\.gy\/[a-zA-Z0-9_-]+/gi,
+    /shorturl\.at\/[a-zA-Z0-9_-]+/gi,
+    /aka\.ms\/[a-zA-Z0-9_-]+/gi,
+
+    // Social media
+    /youtu\.be\/[a-zA-Z0-9_-]+/gi,
+    /youtube\.com\/watch\?v=[a-zA-Z0-9_-]+/gi,
+    /youtube\.com\/shorts\/[a-zA-Z0-9_-]+/gi,
+    /instagram\.com\/p\/[a-zA-Z0-9_-]+\/?/gi,
+    /instagram\.com\/reel\/[a-zA-Z0-9_-]+\/?/gi,
+    /twitter\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
+    /x\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
+    /tiktok\.com\/@[a-zA-Z0-9_.-]+\/video\/[0-9]+/gi,
+    /facebook\.com\/[a-zA-Z0-9_.-]+\/posts\/[0-9]+/gi,
+    /fb\.watch\/[a-zA-Z0-9_-]+/gi,
+
+    // Messaging apps
+    /wa\.me\/[0-9]+/gi,
+    /chat\.whatsapp\.com\/[a-zA-Z0-9_]+/gi,
+    /t\.me\/[a-zA-Z0-9_]+/gi,
+    /telegram\.me\/[a-zA-Z0-9_]+/gi,
+    /discord\.gg\/[a-zA-Z0-9_]+/gi,
+
+    // IP addresses as links
+    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b(:\d+)?(\/[^\s<>"']*)?/gi,
+
+    // Domains without protocol (catch-all)
+    /\b[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+\b(\/[^\s<>"']*)?/gi,
+
+    // File sharing
+    /drive\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
+    /docs\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
+    /1drv\.ms\/[a-zA-Z0-9_]+/gi,
+    /dropbox\.com\/s\/[a-zA-Z0-9_-]+/gi,
+    /mega\.nz\/[#!][a-zA-Z0-9_-]+/gi,
+    /mediafire\.com\/file\/[a-zA-Z0-9_-]+/gi,
+
+    // Music/Streaming
+    /spotify\.com\/track\/[a-zA-Z0-9]+/gi,
+    /deezer\.page\.link\/[a-zA-Z0-9]+/gi,
+    /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi
+  ];
+
+  // Allowed domains (never delete)
+  const ALLOWED_DOMAINS = [
+    'youtube.com', 'youtu.be', 'instagram.com', 'twitter.com', 'x.com',
+    'facebook.com', 'tiktok.com', 'spotify.com', 'deezer.com', 'soundcloud.com',
+    'github.com', 'stackoverflow.com', 'wikipedia.org', 'wa.me'
+  ];
+
+  // Function to check if text contains any link
+  const containsLink = (txt) => {
+    for (const pattern of LINK_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(txt)) return true;
+    }
+    return false;
+  };
+
+  // Function to check if domain is allowed
+  const isAllowedDomain = (url) => {
+    try {
+      let domain = url.toLowerCase();
+      domain = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+      for (const allowed of ALLOWED_DOMAINS) {
+        if (domain === allowed || domain.endsWith('.' + allowed)) return true;
+      }
+    } catch (e) {}
+    return false;
+  };
+
+  // Function to check if user is admin
+  const isUserAdmin = async (jid) => {
+    try {
+      const groupMetadata = await sock.groupMetadata(from);
+      return groupMetadata.participants.some(
+        p => p.id === jid && (p.admin === 'admin' || p.admin === 'superadmin')
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  // ==========================================================================
+  //  Check for links
+  // ==========================================================================
+  if (!containsLink(text)) return;
+
+  const senderJid = message.key?.participant || from;
+  const senderNumber = senderJid.split('@')[0];
+
+  // Skip if sender is admin
+  if (await isUserAdmin(senderJid)) {
+    console.log(`👑 Admin ${senderNumber} posted link - allowed`);
+    return;
   }
 
-  const sub = args[0]?.toLowerCase();
-
-  // Get current setting
-  let currentSetting = groupSettings.get(from) || {};
-
-  if (!sub || !["on", "off", "status"].includes(sub)) {
-    const status = currentSetting.antilink ? "ON" : "OFF";
-    return sock.sendMessage(from, {
-      text: `🔗 *ANTI-LINK SETTINGS*\n\nCurrent Status: *${status}*\n\n${ENV.PREFIX}antilink on — Enable anti-link\n${ENV.PREFIX}antilink off — Disable anti-link\n${ENV.PREFIX}antilink status — Check status`
-    });
+  // Skip if domain is allowed
+  if (isAllowedDomain(text)) {
+    console.log(`✅ Allowed domain from ${senderNumber}`);
+    return;
   }
 
-  if (sub === "on") {
-    currentSetting.antilink = true;
-    groupSettings.set(from, currentSetting);
-    return sock.sendMessage(from, {
-      text: `✅ *Anti-Link ENABLED*\n\nLinks will now be automatically deleted.`
-    });
+  // ==========================================================================
+  //  LINK DETECTED - TAKE ACTION
+  // ==========================================================================
+  console.log(`🚫 Link detected from ${senderNumber}`);
+
+  // Delete the message
+  let deleted = false;
+  try {
+    await sock.sendMessage(from, { delete: message.key });
+    deleted = true;
+    console.log(`✅ Message deleted`);
+  } catch (deleteError) {
+    console.log(`⚠️ Could not delete: ${deleteError.message}`);
   }
 
-  if (sub === "off") {
-    currentSetting.antilink = false;
-    groupSettings.set(from, currentSetting);
-    return sock.sendMessage(from, {
-      text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed.`
-    });
+  // Track warnings (using groupWarnings from index.js)
+  const warnKey = `${from}:${senderJid}`;
+  const MAX_WARNINGS = 3;
+
+  // Get current warnings
+  let userWarnings = 0;
+  if (global.groupWarnings) {
+    userWarnings = global.groupWarnings.get(warnKey) || 0;
+  } else if (global.groupWarningsMap) {
+    userWarnings = global.groupWarningsMap.get(warnKey) || 0;
+  } else {
+    // Fallback to a local Map if not available
+    if (!global._antilinkWarnings) global._antilinkWarnings = new Map();
+    userWarnings = global._antilinkWarnings.get(warnKey) || 0;
   }
 
-  const status = currentSetting.antilink ? "ENABLED" : "DISABLED";
-  await sock.sendMessage(from, {
-    text: `🔗 *Anti-Link Status:* ${status}`
-  });
+  const newWarnings = userWarnings + 1;
+
+  // Save warnings
+  if (global.groupWarnings) {
+    global.groupWarnings.set(warnKey, newWarnings);
+  } else if (global.groupWarningsMap) {
+    global.groupWarningsMap.set(warnKey, newWarnings);
+  } else {
+    global._antilinkWarnings.set(warnKey, newWarnings);
+  }
+
+  const warningsLeft = MAX_WARNINGS - newWarnings;
+
+  // ==========================================================================
+  //  Send warning message
+  // ==========================================================================
+  if (newWarnings >= MAX_WARNINGS) {
+    // Auto-kick after max warnings
+    try {
+      await sock.groupParticipantsUpdate(from, [senderJid], 'remove');
+      await sock.sendMessage(from, {
+        text:
+          `╔══════════════════════════╗\n` +
+          `║   🚫 *USER REMOVED*      ║\n` +
+          `╚══════════════════════════╝\n\n` +
+          `@${senderNumber} has been removed for posting links after ${MAX_WARNINGS} warnings.\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━\n` +
+          `⚠️ Links are strictly prohibited in this group.\n` +
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        mentions: [senderJid]
+      });
+      console.log(`👢 User ${senderNumber} kicked after ${MAX_WARNINGS} warnings`);
+
+      // Reset warnings
+      if (global.groupWarnings) {
+        global.groupWarnings.delete(warnKey);
+      } else if (global.groupWarningsMap) {
+        global.groupWarningsMap.delete(warnKey);
+      } else {
+        global._antilinkWarnings.delete(warnKey);
+      }
+
+    } catch (kickError) {
+      await sock.sendMessage(from, {
+        text:
+          `⚠️ *WARNING ${newWarnings}/${MAX_WARNINGS}*\n\n` +
+          `@${senderNumber} No links allowed!\n` +
+          `❌ Failed to kick (bot not admin)\n\n` +
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        mentions: [senderJid]
+      });
+    }
+  } else {
+    // Send warning
+    await sock.sendMessage(from, {
+      text:
+        `╔══════════════════════════╗\n` +
+        `║   🚫 *NO LINKS ALLOWED*  ║\n` +
+        `╚══════════════════════════╝\n\n` +
+        `👤 *User:* @${senderNumber}\n` +
+        `⚠️ *Warning:* ${newWarnings}/${MAX_WARNINGS}\n` +
+        `💢 *Action:* Message deleted ${deleted ? '✅' : '❌'}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `⚠️ ${warningsLeft} more warning(s) and you'll be removed.\n\n` +
+        `⚡ *AYOBOT Security* | 👑 AYOCODES`,
+      mentions: [senderJid]
+    });
+    console.log(`⚠️ Warning ${newWarnings}/${MAX_WARNINGS} sent to ${senderNumber}`);
+  }
 }
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DEFAULT EXPORT - ALL COMMANDS (UPDATED WITH NEW COMMANDS)

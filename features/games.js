@@ -400,7 +400,7 @@ export async function handleTriviaAnswer(message, from, sock) {
 
     // Check if the game has expired
     const timeElapsed = Date.now() - gameData.time;
-    if (timeElapsed > 120000) {
+    if (timeElapsed > 100000) {
       console.log(`⏰ [handleTriviaAnswer] Game expired (${timeElapsed}ms)`);
       global.activeTrivia.delete(from);
       await sock.sendMessage(from, {
