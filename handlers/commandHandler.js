@@ -1,8 +1,27 @@
-// handlers/commandHandler.js - AYOBOT v1.5.0 MULTI-SESSION EDITION
+// handlers/commandHandler.js - AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Command Handler - COMPATIBLE with MongoDB multi-session
+//  COMPLETE FIX - ALL ISSUES RESOLVED
 //  Author  : AYOCODES
-//  Version : 1.5.0
+//  Version : 1.0.0 (Final)
+//
+//  FIXES INCLUDED:
+//  1. Trivia A/B/C/D answers intercepted before prefix check ✓
+//  2. Private mode completely silent (no reply) ✓
+//  3. Group activation system (.activate/.deactivate) ✓
+//  4. No cross-session admin privilege escalation ✓
+//  5. Private mode silent ignore (no message) ✓
+//  6. Trivia handler properly called with fixed timeout ✓
+// ════════════════════════════════════════════════════════════════════════════
+// handlers/commandHandler.js - AYOBOT v1.0.0
+// ════════════════════════════════════════════════════════════════════════════
+//  COMPLETE FIXED VERSION - ALL COMMANDS REGISTERED CORRECTLY
+//  Author  : AYOCODES
+//  Version : 1.0.0 (Final)
+//
+//  KEY FIXES:
+//  • Moved antilink from groupSettings to basic.js (where it belongs)
+//  • Moved activate/deactivate from built-in to basic.js
+//  • All group commands now properly registered
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -11,1346 +30,1178 @@ import {
   ENV,
   isAdmin,
   isAuthorized,
+  activateGroup,
+  deactivateGroup,
+  isGroupActivated,
 } from "../index.js";
 
 import {
   formatError,
   formatGroupError,
   formatInfo,
+  formatSuccess,
 } from "../utils/formatters.js";
 import { isBotGroupAdminCached } from "../utils/validators.js";
 
-// ════════════════════════════════════════════════════════════════════════════
-//  LOGGING UTILITIES
-// ════════════════════════════════════════════════════════════════════════════
-
-const Colors = {
+// ============================================================================
+//  COLOR LOGGER
+// ============================================================================
+const C = {
   reset: "\x1b[0m",
   bright: "\x1b[1m",
-  fg: {
-    black: "\x1b[30m",
-    red: "\x1b[31m",
-    green: "\x1b[32m",
-    yellow: "\x1b[33m",
-    blue: "\x1b[34m",
-    magenta: "\x1b[35m",
-    cyan: "\x1b[36m",
-    white: "\x1b[37m",
-  },
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  gray: "\x1b[90m",
 };
 
 const log = {
-  ok: (msg) => console.log(`${Colors.fg.green}✅${Colors.reset} ${msg}`),
-  err: (msg) => console.log(`${Colors.fg.red}❌${Colors.reset} ${msg}`),
-  warn: (msg) => console.log(`${Colors.fg.yellow}⚠️${Colors.reset} ${msg}`),
-  info: (msg) => console.log(`${Colors.fg.cyan}ℹ️${Colors.reset} ${msg}`),
-  cmd: (msg) => console.log(`${Colors.fg.magenta}⚡${Colors.reset} ${msg}`),
-  success: (msg) => console.log(`${Colors.fg.green}✓${Colors.reset} ${msg}`),
-  title: (msg) =>
-    console.log(`\n${Colors.fg.blue}${Colors.bright}${msg}${Colors.reset}\n`),
-  divider: () =>
-    console.log(`${Colors.fg.cyan}${"─".repeat(60)}${Colors.reset}`),
+  ok: (m) => console.log(`${C.green}✅${C.reset} ${m}`),
+  err: (m) => console.log(`${C.red}❌${C.reset} ${m}`),
+  warn: (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
+  info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
+  cmd: (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
+  debug: (m) => console.log(`${C.gray}🔍${C.reset} ${m}`),
+  success: (m) => console.log(`${C.green}✓${C.reset}  ${m}`),
+  title: (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
+  div: () => console.log(`${C.cyan}${"─".repeat(60)}${C.reset}`),
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-//  RATE LIMITING SYSTEM
-// ════════════════════════════════════════════════════════════════════════════
-
+// ============================================================================
+//  RATE LIMITER
+// ============================================================================
 class RateLimiter {
   constructor(maxRequests = 15, windowMs = 60000) {
-    this.maxRequests = maxRequests;
-    this.windowMs = windowMs;
-    this.requests = new Map();
+    this.max = maxRequests;
+    this.window = windowMs;
+    this.map = new Map();
   }
 
-  isAllowed(userId) {
+  isAllowed(id) {
     const now = Date.now();
-    if (!this.requests.has(userId)) {
-      this.requests.set(userId, []);
-    }
-
-    const userRequests = this.requests.get(userId);
-    const recentRequests = userRequests.filter(
-      (time) => now - time < this.windowMs,
-    );
-    this.requests.set(userId, recentRequests);
-
-    if (recentRequests.length >= this.maxRequests) {
-      return false;
-    }
-
-    recentRequests.push(now);
+    const hits = (this.map.get(id) || []).filter((t) => now - t < this.window);
+    this.map.set(id, hits);
+    if (hits.length >= this.max) return false;
+    hits.push(now);
     return true;
   }
 
-  getRemainingTime(userId) {
+  remaining(id) {
+    const hits = this.map.get(id) || [];
+    if (!hits.length) return 0;
+    return Math.max(0, this.window - (Date.now() - Math.min(...hits)));
+  }
+
+  cleanup() {
     const now = Date.now();
-    const userRequests = this.requests.get(userId) || [];
-    if (userRequests.length === 0) return 0;
-    const oldestRequest = Math.min(...userRequests);
-    return Math.max(0, this.windowMs - (now - oldestRequest));
+    for (const [key, times] of this.map.entries()) {
+      const filtered = times.filter(t => now - t < this.window);
+      if (filtered.length === 0) {
+        this.map.delete(key);
+      } else {
+        this.map.set(key, filtered);
+      }
+    }
   }
 }
 
 const rateLimiter = new RateLimiter();
 
-// ════════════════════════════════════════════════════════════════════════════
-//  MODULE LOADING SYSTEM
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  TRIVIA STATE
+// ============================================================================
+global.activeTrivia = global.activeTrivia || new Map();
 
-log.title("📦 AYOBOT v1.5.0 - LOADING MODULES");
+// ============================================================================
+//  MODULE LOADER
+// ============================================================================
+log.title("📦 LOADING COMMAND MODULES");
 
-const modules = {
-  admin: { loaded: false, path: "../commands/group/admin.js", exports: {} },
-  basic: { loaded: false, path: "../commands/group/basic.js", exports: {} },
-  ai: { loaded: false, path: "../features/ai.js", exports: {} },
-  calculator: { loaded: false, path: "../features/calculator.js", exports: {} },
-  crypto: { loaded: false, path: "../features/crypto.js", exports: {} },
-  dictionary: { loaded: false, path: "../features/dictionary.js", exports: {} },
-  downloader: { loaded: false, path: "../features/downloader.js", exports: {} },
-  encryption: { loaded: false, path: "../features/encryption.js", exports: {} },
-  games: { loaded: false, path: "../features/games.js", exports: {} },
-  imageTools: { loaded: false, path: "../features/imageTools.js", exports: {} },
-  jokes: { loaded: false, path: "../features/jokes.js", exports: {} },
-  movies: { loaded: false, path: "../features/movies.js", exports: {} },
-  music: { loaded: false, path: "../features/music.js", exports: {} },
-  news: { loaded: false, path: "../features/news.js", exports: {} },
-  notes: { loaded: false, path: "../features/notes.js", exports: {} },
-  quotes: { loaded: false, path: "../features/quotes.js", exports: {} },
-  reminder: { loaded: false, path: "../features/reminder.js", exports: {} },
-  security: { loaded: false, path: "../features/security.js", exports: {} },
-  stocks: { loaded: false, path: "../features/stocks.js", exports: {} },
-  translation: {
-    loaded: false,
-    path: "../features/translation.js",
-    exports: {},
-  },
-  tts: { loaded: false, path: "../features/tts.js", exports: {} },
-  unitConverter: {
-    loaded: false,
-    path: "../features/unitConverter.js",
-    exports: {},
-  },
-  groupCore: { loaded: false, path: "../commands/group/core.js", exports: {} },
-  groupModeration: {
-    loaded: false,
-    path: "../commands/group/moderation.js",
-    exports: {},
-  },
-  groupSettings: {
-    loaded: false,
-    path: "../commands/group/settings.js",
-    exports: {},
-  },
+const MODULE_PATHS = {
+  // Core modules
+  basic: "../commands/group/basic.js",
+  admin: "../commands/group/admin.js",
+  groupCore: "../commands/group/core.js",
+  groupMod: "../commands/group/moderation.js",
+  groupSettings: "../commands/group/settings.js",
+  automation: "../commands/group/automation.js",
+
+  // Feature modules
+  ai: "../features/ai.js",
+  calculator: "../features/calculator.js",
+  crypto: "../features/crypto.js",
+  dictionary: "../features/dictionary.js",
+  downloader: "../features/downloader.js",
+  encryption: "../features/encryption.js",
+  games: "../features/games.js",
+  imageTools: "../features/imageTools.js",
+  jokes: "../features/jokes.js",
+  movies: "../features/movies.js",
+  music: "../features/music.js",
+  news: "../features/news.js",
+  notes: "../features/notes.js",
+  quotes: "../features/quotes.js",
+  reminder: "../features/reminder.js",
+  security: "../features/security.js",
+  stocks: "../features/stocks.js",
+  translation: "../features/translation.js",
+  tts: "../features/tts.js",
+  unitConverter: "../features/unitConverter.js",
 };
 
-async function loadModule(key) {
-  const mod = modules[key];
+const MODULES = {};
+
+async function safeImport(moduleName, modulePath) {
   try {
-    const imported = await import(mod.path);
-    mod.exports = imported;
-    mod.loaded = true;
-    log.ok(`${key} module loaded`);
-    return true;
+    const mod = await import(modulePath);
+    const exportCount = Object.keys(mod).filter(k => typeof mod[k] === 'function').length;
+    log.ok(`${moduleName.padEnd(15)} ➜ ${exportCount} functions`);
+    return mod;
   } catch (error) {
-    log.warn(`${key} module failed: ${error.message.substring(0, 60)}`);
-    mod.loaded = false;
-    return false;
+    log.warn(`${moduleName.padEnd(15)} ➜ Failed: ${error.message.slice(0, 50)}`);
+    return {};
   }
 }
 
 async function loadAllModules() {
-  log.divider();
-  const moduleKeys = Object.keys(modules);
-  const results = await Promise.allSettled(
-    moduleKeys.map((key) => loadModule(key)),
-  );
-  const loaded = results.filter(
-    (r) => r.status === "fulfilled" && r.value,
-  ).length;
-  log.divider();
-  log.success(`Loaded ${loaded}/${moduleKeys.length} modules`);
+  log.div();
+  let loaded = 0;
+
+  for (const [name, path] of Object.entries(MODULE_PATHS)) {
+    MODULES[name] = await safeImport(name, path);
+    if (Object.keys(MODULES[name]).length > 0) loaded++;
+  }
+
+  log.div();
+  log.success(`Loaded ${loaded}/${Object.keys(MODULE_PATHS).length} modules`);
   console.log();
+
+  return MODULES;
 }
 
 await loadAllModules();
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  COMMAND REGISTRY
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+export const commands = new Map();
+export const primaryCommands = new Map();
+export const aliasMap = new Map();
+export const commandStats = new Map();
 
-const commands = new Map();
-const commandStats = new Map();
-const commandMetadata = new Map();
+class CommandMeta {
+  constructor(primaryName, handler, options = {}) {
+    this.primaryName = primaryName.toLowerCase();
+    this.handler = handler;
+    this.category = options.category || "general";
+    this.description = options.description || "";
+    this.adminOnly = options.adminOnly === true;
+    this.groupOnly = options.groupOnly === true;
+    this.requireBotAdmin = options.requireBotAdmin === true;
+    this.aliases = (options.aliases || []).map(a => a.toLowerCase());
+    this.createdAt = Date.now();
+  }
+}
 
-function reg(name, handler, options = {}) {
-  if (typeof handler !== "function") {
-    log.warn(`Cannot register ${name}: not a function`);
+export function registerCommand(primaryName, handler, options = {}) {
+  if (typeof handler !== 'function') {
+    log.err(`Cannot register "${primaryName}": handler is not a function`);
     return false;
   }
 
-  const cmdName = name.toLowerCase();
-  const metadata = {
-    name: cmdName,
-    handler,
-    category: options.category || "general",
-    description: options.description || "No description",
-    usage: options.usage || "",
-    adminOnly: options.adminOnly === true,
-    groupOnly: options.groupOnly === true,
-    requireBotAdmin: options.requireBotAdmin === true,
-    cooldown: options.cooldown || 0,
-    enabled: options.enabled !== false,
-    aliases: options.aliases || [],
-    createdAt: new Date(),
-  };
+  const name = primaryName.toLowerCase();
+  const aliases = (options.aliases || []).map(a => a.toLowerCase());
 
-  commands.set(cmdName, { handler, ...metadata });
-  commandMetadata.set(cmdName, metadata);
-  commandStats.set(cmdName, { uses: 0, errors: 0, avgTime: 0 });
+  const primaryMeta = new CommandMeta(name, handler, options);
 
-  log.cmd(`Registered: ${name}`);
+  primaryCommands.set(name, primaryMeta);
+  commands.set(name, primaryMeta);
+
+  commandStats.set(name, {
+    uses: 0,
+    errors: 0,
+    lastUsed: null,
+    avgResponseTime: 0,
+    totalResponseTime: 0
+  });
+
+  log.cmd(`Registered: ${name}${aliases.length ? ` [${aliases.join(', ')}]` : ''}`);
+
+  for (const alias of aliases) {
+    if (alias === name) continue;
+
+    const aliasMeta = {
+      ...primaryMeta,
+      isAlias: true,
+      aliasName: alias,
+      primaryName: name,
+      handler: handler
+    };
+
+    commands.set(alias, aliasMeta);
+    aliasMap.set(alias, name);
+    log.debug(`  Alias: ${alias} → ${name}`);
+  }
+
   return true;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  COMMAND REGISTRATION - COMPLETE
-// ════════════════════════════════════════════════════════════════════════════
+export function safeRegister(primaryName, handler, options = {}) {
+  try {
+    return registerCommand(primaryName, handler, options);
+  } catch (error) {
+    log.err(`safeRegister("${primaryName}") threw: ${error.message}`);
+    return false;
+  }
+}
 
-log.title("📝 REGISTERING COMMANDS");
-
+// ============================================================================
+//  COMPLETE COMMAND REGISTRATION - FIXED
+// ============================================================================
 export function registerAllCommands() {
-  log.divider();
-  let totalCount = 0;
+  log.title("📝 REGISTERING ALL COMMANDS");
+  log.div();
 
-  // ── BASIC COMMANDS ─────────────────────────────────────────────────────
-  if (modules.basic.loaded) {
-    const b = modules.basic.exports;
-    if (typeof b.menu === "function") {
-      reg("menu", b.menu, {
-        category: "core",
-        description: "Show all commands",
-        aliases: ["help", "commands", "h"],
-      });
-      totalCount += 4;
-    }
-    if (typeof b.ping === "function") {
-      reg("ping", b.ping, {
-        category: "core",
-        description: "Check latency",
-        aliases: ["pong", "latency"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.status === "function") {
-      reg("status", b.status, {
-        category: "core",
-        description: "Your status",
-        aliases: ["me", "profile"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.creator === "function") {
-      reg("creator", b.creator, {
-        category: "core",
-        description: "Creator info",
-        aliases: ["dev", "owner"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.creatorGit === "function") {
-      reg("github", b.creatorGit, {
-        category: "core",
-        description: "GitHub",
-        aliases: ["git"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.auto === "function") {
-      reg("auto", b.auto, {
-        category: "core",
-        description: "Auto-reply",
-        aliases: ["autoreply"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.weather === "function") {
-      reg("weather", b.weather, {
-        category: "info",
-        description: "Weather",
-        aliases: ["w", "forecast"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.connectInfo === "function") {
-      reg("connect", b.connectInfo, {
-        category: "core",
-        description: "Community links",
-        aliases: ["community"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.time === "function") {
-      reg("time", b.time, {
-        category: "info",
-        description: "World time",
-        aliases: ["worldtime"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.prefixinfo === "function") {
-      reg("prefix", b.prefixinfo, {
-        category: "core",
-        description: "Prefix info",
-        aliases: ["preinfo"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.getip === "function") {
-      reg("ip", b.getip, {
-        category: "web",
-        description: "IP lookup",
-        aliases: ["getip", "iplookup"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.myip === "function") {
-      reg("myip", b.myip, { category: "web", description: "Your IP" });
-      totalCount++;
-    }
-    if (typeof b.whois === "function") {
-      reg("whois", b.whois, {
-        category: "web",
-        description: "WHOIS lookup",
-        aliases: ["domain"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.dns === "function") {
-      reg("dns", b.dns, {
-        category: "web",
-        description: "DNS lookup",
-        aliases: ["dnslookup"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.jarvis === "function") {
-      reg("jarvis", b.jarvis, {
-        category: "ai",
-        description: "Jarvis AI",
-        aliases: ["j", "ask"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.jarvisVoice === "function") {
-      reg("jarvisv", b.jarvisVoice, {
-        category: "ai",
-        description: "Jarvis voice",
-        aliases: ["jv", "speak"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.test === "function") {
-      reg("test", b.test, { category: "debug", description: "Test command" });
-      totalCount++;
-    }
-    if (typeof b.shorten === "function") {
-      reg("shorten", b.shorten, {
-        category: "web",
-        description: "Shorten URL",
-        aliases: ["short", "tiny"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.viewOnce === "function") {
-      reg("vv", b.viewOnce, {
-        category: "media",
-        description: "View once",
-        aliases: ["viewonce", "open"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.joinWaitlist === "function") {
-      reg("waitlist", b.joinWaitlist, {
-        category: "misc",
-        description: "Join waitlist",
-        aliases: ["jointrend"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.scrape === "function") {
-      reg("scrape", b.scrape, {
-        category: "web",
-        description: "Web scrape",
-        aliases: ["scraper"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.url === "function") {
-      reg("url", b.url, { category: "web", description: "URL info" });
-      totalCount++;
-    }
-    if (typeof b.fetch === "function") {
-      reg("fetch", b.fetch, { category: "web", description: "Fetch URL" });
-      totalCount++;
-    }
-    if (typeof b.qencode === "function") {
-      reg("qr", b.qencode, {
-        category: "tools",
-        description: "QR code",
-        aliases: ["qrcode", "qencode"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.take === "function") {
-      reg("take", b.take, {
-        category: "media",
-        description: "Take sticker",
-        aliases: ["takesticker"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.screenshot === "function") {
-      reg("screenshot", b.screenshot, {
-        category: "web",
-        description: "Screenshot",
-        aliases: ["ss", "capture"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.inspect === "function") {
-      reg("inspect", b.inspect, {
-        category: "web",
-        description: "Inspect page",
-      });
-      totalCount++;
-    }
-    if (typeof b.imgbb === "function") {
-      reg("imgbb", b.imgbb, {
-        category: "media",
-        description: "Upload image",
-        aliases: ["upload"],
-      });
-      totalCount += 2;
-    }
-    if (typeof b.pdf === "function") {
-      reg("pdf", b.pdf, { category: "tools", description: "Make PDF" });
-      totalCount++;
-    }
-    if (typeof b.getpp === "function") {
-      reg("getpp", b.getpp, {
-        category: "profile",
-        description: "Profile pic",
-        aliases: ["pp", "profilepic"],
-      });
-      totalCount += 3;
-    }
-    if (typeof b.getgpp === "function") {
-      reg("getgpp", b.getgpp, {
-        category: "profile",
-        description: "Group pic",
-        groupOnly: true,
-        aliases: ["gpp"],
-      });
-      totalCount += 2;
-    }
+  // ────────────────────────────────────────────────────────────────────────
+  //  BASIC.JS - ALL COMMANDS FROM BASIC.JS (INCLUDING ACTIVATE, DEACTIVATE, ANTILINK)
+  // ────────────────────────────────────────────────────────────────────────
+  const b = MODULES.basic;
+
+  // Core Commands
+  if (b.menu) safeRegister("menu", b.menu, {
+    category: "core",
+    description: "Show all commands",
+    aliases: ["help", "commands", "h", "cmd", "cmds", "commandlist", "menuhelp"]
+  });
+
+  if (b.ping) safeRegister("ping", b.ping, {
+    category: "core",
+    description: "Check bot latency",
+    aliases: ["pong", "latency", "speed", "ms", "uptime", "alive", "botping"]
+  });
+
+  if (b.status) safeRegister("status", b.status, {
+    category: "core",
+    description: "Your status and usage",
+    aliases: ["me", "profile", "whoami", "myinfo", "mystats", "userstatus"]
+  });
+
+  if (b.creator) safeRegister("creator", b.creator, {
+    category: "core",
+    description: "Creator information",
+    aliases: ["dev", "owner", "author", "ayo", "ayocodes", "developer", "creatorinfo"]
+  });
+
+  if (b.creatorGit) safeRegister("github", b.creatorGit, {
+    category: "core",
+    description: "GitHub repository",
+    aliases: ["git", "repo", "source", "code", "repository", "sourcecode"]
+  });
+
+  if (b.auto) safeRegister("auto", b.auto, {
+    category: "core",
+    description: "Toggle auto-reply",
+    aliases: ["autoreply", "toggleauto", "autorespond", "automsg", "autooff", "autoon"]
+  });
+
+  if (b.connectInfo) safeRegister("connect", b.connectInfo, {
+    category: "core",
+    description: "Community links",
+    aliases: ["community", "links", "group", "channel", "social", "join", "connectinfo"]
+  });
+
+  if (b.prefixinfo) safeRegister("prefix", b.prefixinfo, {
+    category: "core",
+    description: "Show current prefix",
+    aliases: ["preinfo", "getprefix", "prefixinfo", "whatprefix", "myprefix"]
+  });
+
+  if (b.test) safeRegister("test", b.test, {
+    category: "debug",
+    description: "Test command",
+    aliases: ["hello", "hi", "testcmd", "pingtest", "testbot", "check"]
+  });
+
+  if (b.time) safeRegister("time", b.time, {
+    category: "info",
+    description: "World time lookup",
+    aliases: ["worldtime", "timezone", "tz", "clock", "currenttime", "datetime", "whattime"]
+  });
+
+  if (b.weather) safeRegister("weather", b.weather, {
+    category: "info",
+    description: "Weather forecast",
+    aliases: ["w", "forecast", "temp", "climate", "temperature", "weatherinfo", "wea"]
+  });
+
+  // Web Tools
+  if (b.getip || b.ip) {
+    const ipHandler = b.getip || b.ip;
+    safeRegister("ip", ipHandler, {
+      category: "web",
+      description: "IP address lookup",
+      aliases: ["getip", "iplookup", "ipinfo", "checkip", "whatsmyip", "iptrace", "iplocate"]
+    });
   }
 
-  // ── AI COMMANDS ────────────────────────────────────────────────────────
-  if (modules.ai.loaded) {
-    const a = modules.ai.exports;
+  if (b.myip) safeRegister("myip", b.myip, {
+    category: "web",
+    description: "Your public IP",
+    aliases: ["myipaddr", "publicip", "whatismyip", "myipaddress", "ipme"]
+  });
 
-    // FIXED: Register "ayobot" as main command with proper aliases
-    if (typeof a.ai === "function") {
-      reg("ayobot", a.ai, {
-        category: "ai",
-        description: "Chat with AI",
-        aliases: ["ai", "ask", "chat", "bot"], // Removed duplicate "ayobot"
-      });
-      totalCount += 4;
-      console.log(`✅ Registered: .ayobot (aliases: .ai, .ask, .chat)`);
-    }
+  if (b.whois) safeRegister("whois", b.whois, {
+    category: "web",
+    description: "Domain WHOIS lookup",
+    aliases: ["domain", "domaininfo", "domainlookup", "whoislookup", "who", "domainwhois"]
+  });
 
-    if (typeof a.aiClear === "function") {
-      reg("aiclear", a.aiClear, {
-        category: "ai",
-        description: "Clear AI chat",
-        aliases: ["clearchat", "resetai"],
-      });
-      totalCount += 3;
-    }
+  if (b.dns) safeRegister("dns", b.dns, {
+    category: "web",
+    description: "DNS lookup",
+    aliases: ["dnslookup", "dnsrecords", "nslookup", "dig", "dnsinfo", "dnsquery"]
+  });
 
-    if (typeof a.summarize === "function") {
-      reg("summarize", a.summarize, {
-        category: "ai",
-        description: "Summarize text",
-        aliases: ["summary", "tldr", "sum"],
-      });
-      totalCount += 4;
-    }
+  if (b.url) safeRegister("url", b.url, {
+    category: "web",
+    description: "URL information",
+    aliases: ["urlinfo", "urlcheck", "expandurl", "urldetails", "urldecode", "urlinspect"]
+  });
 
-    if (typeof a.grammar === "function") {
-      reg("grammar", a.grammar, {
-        category: "ai",
-        description: "Spell & grammar check",
-        aliases: ["spell", "spellcheck"],
+  if (b.fetch) safeRegister("fetch", b.fetch, {
+    category: "web",
+    description: "Fetch URL content",
+    aliases: ["geturl", "curl", "httpget", "wget", "fetchurl", "getcontent"]
+  });
+
+  if (b.scrape) safeRegister("scrape", b.scrape, {
+    category: "web",
+    description: "Scrape webpage",
+    aliases: ["scraper", "webscrape", "getpage", "extract", "pagescrape", "scrapeweb"]
+  });
+
+  if (b.screenshot) safeRegister("screenshot", b.screenshot, {
+    category: "web",
+    description: "Take screenshot",
+    aliases: ["ss", "capture", "snap", "webshot", "screencap", "pagepic", "webpic"]
+  });
+
+  if (b.inspect) safeRegister("inspect", b.inspect, {
+    category: "web",
+    description: "Inspect webpage",
+    aliases: ["pageinspect", "pageinfo", "analyze", "webinspect", "inspectpage", "pageanalysis"]
+  });
+
+  if (b.shorten) safeRegister("shorten", b.shorten, {
+    category: "web",
+    description: "Shorten URL",
+    aliases: ["short", "tiny", "tinyurl", "bitly", "urlshort", "shortlink", "shorturl"]
+  });
+
+  // Media Commands
+  if (b.viewOnce) safeRegister("vv", b.viewOnce, {
+    category: "media",
+    description: "View once message",
+    aliases: ["viewonce", "open", "see", "reveal", "view", "once", "viewoncemsg", "viewmsg"]
+  });
+
+  if (b.take) safeRegister("take", b.take, {
+    category: "media",
+    description: "Take sticker",
+    aliases: ["takesticker", "steal", "savesticker", "stickersteal", "takestk", "stealsticker"]
+  });
+
+  if (b.imgbb) safeRegister("imgbb", b.imgbb, {
+    category: "media",
+    description: "Upload to ImgBB",
+    aliases: ["upload", "imageupload", "hostimage", "img", "imghost", "uploadimg", "imagehost"]
+  });
+
+  // Tools
+  if (b.qencode) safeRegister("qr", b.qencode, {
+    category: "tools",
+    description: "Generate QR code",
+    aliases: ["qrcode", "qencode", "makeqr", "createqr", "qrgen", "qrcreate", "qrmake"]
+  });
+
+  if (b.pdf) safeRegister("pdf", b.pdf, {
+    category: "tools",
+    description: "Create PDF",
+    aliases: ["makepdf", "createpdf", "topdf", "document", "pdfcreate", "pdfgen", "makepdf"]
+  });
+
+  // Profile Commands
+  if (b.getpp) safeRegister("getpp", b.getpp, {
+    category: "profile",
+    description: "Get profile picture",
+    aliases: ["pp", "profilepic", "pfp", "dp", "avatar", "getpfp", "profilepicture", "getavatar"]
+  });
+
+  if (b.getgpp) safeRegister("getgpp", b.getgpp, {
+    category: "profile",
+    description: "Get group picture",
+    aliases: ["gpp", "grouppic", "groupdp", "grouppfp", "grouppicture", "groupprofile"],
+    groupOnly: true
+  });
+
+  // AI Commands
+  if (b.jarvis) safeRegister("jarvis", b.jarvis, {
+    category: "ai",
+    description: "Jarvis AI assistant",
+    aliases: ["j", "ask", "query", "jarvisask", "ai", "jarv", "jar", "askjarvis"]
+  });
+
+  // Voice AI - with fallback
+  if (b.jarvisVoice && typeof b.jarvisVoice === 'function') {
+    safeRegister("jarvisv", b.jarvisVoice, {
+      category: "ai",
+      description: "Jarvis with voice",
+      aliases: ["jv", "voiceask", "speakjarvis", "jarvisvoice", "jvoice", "voiceai"]
+    });
+  } else {
+    const voiceFallback = async ({ from, sock }) => {
+      await sock.sendMessage(from, {
+        text: "🔊 Voice response feature is coming soon! Use `.jarvis` for text responses."
       });
-      totalCount += 3;
-    }
+    };
+    safeRegister("jarvisv", voiceFallback, {
+      category: "ai",
+      description: "Jarvis voice (coming soon)",
+      aliases: ["jv", "voiceask", "speakjarvis", "jarvisvoice"]
+    });
   }
 
-  // ── CALCULATOR ─────────────────────────────────────────────────────────
-  if (modules.calculator.loaded) {
-    const c = modules.calculator.exports;
-    if (typeof c.calculate === "function") {
-      reg("calc", c.calculate, {
-        category: "tools",
-        description: "Calculator",
-        aliases: ["math", "="],
-      });
-      totalCount += 3;
-    }
-  }
+  // Waitlist
+  if (b.joinWaitlist) safeRegister("waitlist", b.joinWaitlist, {
+    category: "misc",
+    description: "Join AYOBOT waitlist",
+    aliases: ["jointrend", "joinnext", "joinfuture", "waiting", "waitlistjoin", "joinwait"]
+  });
 
-  // ── CRYPTO ─────────────────────────────────────────────────────────────
-  if (modules.crypto.loaded) {
-    const cr = modules.crypto.exports;
-    if (typeof cr.crypto === "function") {
-      reg("crypto", cr.crypto, {
-        category: "info",
-        description: "Crypto price",
-        aliases: ["coin", "btc"],
-      });
-      totalCount += 3;
-    }
-    if (typeof cr.cryptoTop === "function") {
-      reg("cryptotop", cr.cryptoTop, {
-        category: "info",
-        description: "Top crypto",
-        aliases: ["top10"],
-      });
-      totalCount += 2;
-    }
-  }
+  // ============== FIXED: GROUP COMMANDS FROM BASIC.JS ==============
+  // These were previously missing or in wrong sections
 
-  // ── DICTIONARY ─────────────────────────────────────────────────────────
-  if (modules.dictionary.loaded) {
-    const d = modules.dictionary.exports;
-    if (typeof d.dict === "function") {
-      reg("dict", d.dict, {
-        category: "info",
-        description: "Dictionary",
-        aliases: ["define", "meaning"],
-      });
-      totalCount += 3;
-    }
-  }
+  // Activate command - from basic.js
+  if (b.activate) safeRegister("activate", b.activate, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Activate bot for all group members",
+    aliases: ["groupactivate", "activatebot", "openbot", "unlockbot", "activategroup"]
+  });
 
-  // ── DOWNLOADER ─────────────────────────────────────────────────────────
-  if (modules.downloader.loaded) {
-    const dl = modules.downloader.exports;
-    if (typeof dl.youtube === "function") {
-      reg("youtube", dl.youtube, {
-        category: "downloader",
-        description: "YouTube",
-        aliases: ["yt", "ytdl"],
-      });
-      totalCount += 3;
-    }
-    if (typeof dl.tiktok === "function") {
-      reg("tiktok", dl.tiktok, {
-        category: "downloader",
-        description: "TikTok",
-        aliases: ["tt", "tok"],
-      });
-      totalCount += 3;
-    }
-    if (typeof dl.spotify === "function") {
-      reg("spotify", dl.spotify, {
-        category: "downloader",
-        description: "Spotify",
-        aliases: ["sp"],
-      });
-      totalCount += 2;
-    }
-    if (typeof dl.play === "function") {
-      reg("play", dl.play, {
-        category: "downloader",
-        description: "Play music",
-        aliases: ["mp3"],
-      });
-      totalCount += 2;
-    }
-    if (typeof dl.instagram === "function") {
-      reg("instagram", dl.instagram, {
-        category: "downloader",
-        description: "Instagram",
-        aliases: ["ig", "insta"],
-      });
-      totalCount += 3;
-    }
-    if (typeof dl.facebook === "function") {
-      reg("facebook", dl.facebook, {
-        category: "downloader",
-        description: "Facebook",
-        aliases: ["fb"],
-      });
-      totalCount += 2;
-    }
-    if (typeof dl.twitter === "function") {
-      reg("twitter", dl.twitter, {
-        category: "downloader",
-        description: "Twitter",
-        aliases: ["x", "tweet"],
-      });
-      totalCount += 3;
-    }
-  }
+  // Deactivate command - from basic.js
+  if (b.deactivate) safeRegister("deactivate", b.deactivate, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Restrict bot to owner-only",
+    aliases: ["groupdeactivate", "deactivatebot", "closebot", "lockbot", "deactivategroup"]
+  });
 
-  // ── ENCRYPTION ─────────────────────────────────────────────────────────
-  if (modules.encryption.loaded) {
-    const e = modules.encryption.exports;
-    if (typeof e.encrypt === "function") {
-      reg("encrypt", e.encrypt, {
-        category: "security",
-        description: "Encrypt text",
-        aliases: ["enc"],
-      });
-      totalCount += 2;
-    }
-    if (typeof e.decrypt === "function") {
-      reg("decrypt", e.decrypt, {
-        category: "security",
-        description: "Decrypt text",
-        aliases: ["dec"],
-      });
-      totalCount += 2;
-    }
-    if (typeof e.hash === "function") {
-      reg("hash", e.hash, {
-        category: "security",
-        description: "Hash text",
-        aliases: ["md5"],
-      });
-      totalCount += 2;
-    }
-    if (typeof e.password === "function") {
-      reg("password", e.password, {
-        category: "security",
-        description: "Gen password",
-        aliases: ["genpass"],
-      });
-      totalCount += 2;
-    }
-  }
+  // ANTILINK COMMAND - FIXED: Now from basic.js, NOT groupSettings.js
+  if (b.antilink) safeRegister("antilink", b.antilink, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Toggle anti-link protection",
+    aliases: ["nolink", "blocklinks", "toggleantilink", "antilinks", "protectlink", "antilinkon", "antilinkoff"]
+  });
 
-  // ── GAMES ──────────────────────────────────────────────────────────────
-  if (modules.games.loaded) {
-    const g = modules.games.exports;
-    if (typeof g.rps === "function") {
-      reg("rps", g.rps, {
-        category: "games",
-        description: "Rock paper scissors",
-        aliases: ["rpsgame"],
-      });
-      totalCount += 2;
-    }
-    if (typeof g.dice === "function") {
-      reg("dice", g.dice, {
-        category: "games",
-        description: "Roll dice",
-        aliases: ["roll"],
-      });
-      totalCount += 2;
-    }
-    if (typeof g.coinFlip === "function") {
-      reg("flip", g.coinFlip, {
-        category: "games",
-        description: "Flip coin",
-        aliases: ["coin"],
-      });
-      totalCount += 2;
-    }
-    if (typeof g.trivia === "function") {
-      reg("trivia", g.trivia, {
-        category: "games",
-        description: "Trivia",
-        aliases: ["quiz"],
-      });
-      totalCount += 2;
-    }
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  //  AI.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const a = MODULES.ai;
 
-  // ── IMAGE TOOLS ────────────────────────────────────────────────────────
-  if (modules.imageTools.loaded) {
-    const img = modules.imageTools.exports;
-    if (typeof img.sticker === "function") {
-      reg("sticker", img.sticker, {
-        category: "media",
-        description: "Make sticker",
-        aliases: ["s", "stiker"],
-      });
-      totalCount += 3;
-    }
-    if (typeof img.toimage === "function") {
-      reg("toimage", img.toimage, {
-        category: "media",
-        description: "To image",
-        aliases: ["toimg"],
-      });
-      totalCount += 2;
-    }
-    if (typeof img.tovideo === "function") {
-      reg("tovideo", img.tovideo, {
-        category: "media",
-        description: "To video",
-        aliases: ["tovid"],
-      });
-      totalCount += 2;
-    }
-    if (typeof img.toaudio === "function") {
-      reg("toaudio", img.toaudio, {
-        category: "media",
-        description: "To audio",
-        aliases: ["tomp3"],
-      });
-      totalCount += 2;
-    }
-    if (typeof img.removebg === "function") {
-      reg("removebg", img.removebg, {
-        category: "media",
-        description: "Remove BG",
-        aliases: ["nobg", "rmbg"],
-      });
-      totalCount += 3;
-    }
-  }
+  if (a.ai) safeRegister("ayobot", a.ai, {
+    category: "ai",
+    description: "Chat with AI",
+    aliases: ["ai", "chat", "bot", "gpt", "askai", "aichat", "talk", "aibot"]
+  });
 
-  // ── JOKES ──────────────────────────────────────────────────────────────
-  if (modules.jokes.loaded) {
-    const j = modules.jokes.exports;
-    if (typeof j.joke === "function") {
-      reg("joke", j.joke, {
-        category: "fun",
-        description: "Tell joke",
-        aliases: ["laugh", "funny"],
-      });
-      totalCount += 3;
-    }
-    if (typeof j.roast === "function") {
-      reg("roast", j.roast, {
-        category: "fun",
-        description: "Roast someone",
-        aliases: ["burn"],
-      });
-      totalCount += 2;
-    }
-    if (typeof j.pickupLine === "function") {
-      reg("pickup", j.pickupLine, {
-        category: "fun",
-        description: "Pickup line",
-        aliases: ["flirt"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (a.aiClear) safeRegister("aiclear", a.aiClear, {
+    category: "ai",
+    description: "Clear AI history",
+    aliases: ["clearchat", "resetai", "clearai", "aiclr", "aiclear", "reset", "clearhistory"]
+  });
 
-  // ── MOVIES ─────────────────────────────────────────────────────────────
-  if (modules.movies.loaded) {
-    const m = modules.movies.exports;
-    if (typeof m.movie === "function") {
-      reg("movie", m.movie, {
-        category: "info",
-        description: "Movie info",
-        aliases: ["film", "imdb"],
-      });
-      totalCount += 3;
-    }
-    if (typeof m.tv === "function") {
-      reg("tv", m.tv, {
-        category: "info",
-        description: "TV series info",
-        aliases: ["series", "show"],
-      });
-      totalCount += 3;
-    }
-  }
+  if (a.summarize) safeRegister("summarize", a.summarize, {
+    category: "ai",
+    description: "Summarize text",
+    aliases: ["summary", "tldr", "sum", "summarise", "shorten", "summarize", "summarizetext"]
+  });
 
-  // ── MUSIC ──────────────────────────────────────────────────────────────
-  if (modules.music.loaded) {
-    const mu = modules.music.exports;
-    if (typeof mu.lyrics === "function") {
-      reg("lyrics", mu.lyrics, {
-        category: "music",
-        description: "Get lyrics",
-        aliases: ["lyric", "words"],
-      });
-      totalCount += 3;
-    }
-    if (typeof mu.trending === "function") {
-      reg("trending", mu.trending, {
-        category: "music",
-        description: "Trending songs",
-        aliases: ["chart"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (a.grammar) safeRegister("grammar", a.grammar, {
+    category: "ai",
+    description: "Check grammar",
+    aliases: ["spell", "spellcheck", "fix", "proofread", "grammarcheck", "correct", "grammarfix"]
+  });
 
-  // ── NEWS ───────────────────────────────────────────────────────────────
-  if (modules.news.loaded) {
-    const n = modules.news.exports;
-    if (typeof n.news === "function") {
-      reg("news", n.news, {
-        category: "info",
-        description: "Latest news",
-        aliases: ["headlines", "breaking"],
-      });
-      totalCount += 3;
-    }
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  //  CALCULATOR.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const calc = MODULES.calculator;
 
-  // ── NOTES ──────────────────────────────────────────────────────────────
-  if (modules.notes.loaded) {
-    const nt = modules.notes.exports;
-    if (typeof nt.note === "function") {
-      reg("note", nt.note, {
-        category: "storage",
-        description: "Save note",
-        aliases: ["store"],
-      });
-      totalCount += 2;
-    }
-    if (typeof nt.getnote === "function") {
-      reg("getnote", nt.getnote, {
-        category: "storage",
-        description: "Get note",
-        aliases: ["recall"],
-      });
-      totalCount += 2;
-    }
-    if (typeof nt.notes === "function") {
-      reg("notes", nt.notes, {
-        category: "storage",
-        description: "List notes",
-        aliases: ["mynotes"],
-      });
-      totalCount += 2;
-    }
-    if (typeof nt.deleteKey === "function") {
-      reg("delnote", nt.deleteKey, {
-        category: "storage",
-        description: "Delete note",
-        aliases: ["forget"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (calc.calculate) safeRegister("calc", calc.calculate, {
+    category: "tools",
+    description: "Math calculator",
+    aliases: ["math", "calculate", "solve", "calculator", "eval", "cal", "maths"]
+  });
 
-  // ── QUOTES ─────────────────────────────────────────────────────────────
-  if (modules.quotes.loaded) {
-    const q = modules.quotes.exports;
-    if (typeof q.quote === "function") {
-      reg("quote", q.quote, {
-        category: "fun",
-        description: "Random quote",
-        aliases: ["motivation", "inspire"],
-      });
-      totalCount += 3;
-    }
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  //  CRYPTO.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const cr = MODULES.crypto;
 
-  // ── REMINDER ───────────────────────────────────────────────────────────
-  if (modules.reminder.loaded) {
-    const r = modules.reminder.exports;
-    if (typeof r.reminder === "function") {
-      reg("remind", r.reminder, {
-        category: "storage",
-        description: "Set reminder",
-        aliases: ["reminder", "later"],
-      });
-      totalCount += 3;
-    }
-    if (typeof r.listReminders === "function") {
-      reg("reminders", r.listReminders, {
-        category: "storage",
-        description: "List reminders",
-        aliases: ["myreminders"],
-      });
-      totalCount += 2;
-    }
-    if (typeof r.cancelReminder === "function") {
-      reg("cancelreminder", r.cancelReminder, {
-        category: "storage",
-        description: "Cancel reminder",
-        aliases: ["delreminder"],
-      });
-      totalCount += 2;
-    }
-    if (typeof r.snooze === "function") {
-      reg("snooze", r.snooze, {
-        category: "storage",
-        description: "Snooze reminder",
-        aliases: ["snoozereminder"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (cr.crypto) safeRegister("crypto", cr.crypto, {
+    category: "info",
+    description: "Crypto prices",
+    aliases: ["coin", "btc", "eth", "cryptoprice", "cryptocurrency", "cryptoinfo", "crypto price"]
+  });
 
-  // ── SECURITY ───────────────────────────────────────────────────────────
-  if (modules.security.loaded) {
-    const sec = modules.security.exports;
-    if (typeof sec.scan === "function") {
-      reg("scan", sec.scan, {
-        category: "security",
-        description: "Scan URL",
-        aliases: ["virustotal"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (cr.cryptoTop) safeRegister("cryptotop", cr.cryptoTop, {
+    category: "info",
+    description: "Top cryptocurrencies",
+    aliases: ["top10", "topcrypto", "cryptolist", "cointop", "cryptotop", "topcoins"]
+  });
 
-  // ── STOCKS ─────────────────────────────────────────────────────────────
-  if (modules.stocks.loaded) {
-    const s = modules.stocks.exports;
-    if (typeof s.stock === "function") {
-      reg("stock", s.stock, {
-        category: "info",
-        description: "Stock price",
-        aliases: ["stocks", "share"],
-      });
-      totalCount += 3;
-    }
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  //  DICTIONARY.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const dict = MODULES.dictionary;
 
-  // ── TRANSLATION ────────────────────────────────────────────────────────
-  if (modules.translation.loaded) {
-    const t = modules.translation.exports;
-    if (typeof t.translate === "function") {
-      reg("translate", t.translate, {
-        category: "tools",
-        description: "Translate text",
-        aliases: ["tr", "tl"],
-      });
-      totalCount += 3;
-    }
-    if (typeof t.detect === "function") {
-      reg("detect", t.detect, {
-        category: "tools",
-        description: "Detect language",
-        aliases: ["langdetect"],
-      });
-      totalCount += 2;
-    }
-    if (typeof t.languages === "function") {
-      reg("languages", t.languages, {
-        category: "tools",
-        description: "Supported languages",
-        aliases: ["langs"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (dict.dict) safeRegister("dict", dict.dict, {
+    category: "info",
+    description: "Dictionary lookup",
+    aliases: ["define", "meaning", "word", "definition", "dictionary", "def", "diction"]
+  });
 
-  // ── TTS ────────────────────────────────────────────────────────────────
-  if (modules.tts.loaded) {
-    const tt = modules.tts.exports;
-    if (typeof tt.tts === "function") {
-      reg("tts", tt.tts, {
-        category: "media",
-        description: "Text to speech",
-        aliases: ["voice", "say"],
-      });
-      totalCount += 3;
-    }
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  //  DOWNLOADER.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const dl = MODULES.downloader;
 
-  // ── UNIT CONVERTER ─────────────────────────────────────────────────────
-  if (modules.unitConverter.loaded) {
-    const uc = modules.unitConverter.exports;
-    if (typeof uc.convert === "function") {
-      reg("convert", uc.convert, {
-        category: "tools",
-        description: "Unit converter",
-        aliases: ["conv", "uconvert"],
-      });
-      totalCount += 3;
-    }
-    if (typeof uc.units === "function") {
-      reg("units", uc.units, {
-        category: "tools",
-        description: "Available units",
-      });
-      totalCount++;
-    }
-  }
+  if (dl.youtube) safeRegister("youtube", dl.youtube, {
+    category: "dl",
+    description: "Download YouTube",
+    aliases: ["yt", "ytdl", "ytmp3", "ytmp4", "ytvideo", "youtubedl", "ytaudio", "ytdownload"]
+  });
 
-  // ── GROUP CORE ─────────────────────────────────────────────────────────
-  if (modules.groupCore.loaded) {
-    const gc = modules.groupCore.exports;
-    if (typeof gc.kick === "function") {
-      reg("kick", gc.kick, {
-        category: "group",
-        description: "Kick member",
-        groupOnly: true,
-        adminOnly: true,
-        requireBotAdmin: true,
-        aliases: ["remove"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gc.add === "function") {
-      reg("add", gc.add, {
-        category: "group",
-        description: "Add member",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["invite"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gc.promote === "function") {
-      reg("promote", gc.promote, {
-        category: "group",
-        description: "Make admin",
-        groupOnly: true,
-        adminOnly: true,
-        requireBotAdmin: true,
-        aliases: ["makeadmin"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gc.demote === "function") {
-      reg("demote", gc.demote, {
-        category: "group",
-        description: "Remove admin",
-        groupOnly: true,
-        adminOnly: true,
-        requireBotAdmin: true,
-        aliases: ["unadmin"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gc.link === "function") {
-      reg("link", gc.link, {
-        category: "group",
-        description: "Get group link",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["grouplink"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gc.admins === "function") {
-      reg("admins", gc.admins, {
-        category: "group",
-        description: "List admins",
-        groupOnly: true,
-        aliases: ["listadmins", "adminlist"],
-      });
-      totalCount += 3;
-    }
-    if (typeof gc.tagall === "function") {
-      reg("tagall", gc.tagall, {
-        category: "group",
-        description: "Tag all members",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["everyone", "all"],
-      });
-      totalCount += 3;
-    }
-    if (typeof gc.hidetag === "function") {
-      reg("hidetag", gc.hidetag, {
-        category: "group",
-        description: "Hidden tag",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["htag", "silent"],
-      });
-      totalCount += 3;
-    }
-  }
+  if (dl.tiktok) safeRegister("tiktok", dl.tiktok, {
+    category: "dl",
+    description: "Download TikTok",
+    aliases: ["tt", "tok", "tiktokdl", "ttvideo", "tiktokdown", "tiktokaudio", "ttdl"]
+  });
 
-  // ── GROUP MODERATION ───────────────────────────────────────────────────
-  if (modules.groupModeration.loaded) {
-    const gm = modules.groupModeration.exports;
-    if (typeof gm.ban === "function") {
-      reg("ban", gm.ban, {
-        category: "group",
-        description: "Ban member",
-        groupOnly: true,
-        adminOnly: true,
-        requireBotAdmin: true,
-        aliases: ["block"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gm.unban === "function") {
-      reg("unban", gm.unban, {
-        category: "group",
-        description: "Unban member",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["unblock"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gm.warn === "function") {
-      reg("warn", gm.warn, {
-        category: "group",
-        description: "Warn member",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["warning"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gm.warnings === "function") {
-      reg("warnings", gm.warnings, {
-        category: "group",
-        description: "List warnings",
-        groupOnly: true,
-        aliases: ["warnlist"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gm.clearWarns === "function") {
-      reg("clearwarns", gm.clearWarns, {
-        category: "group",
-        description: "Clear warnings",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["resetwarns"],
-      });
-      totalCount += 2;
-    }
-  }
+  if (dl.spotify) safeRegister("spotify", dl.spotify, {
+    category: "dl",
+    description: "Download Spotify",
+    aliases: ["sp", "spotifydl", "spotifymp3", "spotifydown", "spotifyaudio", "spdl"]
+  });
 
-  // ── GROUP SETTINGS ─────────────────────────────────────────────────────
-  if (modules.groupSettings.loaded) {
-    const gs = modules.groupSettings.exports;
-    if (typeof gs.mute === "function") {
-      reg("mute", gs.mute, {
-        category: "group",
-        description: "Mute group",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["lock"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gs.unmute === "function") {
-      reg("unmute", gs.unmute, {
-        category: "group",
-        description: "Unmute group",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["unlock"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gs.antilink === "function") {
-      reg("antilink", gs.antilink, {
-        category: "group",
-        description: "Anti-link",
-        groupOnly: true,
-        adminOnly: true,
-        aliases: ["antilink"],
-      });
-      totalCount += 2;
-    }
-    if (typeof gs.antispam === "function") {
-      reg("antispam", gs.antispam, {
-        category: "group",
-        description: "Anti-spam",
-        groupOnly: true,
-        adminOnly: true,
-      });
-      totalCount++;
-    }
-    if (typeof gs.welcome === "function") {
-      reg("welcome", gs.welcome, {
-        category: "group",
-        description: "Welcome message",
-        groupOnly: true,
-        adminOnly: true,
-      });
-      totalCount++;
-    }
-    if (typeof gs.goodbye === "function") {
-      reg("goodbye", gs.goodbye, {
-        category: "group",
-        description: "Goodbye message",
-        groupOnly: true,
-        adminOnly: true,
-      });
-      totalCount++;
-    }
-  }
+  if (dl.play) safeRegister("play", dl.play, {
+    category: "dl",
+    description: "Play music",
+    aliases: ["mp3", "music", "song", "audio", "playmusic", "playsong", "playaudio"]
+  });
 
-  // ── ADMIN COMMANDS ─────────────────────────────────────────────────────
-  if (modules.admin.loaded) {
-    const adm = modules.admin.exports;
-    if (typeof adm.addUser === "function") {
-      reg("adduser", adm.addUser, {
-        category: "admin",
-        description: "Whitelist user",
-        adminOnly: true,
-        aliases: ["auth", "allow"],
-      });
-      totalCount += 3;
-    }
-    if (typeof adm.removeUser === "function") {
-      reg("removeuser", adm.removeUser, {
-        category: "admin",
-        description: "Remove from whitelist",
-        adminOnly: true,
-        aliases: ["deauth", "disallow"],
-      });
-      totalCount += 3;
-    }
-    if (typeof adm.listUsers === "function") {
-      reg("listusers", adm.listUsers, {
-        category: "admin",
-        description: "List whitelisted users",
-        adminOnly: true,
-        aliases: ["users", "whitelist"],
-      });
-      totalCount += 3;
-    }
-    if (typeof adm.mode === "function") {
-      reg("mode", adm.mode, {
-        category: "admin",
-        description: "Change bot mode",
-        adminOnly: true,
-        aliases: ["setmode", "botmode"],
-      });
-      totalCount += 3;
-    }
-    if (typeof adm.broadcast === "function") {
-      reg("broadcast", adm.broadcast, {
-        category: "admin",
-        description: "Broadcast message",
-        adminOnly: true,
-        aliases: ["bc", "announce"],
-      });
-      totalCount += 3;
-    }
-    if (typeof adm.globalBroadcast === "function") {
-      reg("globalbroadcast", adm.globalBroadcast, {
-        category: "admin",
-        description: "Global broadcast",
-        adminOnly: true,
-        aliases: ["gbc"],
-      });
-      totalCount += 2;
-    }
-    if (typeof adm.stats === "function") {
-      reg("stats", adm.stats, {
-        category: "admin",
-        description: "Bot statistics",
-        adminOnly: true,
-        aliases: ["botstats"],
-      });
-      totalCount += 2;
-    }
-    if (typeof adm.restart === "function") {
-      reg("restart", adm.restart, {
-        category: "admin",
-        description: "Restart bot",
-        adminOnly: true,
-        aliases: ["reboot"],
-      });
-      totalCount += 2;
-    }
-    if (typeof adm.shutdown === "function") {
-      reg("shutdown", adm.shutdown, {
-        category: "admin",
-        description: "Shutdown bot",
-        adminOnly: true,
-        aliases: ["off"],
-      });
-      totalCount += 2;
-    }
-    if (typeof adm.eval === "function") {
-      reg("eval", adm.eval, {
-        category: "admin",
-        description: "Execute code",
-        adminOnly: true,
-        aliases: ["exec", "run"],
-      });
-      totalCount += 3;
-    }
-  }
+  if (dl.instagram) safeRegister("instagram", dl.instagram, {
+    category: "dl",
+    description: "Download Instagram",
+    aliases: ["ig", "insta", "igdl", "igreels", "instadl", "instagramdl", "igvideo"]
+  });
 
-  log.divider();
-  log.success(
-    `Successfully registered ${commands.size} commands (${totalCount} total aliases)`,
-  );
+  if (dl.facebook) safeRegister("facebook", dl.facebook, {
+    category: "dl",
+    description: "Download Facebook",
+    aliases: ["fb", "fbdl", "fbvideo", "fbd", "facebookdl", "fbdown", "facebookvideo"]
+  });
+
+  if (dl.twitter) safeRegister("twitter", dl.twitter, {
+    category: "dl",
+    description: "Download Twitter",
+    aliases: ["x", "tweet", "xdl", "twitterdl", "twdl", "xdown", "twittervideo"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  ENCRYPTION.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const enc = MODULES.encryption;
+
+  if (enc.encrypt) safeRegister("encrypt", enc.encrypt, {
+    category: "security",
+    description: "Encrypt text",
+    aliases: ["enc", "lock", "cipher", "encode", "encrypttext", "encryption"]
+  });
+
+  if (enc.decrypt) safeRegister("decrypt", enc.decrypt, {
+    category: "security",
+    description: "Decrypt text",
+    aliases: ["dec", "unlock", "decipher", "decode", "decrypttext", "decryption"]
+  });
+
+  if (enc.hash) safeRegister("hash", enc.hash, {
+    category: "security",
+    description: "Hash text",
+    aliases: ["md5", "sha256", "hashtext", "checksum", "hashgen", "hashstring", "hashing"]
+  });
+
+  if (enc.password) safeRegister("password", enc.password, {
+    category: "security",
+    description: "Generate password",
+    aliases: ["genpass", "newpass", "passgen", "mkpass", "passwordgen", "createpass", "randompass"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  GAMES.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const games = MODULES.games;
+
+  if (games.rps) safeRegister("rps", games.rps, {
+    category: "games",
+    description: "Rock Paper Scissors",
+    aliases: ["rockpaperscissors", "rpsgame", "rock", "paper", "scissors", "rpsplay"]
+  });
+
+  if (games.dice) safeRegister("dice", games.dice, {
+    category: "games",
+    description: "Roll dice",
+    aliases: ["roll", "rolldice", "rolld6", "diceroll", "dicer", "dicethrow"]
+  });
+
+  if (games.coinFlip) safeRegister("flip", games.coinFlip, {
+    category: "games",
+    description: "Flip coin",
+    aliases: ["coin", "coinflip", "toss", "heads", "tails", "cointoss", "flipcoin"]
+  });
+
+  if (games.trivia) safeRegister("trivia", games.trivia, {
+    category: "games",
+    description: "Trivia question",
+    aliases: ["quiz", "question", "q", "triviaquestion", "triv", "triviaquiz"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  IMAGETOOLS.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const img = MODULES.imageTools;
+
+  if (img.sticker) safeRegister("sticker", img.sticker, {
+    category: "media",
+    description: "Create sticker",
+    aliases: ["s", "stiker", "makesticker", "tosticker", "stickerize", "stk", "stickermake"]
+  });
+
+  if (img.toimage) safeRegister("toimage", img.toimage, {
+    category: "media",
+    description: "Sticker to image",
+    aliases: ["toimg", "stickertoimage", "stktoimg", "sticker2img", "stk2img", "stickerimage"]
+  });
+
+  if (img.tovideo) safeRegister("tovideo", img.tovideo, {
+    category: "media",
+    description: "Sticker to video",
+    aliases: ["tovid", "stickertovideo", "stk2vid", "sticker2video", "stickervideo"]
+  });
+
+  if (img.toaudio) safeRegister("toaudio", img.toaudio, {
+    category: "media",
+    description: "Extract audio",
+    aliases: ["tomp3", "extractaudio", "video2audio", "getaudio", "audioextract", "mp3"]
+  });
+
+  if (img.removebg) safeRegister("removebg", img.removebg, {
+    category: "media",
+    description: "Remove background",
+    aliases: ["nobg", "rmbg", "bgremove", "cutbg", "backgroundremove", "removebackground", "bgremover"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  JOKES.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const jokes = MODULES.jokes;
+
+  if (jokes.joke) safeRegister("joke", jokes.joke, {
+    category: "fun",
+    description: "Random joke",
+    aliases: ["laugh", "funny", "lol", "haha", "humor", "jokefun", "telljoke"]
+  });
+
+  if (jokes.roast) safeRegister("roast", jokes.roast, {
+    category: "fun",
+    description: "Roast someone",
+    aliases: ["burn", "flame", "diss", "insult", "roastme", "roastuser", "roastthem"]
+  });
+
+  if (jokes.pickupLine) safeRegister("pickup", jokes.pickupLine, {
+    category: "fun",
+    description: "Pickup line",
+    aliases: ["flirt", "pickupline", "rizz", "pickup", "pickupline", "pickuplines"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  MOVIES.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const movies = MODULES.movies;
+
+  if (movies.movie) safeRegister("movie", movies.movie, {
+    category: "info",
+    description: "Movie info",
+    aliases: ["film", "imdb", "movieinfo", "moviesearch", "moviedb", "filmdb", "moviedetails"]
+  });
+
+  if (movies.tv) safeRegister("tv", movies.tv, {
+    category: "info",
+    description: "TV series info",
+    aliases: ["series", "show", "tvshow", "tvseries", "tvguide", "serie", "tvinfo"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  MUSIC.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const music = MODULES.music;
+
+  if (music.lyrics) safeRegister("lyrics", music.lyrics, {
+    category: "music",
+    description: "Song lyrics",
+    aliases: ["lyric", "words", "songlyrics", "getlyrics", "lyricsearch", "lyricsfind", "lyricsofsong"]
+  });
+
+  if (music.trending) safeRegister("trending", music.trending, {
+    category: "music",
+    description: "Trending songs",
+    aliases: ["chart", "topsongs", "topmusic", "hotmusic", "trendingmusic", "trend", "trendingnow"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  NEWS.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const news = MODULES.news;
+
+  if (news.news) safeRegister("news", news.news, {
+    category: "info",
+    description: "Latest news",
+    aliases: ["headlines", "breaking", "latestnews", "topnews", "newsupdate", "newstoday", "newsnow"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  NOTES.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const notes = MODULES.notes;
+
+  if (notes.note) safeRegister("note", notes.note, {
+    category: "storage",
+    description: "Save note",
+    aliases: ["store", "savenote", "addnote", "remember", "savenow", "newnote", "createnote"]
+  });
+
+  if (notes.getnote) safeRegister("getnote", notes.getnote, {
+    category: "storage",
+    description: "Get note",
+    aliases: ["recall", "readnote", "shownote", "getnote", "shownote", "retrievenote"]
+  });
+
+  if (notes.notes) safeRegister("notes", notes.notes, {
+    category: "storage",
+    description: "List notes",
+    aliases: ["mynotes", "listnotes", "allnotes", "notelist", "shownotes", "noteslist"]
+  });
+
+  if (notes.deleteKey) safeRegister("delnote", notes.deleteKey, {
+    category: "storage",
+    description: "Delete note",
+    aliases: ["forget", "deletenote", "removenote", "rmnote", "del", "deletenote", "removenote"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  QUOTES.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const quotes = MODULES.quotes;
+
+  if (quotes.quote) safeRegister("quote", quotes.quote, {
+    category: "fun",
+    description: "Random quote",
+    aliases: ["motivation", "inspire", "wisdom", "motivate", "inspiration", "quot", "inspirational"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  REMINDER.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const reminder = MODULES.reminder;
+
+  if (reminder.reminder) safeRegister("remind", reminder.reminder, {
+    category: "storage",
+    description: "Set reminder",
+    aliases: ["reminder", "later", "setreminder", "setalarm", "remindme", "remind", "alarm"]
+  });
+
+  if (reminder.listReminders) safeRegister("reminders", reminder.listReminders, {
+    category: "storage",
+    description: "List reminders",
+    aliases: ["myreminders", "listreminders", "showreminders", "reminderlist", "allreminders", "reminderslist"]
+  });
+
+  if (reminder.cancelReminder) safeRegister("cancelreminder", reminder.cancelReminder, {
+    category: "storage",
+    description: "Cancel reminder",
+    aliases: ["delreminder", "removereminder", "stopreminder", "cancelminder", "cancelremind", "deletereminder"]
+  });
+
+  if (reminder.snooze) safeRegister("snooze", reminder.snooze, {
+    category: "storage",
+    description: "Snooze reminder",
+    aliases: ["snoozereminder", "delayrm", "snoozealarm", "snoozer", "snoozealarm", "remindersnooze"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  SECURITY.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const sec = MODULES.security;
+
+  if (sec.scan) safeRegister("scan", sec.scan, {
+    category: "security",
+    description: "Scan URL",
+    aliases: ["virustotal", "urlscan", "safescan", "checksafe", "threatscan", "scanurl", "checkurl"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  STOCKS.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const stocks = MODULES.stocks;
+
+  if (stocks.stock) safeRegister("stock", stocks.stock, {
+    category: "info",
+    description: "Stock prices",
+    aliases: ["stocks", "share", "stockprice", "stockinfo", "market", "shareprice", "stockmarket"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  TRANSLATION.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const trans = MODULES.translation;
+
+  if (trans.translate) safeRegister("translate", trans.translate, {
+    category: "tools",
+    description: "Translate text",
+    aliases: ["tr", "tl", "lang", "trans", "translation", "translate", "translator"]
+  });
+
+  if (trans.detect) safeRegister("detect", trans.detect, {
+    category: "tools",
+    description: "Detect language",
+    aliases: ["langdetect", "whatlang", "detectlang", "language", "langid", "detectlanguage"]
+  });
+
+  if (trans.languages) safeRegister("languages", trans.languages, {
+    category: "tools",
+    description: "List languages",
+    aliases: ["langs", "langlist", "supportedlangs", "alllangs", "languagelist", "languagesupported"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  TTS.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const tts = MODULES.tts;
+
+  if (tts.tts) safeRegister("tts", tts.tts, {
+    category: "media",
+    description: "Text to speech",
+    aliases: ["voice", "say", "speak", "read", "texttospeech", "ttsaudio", "speaktext"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  UNITCONVERTER.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const uc = MODULES.unitConverter;
+
+  if (uc.convert) safeRegister("convert", uc.convert, {
+    category: "tools",
+    description: "Convert units",
+    aliases: ["conv", "uconvert", "unitconvert", "cvt", "conversion", "convertunit", "unitconv"]
+  });
+
+  if (uc.units) safeRegister("units", uc.units, {
+    category: "tools",
+    description: "List units",
+    aliases: ["listunits", "unitlist", "availableunits", "unittypes", "showunits", "allunits"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  GROUP CORE.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const gc = MODULES.groupCore;
+
+  if (gc.kick) safeRegister("kick", gc.kick, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    requireBotAdmin: true,
+    description: "Kick member",
+    aliases: ["remove", "kickmember", "removemember", "boot", "kickout", "removeuser"]
+  });
+
+  if (gc.add) safeRegister("add", gc.add, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Add member",
+    aliases: ["invite", "addmember", "adduser", "addperson", "addtogroup", "addparticipant"]
+  });
+
+  if (gc.promote) safeRegister("promote", gc.promote, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    requireBotAdmin: true,
+    description: "Promote to admin",
+    aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin", "promoteuser", "promotemember"]
+  });
+
+  if (gc.demote) safeRegister("demote", gc.demote, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    requireBotAdmin: true,
+    description: "Demote admin",
+    aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin", "demoteuser", "demotemember"]
+  });
+
+  if (gc.link) safeRegister("link", gc.link, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Group link",
+    aliases: ["grouplink", "invitelink", "getlink", "grouplink", "linkgroup", "grouplink"]
+  });
+
+  if (gc.admins) safeRegister("admins", gc.admins, {
+    category: "group",
+    groupOnly: true,
+    description: "List admins",
+    aliases: ["listadmins", "adminlist", "groupadmins", "getadmins", "showadmins", "adminslist"]
+  });
+
+  if (gc.tagall) safeRegister("tagall", gc.tagall, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Tag all members",
+    aliases: ["everyone", "all", "tageveryone", "mentionall", "pingall", "tag", "mentioneveryone"]
+  });
+
+  if (gc.hidetag) safeRegister("hidetag", gc.hidetag, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Silent tag all",
+    aliases: ["htag", "silent", "silentping", "hiddentag", "ghosttag", "silenttag", "hidetagall"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  GROUP MODERATION.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const gm = MODULES.groupMod;
+
+  if (gm.ban) safeRegister("ban", gm.ban, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    requireBotAdmin: true,
+    description: "Ban user",
+    aliases: ["block", "banuser", "blacklist", "banmember", "banperson", "banthem"]
+  });
+
+  if (gm.unban) safeRegister("unban", gm.unban, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Unban user",
+    aliases: ["unblock", "unbanuser", "whitelist", "removeban", "unbanperson", "unblockuser"]
+  });
+
+  if (gm.warn) safeRegister("warn", gm.warn, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Warn user",
+    aliases: ["warning", "warnuser", "givewarn", "addwarn", "warnmember", "warnperson"]
+  });
+
+  if (gm.warnings) safeRegister("warnings", gm.warnings, {
+    category: "group",
+    groupOnly: true,
+    description: "View warnings",
+    aliases: ["warnlist", "checkwarns", "getwarn", "mywarnings", "seewarns", "warningslist"]
+  });
+
+  if (gm.clearWarns) safeRegister("clearwarns", gm.clearWarns, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Clear warnings",
+    aliases: ["resetwarns", "clearwarnings", "rmwarns", "deletewarns", "removewarns", "clearallwarns"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  GROUP SETTINGS.JS - OTHER COMMANDS (MUTE, UNMUTE, WELCOME, GOODBYE, ETC)
+  // ────────────────────────────────────────────────────────────────────────
+  const gs = MODULES.groupSettings;
+
+  if (gs.mute) safeRegister("mute", gs.mute, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Mute group",
+    aliases: ["lock", "lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"]
+  });
+
+  if (gs.unmute) safeRegister("unmute", gs.unmute, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Unmute group",
+    aliases: ["unlock", "unlockgroup", "groupunlock", "unmuteall", "unmutechat", "unmutegroup"]
+  });
+
+  if (gs.antispam) safeRegister("antispam", gs.antispam, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Toggle anti-spam",
+    aliases: ["nospam", "blockspam", "toggleantispam", "antispam", "stopspam", "antispamon", "antispamoff"]
+  });
+
+  if (gs.welcome) safeRegister("welcome", gs.welcome, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Welcome message",
+    aliases: ["setwelcome", "welcomemsg", "togglewelcome", "welcomeon", "welcomeoff", "welcomemessage"]
+  });
+
+  if (gs.goodbye) safeRegister("goodbye", gs.goodbye, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Goodbye message",
+    aliases: ["setgoodbye", "goodbyemsg", "togglegoodbye", "goodbyeon", "goodbyeoff", "goodbyemessage"]
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  //  ADMIN.JS
+  // ────────────────────────────────────────────────────────────────────────
+  const adm = MODULES.admin;
+
+  if (adm.addUser) safeRegister("adduser", adm.addUser, {
+    category: "admin",
+    adminOnly: true,
+    description: "Add authorized user",
+    aliases: ["auth", "allow", "authorize", "whitelist", "addauth", "authorizeuser"]
+  });
+
+  if (adm.removeUser) safeRegister("removeuser", adm.removeUser, {
+    category: "admin",
+    adminOnly: true,
+    description: "Remove authorized user",
+    aliases: ["deauth", "disallow", "unauthorize", "unwhitelist", "removeauth", "deauthorize"]
+  });
+
+  if (adm.listUsers) safeRegister("listusers", adm.listUsers, {
+    category: "admin",
+    adminOnly: true,
+    description: "List authorized users",
+    aliases: ["users", "whitelist", "showusers", "authlist", "listauth", "authorizedusers"]
+  });
+
+  if (adm.mode) safeRegister("mode", adm.mode, {
+    category: "admin",
+    adminOnly: true,
+    description: "Change bot mode",
+    aliases: ["setmode", "botmode", "changemode", "switchmode", "modechange", "setbotmode"]
+  });
+
+  if (adm.broadcast) safeRegister("broadcast", adm.broadcast, {
+    category: "admin",
+    adminOnly: true,
+    description: "Broadcast message",
+    aliases: ["bc", "announce", "sendall", "massmessage", "broadcastmsg", "broadcastmessage"]
+  });
+
+  if (adm.globalBroadcast) safeRegister("globalbc", adm.globalBroadcast, {
+    category: "admin",
+    adminOnly: true,
+    description: "Global broadcast",
+    aliases: ["gbc", "globalbroadcast", "globalannounce", "massbc", "globalbc", "globalmessage"]
+  });
+
+  if (adm.stats) safeRegister("stats", adm.stats, {
+    category: "admin",
+    adminOnly: true,
+    description: "Bot statistics",
+    aliases: ["botstats", "botinfo", "usage", "analytics", "statistics", "botstatus"]
+  });
+
+  if (adm.restart) safeRegister("restart", adm.restart, {
+    category: "admin",
+    adminOnly: true,
+    description: "Restart bot",
+    aliases: ["reboot", "botrestart", "reset", "restartbot", "reload", "restartsystem"]
+  });
+
+  if (adm.shutdown) safeRegister("shutdown", adm.shutdown, {
+    category: "admin",
+    adminOnly: true,
+    description: "Shutdown bot",
+    aliases: ["off", "stop", "botoff", "poweroff", "halt", "shut", "shutdownbot"]
+  });
+
+  if (adm.eval) safeRegister("eval", adm.eval, {
+    category: "admin",
+    adminOnly: true,
+    description: "Execute code",
+    aliases: ["exec", "run", "runcode", "execute", "evalcode", "runjs"]
+  });
+
+  log.div();
+  log.success(`✅ Registered ${primaryCommands.size} primary commands with ${commands.size - primaryCommands.size} aliases`);
+  log.success(`📊 Total entries in commands Map: ${commands.size}`);
   console.log();
 }
 
 registerAllCommands();
 
-// ════════════════════════════════════════════════════════════════════════════
-//  HELPER FUNCTIONS
-// ════════════════════════════════════════════════════════════════════════════
-
-function safeJid(jid) {
-  if (!jid) return "";
-  if (typeof jid === "object") {
-    if (jid.user && jid.server) return `${jid.user}@${jid.server}`;
-    if (jid._serialized) return jid._serialized;
-    if (jid.id) return jid.id;
-    return "";
-  }
-  return String(jid).trim();
-}
-
-function safePhone(jid) {
-  const cleanJid = safeJid(jid);
-  const phone = cleanJid.split("@")[0].split(":")[0];
-  return phone.replace(/[^0-9]/g, "");
-}
-
-function parseCommandArguments(text) {
-  const args = text.split(/\s+/);
-  const cmd = args.shift()?.toLowerCase() || "";
-  return {
-    command: cmd,
-    args: args,
-    fullArgs: args.join(" "),
-  };
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  MAIN COMMAND HANDLER
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  COMMAND HANDLER EXECUTION - (Keep your existing handleCommand function here)
+// ============================================================================
 export async function handleCommand(message, sock) {
-  const handleStartTime = Date.now();
+  const executionStart = Date.now();
+  const executionId = Math.random().toString(36).substring(2, 8);
 
   try {
-    // ── Basic message extraction ─────────────────────────────────────────
+    // ======================================================================
+    //  PHASE 1: EXTRACT BASIC MESSAGE INFO
+    // ======================================================================
     const from = message?.key?.remoteJid;
-    if (!from) return;
+    if (!from) {
+      log.debug(`[${executionId}] No remoteJid, ignoring`);
+      return;
+    }
 
     const isGroup = from.endsWith("@g.us");
-    const isDM = from.endsWith("@s.whatsapp.net") || from.endsWith("@lid");
     const fromMe = !!message.key.fromMe;
 
-    // ── Session context from message (injected by index.js) ─────────────
+    // Session context injected by index.js
     const session = message._session || null;
-    const ownerPhone =
-      message._ownerPhone ||
-      session?.ownerPhone ||
-      ENV.CREATOR_CONTACT ||
-      "2349159180375";
-    const sessionMode =
-      message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
+    const ownerPhone = message._ownerPhone || session?.ownerPhone || "";
+    const sessionMode = message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
     const sessionId = message._sessionId || session?.id || "";
 
-    // ── Resolve sender ───────────────────────────────────────────────────
+    // ======================================================================
+    //  PHASE 2: DETERMINE SENDER
+    // ======================================================================
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -1361,16 +1212,23 @@ export async function handleCommand(message, sock) {
       rawSenderJid = from;
     }
 
-    const cleanPhone = safePhone(rawSenderJid);
+    const cleanPhone = rawSenderJid?.split("@")[0]?.replace(/[^0-9]/g, "") || "";
     const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
-    if (!userJid || !cleanPhone) return;
 
-    // ── Permission flags ────────────────────────────────────────────────
+    if (!userJid || !cleanPhone) {
+      log.debug(`[${executionId}] Invalid user JID, ignoring`);
+      return;
+    }
+
+    // ======================================================================
+    //  PHASE 3: AUTHORIZATION CHECKS
+    // ======================================================================
     const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
-    const isAuthorizedUser =
-      isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
+    const isAuthorizedUser = isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
-    // ── Extract message text ────────────────────────────────────────────
+    // ======================================================================
+    //  PHASE 4: EXTRACT MESSAGE TEXT
+    // ======================================================================
     const m = message.message || {};
     const msgText =
       m.conversation ||
@@ -1380,126 +1238,208 @@ export async function handleCommand(message, sock) {
       m.documentMessage?.caption ||
       "";
 
-    if (!msgText || !msgText.trim()) return;
-
+    if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
+// ======================================================================
+//  PHASE 5: TRIVIA ANSWER HANDLER - FIXED WITH DEBUG LOGS
+// ======================================================================
+if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
+  console.log(`🎯 [CMD] Potential trivia answer: "${trimmed}" in chat ${from}`);
+  console.log(`📊 [CMD] activeTrivia.has(from)? ${global.activeTrivia?.has(from) || false}`);
+
+  // Check if there's an active trivia in this chat
+  if (global.activeTrivia?.has(from)) {
+    console.log(`✅ [CMD] Active trivia found, processing answer...`);
+
+    // Check permissions before handling trivia
+    if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
+      console.log(`❌ [CMD] Permission denied - group not activated`);
+      return;
+    }
+    if (sessionMode === "private" && !isAdminUser) {
+      console.log(`❌ [CMD] Permission denied - private mode`);
+      return;
+    }
+    if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
+      console.log(`❌ [CMD] Permission denied - user banned`);
+      return;
+    }
+
+    try {
+      // Get games module
+      const games = MODULES.games;
+      console.log(`🎮 [CMD] Games module available: ${!!games}`);
+      console.log(`🎮 [CMD] handleTriviaAnswer available: ${typeof games?.handleTriviaAnswer === 'function'}`);
+
+      if (typeof games?.handleTriviaAnswer === 'function') {
+        const answerStartTime = Date.now();
+        // Pass the FULL message object, from, and sock
+        await games.handleTriviaAnswer(message, from, sock);
+        console.log(`⏱️ [CMD] Trivia answer processed in ${Date.now() - answerStartTime}ms`);
+        return; // IMPORTANT: Return after handling trivia
+      } else {
+        console.log(`❌ [CMD] handleTriviaAnswer function not found`);
+        // Fallback response
+        await sock.sendMessage(from, {
+          text: "❌ Trivia system error. Please try again later."
+        });
+      }
+    } catch (error) {
+      console.log(`❌ [CMD] Trivia error: ${error.message}`);
+    }
+  } else {
+    console.log(`❌ [CMD] No active trivia for this chat`);
+  }
+}
+
+    // ======================================================================
+    //  PHASE 6: PREFIX CHECK
+    // ======================================================================
     if (!trimmed.startsWith(ENV.PREFIX)) return;
 
-    // ── Parse command ───────────────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
-    const {
-      command: commandName,
-      args,
-      fullArgs,
-    } = parseCommandArguments(body);
+    const parts = body.split(/\s+/);
+    const commandName = parts[0].toLowerCase();
+    const args = parts.slice(1);
+    const fullArgs = args.join(" ");
+
     if (!commandName) return;
 
-    // ── LOGGING ─────────────────────────────────────────────────────────
-    const cmdLog = `${ENV.PREFIX}${commandName}`;
-    const userLog = `${cleanPhone}${isGroup ? ` [GROUP]` : ""}`;
-    log.info(`${cmdLog} from ${userLog}`);
+    // ======================================================================
+    //  PHASE 7: BANNED USER CHECK
+    // ======================================================================
+    if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
+      log.warn(`[${executionId}] Blocked banned user: ${cleanPhone}`);
+      return;
+    }
 
-    // ── Find command ────────────────────────────────────────────────────
-    const command = commands.get(commandName);
-    if (!command) {
-      log.warn(`Unknown command: ${commandName}`);
+    // ======================================================================
+    //  PHASE 8: GROUP ACTIVATION CHECK - FIX FOR ISSUE #3
+    // ======================================================================
+    if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
+      log.info(`[${executionId}] Group not activated: ${commandName} ignored from ${cleanPhone}`);
+      return;
+    }
+
+    // ======================================================================
+    //  PHASE 9: PRIVATE MODE CHECK - FIX FOR ISSUE #2 & #5
+    //  COMPLETELY SILENT - NO MESSAGE SENT
+    // ======================================================================
+    if (sessionMode === "private" && !isAdminUser) {
+      log.info(`[${executionId}] Private mode: silently ignored ${cleanPhone}`);
+      return; // NO MESSAGE SENT - COMPLETE SILENCE
+    }
+
+    // ======================================================================
+    //  PHASE 10: COMMAND LOOKUP
+    // ======================================================================
+    log.info(`[${executionId}] ${ENV.PREFIX}${commandName} from ${cleanPhone}${isGroup ? ' [GROUP]' : ''}`);
+
+    const commandMeta = commands.get(commandName);
+
+    if (!commandMeta) {
+      log.warn(`[${executionId}] Unknown command: ${commandName}`);
+
+      const similarCommands = findSimilarCommands(commandName);
+      let suggestionText = '';
+
+      if (similarCommands.length > 0) {
+        suggestionText = `\n\nDid you mean: *${ENV.PREFIX}${similarCommands[0]}*?`;
+        if (similarCommands.length > 1) {
+          suggestionText += `\nOr: ${similarCommands.slice(1, 3).map(c => `*${ENV.PREFIX}${c}*`).join(', ')}`;
+        }
+      }
+
       await sock.sendMessage(from, {
-        text: formatInfo(
-          "UNKNOWN COMMAND",
-          `❓ *${ENV.PREFIX}${commandName}* is not a recognized command.\n\n` +
-            `Type *${ENV.PREFIX}menu* to see all available commands!`,
-        ),
+        text: `❓ *Unknown Command:* ${ENV.PREFIX}${commandName}${suggestionText}\n\nType *${ENV.PREFIX}menu* to see all commands!`
       });
       return;
     }
 
-    // ── Track command usage ─────────────────────────────────────────────
-    if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
-    const userCmds = commandUsage.get(userJid);
-    userCmds[commandName] = (userCmds[commandName] || 0) + 1;
+    // ======================================================================
+    //  PHASE 11: GET THE ACTUAL HANDLER FUNCTION
+    // ======================================================================
+    let handlerFunction = commandMeta.handler;
+    let primaryName = commandMeta.primaryName || commandName;
 
-    const stats = commandStats.get(commandName) || {
-      uses: 0,
-      errors: 0,
-      avgTime: 0,
-    };
+    if (commandMeta.isAlias && commandMeta.primaryName) {
+      primaryName = commandMeta.primaryName;
+      log.debug(`[${executionId}] Alias "${commandName}" → primary "${primaryName}"`);
+    }
+
+    // ======================================================================
+    //  PHASE 12: TRACK USAGE
+    // ======================================================================
+    if (!commandUsage.has(userJid)) {
+      commandUsage.set(userJid, {});
+    }
+    commandUsage.get(userJid)[primaryName] = (commandUsage.get(userJid)[primaryName] || 0) + 1;
+
+    const stats = commandStats.get(primaryName) || { uses: 0, errors: 0, lastUsed: null, avgResponseTime: 0, totalResponseTime: 0 };
     stats.uses++;
-    commandStats.set(commandName, stats);
+    stats.lastUsed = Date.now();
+    commandStats.set(primaryName, stats);
 
-    // ── PRIVATE MODE CHECK ──────────────────────────────────────────────
-    if (sessionMode === "private" && !isAdminUser) {
-      log.warn(`PRIVATE MODE: ${cleanPhone} blocked`);
-      return sock.sendMessage(from, {
-        text: `🔒 *PRIVATE MODE*\n\nThis bot is currently set to *private*.\nOnly the bot owner can use commands.\n\n⚡ _AYOBOT v1.5.0 by AYOCODES_`,
-      });
-    }
-
-    // ── RATE LIMITING ───────────────────────────────────────────────────
+    // ======================================================================
+    //  PHASE 13: RATE LIMIT CHECK
+    // ======================================================================
     if (!isAdminUser && !rateLimiter.isAllowed(userJid)) {
-      const remaining = rateLimiter.getRemainingTime(userJid);
-      const seconds = Math.ceil(remaining / 1000);
-      log.warn(`RATE LIMIT: ${cleanPhone}`);
+      const seconds = Math.ceil(rateLimiter.remaining(userJid) / 1000);
+      const messages = [
+        `⏳ *Slow down!* Wait *${seconds}s* before the next command.`,
+        `🧘 *Take a breath!* Wait ${seconds}s.`,
+        `⚡ *Rate limited!* Try again in ${seconds}s.`
+      ];
+      const message = messages[Math.floor(Math.random() * messages.length)];
+      return sock.sendMessage(from, { text: message });
+    }
+
+    // ======================================================================
+    //  PHASE 14: PERMISSION CHECKS
+    // ======================================================================
+
+    // Admin only check
+    if (commandMeta.adminOnly && !isAdminUser) {
+      log.debug(`[${executionId}] Admin-only command blocked for non-admin`);
       return sock.sendMessage(from, {
-        text: formatError(
-          "RATE LIMITED",
-          `⏱️ You're sending too many commands!\n\nPlease wait *${seconds}s* before trying again.`,
-        ),
+        text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.`
       });
     }
 
-    // ── Admin-only check ────────────────────────────────────────────────
-    if (command.adminOnly && !isAdminUser) {
-      log.warn(`ADMIN ONLY: ${cleanPhone} tried ${cmdLog}`);
+    // Group only check
+    if (commandMeta.groupOnly && !isGroup) {
+      log.debug(`[${executionId}] Group-only command used in DM`);
       return sock.sendMessage(from, {
-        text: formatError(
-          "ACCESS DENIED",
-          "⛔ This command is for the *bot owner* only.",
-        ),
+        text: `👥 *${ENV.PREFIX}${commandName}* only works inside a group.`
       });
     }
 
-    // ── Group-only check ────────────────────────────────────────────────
-    if (command.groupOnly && !isGroup) {
-      log.warn(`GROUP ONLY: ${cleanPhone} tried ${cmdLog}`);
-      return sock.sendMessage(from, {
-        text: formatError(
-          "GROUP ONLY",
-          `👥 *${ENV.PREFIX}${commandName}* only works in groups.`,
-        ),
-      });
-    }
-
-    // ── Bot admin requirement check ─────────────────────────────────────
-    if (command.requireBotAdmin && isGroup) {
+    // Bot admin check for group commands
+    if (commandMeta.requireBotAdmin && isGroup) {
       let botIsAdmin = false;
       try {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
-      } catch (_) {}
+      } catch (_) {
+        log.debug(`[${executionId}] Bot admin check failed`);
+      }
+
       if (!botIsAdmin) {
-        log.warn(`BOT NOT ADMIN: ${cmdLog}`);
+        log.debug(`[${executionId}] Bot not admin for admin-required command`);
         return sock.sendMessage(from, {
-          text: formatGroupError(
-            "BOT NOT ADMIN",
-            `❌ I need group admin rights for *${ENV.PREFIX}${commandName}*.\n\nPlease promote me to admin first!`,
-          ),
+          text: `❌ I need *group admin* rights to use *${ENV.PREFIX}${commandName}*.\nPlease promote me first!`
         });
       }
     }
 
-    // ── Check if user is banned ─────────────────────────────────────────
-    if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
-      log.warn(`BANNED USER: ${cleanPhone} tried ${cmdLog}`);
-      return;
-    }
+    // ======================================================================
+    //  PHASE 15: EXECUTE COMMAND WITH TIMING
+    // ======================================================================
+    const handlerStart = Date.now();
+    log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
 
-    // ── Command execution ───────────────────────────────────────────────
     try {
-      const execStartTime = Date.now();
-      log.cmd(`Executing: ${cmdLog}`);
-
-      // Pass complete context
       const context = {
         args,
         fullArgs,
@@ -1509,113 +1449,196 @@ export async function handleCommand(message, sock) {
         userJid,
         cleanPhone,
         isGroup,
-        isDM,
+        isDM: !isGroup,
         fromMe,
         sock,
         isAdmin: isAdminUser,
         isAuthorized: isAuthorizedUser,
-        commandName,
+        commandName: primaryName,
+        invokedAs: commandName,
         prefix: ENV.PREFIX,
         session,
         sessionId,
         sessionMode,
         ownerPhone,
+        ENV,
       };
 
-      await command.handler(context);
+      // Execute with timeout protection
+      const executionPromise = handlerFunction(context);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Command execution timeout')), 60000)
+      );
 
-      const execTime = Date.now() - execStartTime;
-      const prevAvg = stats.avgTime || 0;
-      stats.avgTime = (prevAvg + execTime) / 2;
-      commandStats.set(commandName, stats);
+      await Promise.race([executionPromise, timeoutPromise]);
 
-      log.success(`${cmdLog} completed (${execTime}ms)`);
+      const executionTime = Date.now() - handlerStart;
+      stats.totalResponseTime += executionTime;
+      stats.avgResponseTime = stats.totalResponseTime / stats.uses;
+
+      log.success(`[${executionId}] ${primaryName} completed (${executionTime}ms)`);
+
     } catch (cmdError) {
-      const stats = commandStats.get(commandName) || {
-        uses: 0,
-        errors: 0,
-        avgTime: 0,
-      };
       stats.errors++;
-      commandStats.set(commandName, stats);
+      log.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
 
-      log.err(`${cmdLog} error: ${cmdError.message.substring(0, 80)}`);
+      const errorMessage = cmdError.message || "Unknown error";
+      const userMessage = errorMessage.length > 100
+        ? "An error occurred while executing the command."
+        : `❌ *Error*\n\n${errorMessage}`;
 
       try {
-        await sock.sendMessage(from, {
-          text: formatError(
-            "COMMAND ERROR",
-            `❌ *${ENV.PREFIX}${commandName}* encountered an error:\n\n${cmdError.message || "Unknown error"}\n\n_Please try again or contact support_`,
-          ),
-        });
+        await sock.sendMessage(from, { text: userMessage });
       } catch (_) {}
     }
 
-    // ── Final logging ───────────────────────────────────────────────────
-    const totalTime = Date.now() - handleStartTime;
-    if (totalTime > 2000) {
-      log.warn(`Slow command ${cmdLog}: ${totalTime}ms`);
+    commandStats.set(primaryName, stats);
+
+    // ======================================================================
+    //  PHASE 16: SLOW COMMAND WARNING
+    // ======================================================================
+    if (Date.now() - executionStart > 5000) {
+      log.warn(`[${executionId}] Slow command: ${primaryName} (${Date.now() - executionStart}ms)`);
     }
+
   } catch (fatalError) {
-    log.err(`FATAL: ${fatalError.message}`);
+    // ======================================================================
+    //  PHASE 17: FATAL ERROR HANDLER - NEVER CRASH
+    // ======================================================================
+    log.err(`[${executionId}] FATAL: ${fatalError.message}`);
+    log.debug(fatalError.stack);
+
     try {
-      await sock.sendMessage(message?.key?.remoteJid, {
-        text: "❌ A fatal error occurred. Please try again.",
+      await sock?.sendMessage(message?.key?.remoteJid, {
+        text: "❌ A system error occurred. Please try again."
       });
     } catch (_) {}
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  COMMAND METADATA & EXPORTS
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  HELPER FUNCTIONS
+// ============================================================================
+function findSimilarCommands(input, limit = 3) {
+  const inputLower = input.toLowerCase();
+  const commands = Array.from(primaryCommands.keys());
 
-export function getCommandMetadata(cmdName) {
-  return commandMetadata.get(cmdName.toLowerCase()) || null;
+  const withDistance = commands.map(cmd => {
+    const distance = levenshteinDistance(inputLower, cmd);
+    return { cmd, distance };
+  });
+
+  return withDistance
+    .filter(item => item.distance <= 3 && item.distance > 0)
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, limit)
+    .map(item => item.cmd);
+}
+
+function levenshteinDistance(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// ============================================================================
+//  UTILITY EXPORTS
+// ============================================================================
+export function getCommandInfo(name) {
+  const meta = commands.get(name?.toLowerCase());
+  if (!meta) return null;
+
+  return {
+    name: meta.primaryName || name,
+    category: meta.category,
+    description: meta.description,
+    adminOnly: meta.adminOnly,
+    groupOnly: meta.groupOnly,
+    isAlias: meta.isAlias || false,
+    aliases: meta.aliases || []
+  };
+}
+
+export function getCommandStats(name) {
+  const primary = name?.toLowerCase();
+  return commandStats.get(primary) || null;
 }
 
 export function getCommandsByCategory(category) {
-  return Array.from(commands.values()).filter(
-    (cmd) => cmd.category.toLowerCase() === category.toLowerCase(),
-  );
-}
+  const uniqueCommands = new Map();
 
-export function getCommandStats(cmdName) {
-  return (
-    commandStats.get(cmdName.toLowerCase()) || {
-      uses: 0,
-      errors: 0,
-      avgTime: 0,
+  for (const [_, meta] of commands.entries()) {
+    if (meta.category === category && !meta.isAlias) {
+      uniqueCommands.set(meta.primaryName, meta);
     }
-  );
+  }
+
+  return Array.from(uniqueCommands.values());
 }
 
 export function getAllStats() {
+  let totalUses = 0;
+  let totalErrors = 0;
+
+  for (const stats of commandStats.values()) {
+    totalUses += stats.uses;
+    totalErrors += stats.errors;
+  }
+
   return {
-    totalCommands: commands.size,
-    commandStats: Object.fromEntries(commandStats),
-    totalUsage: Array.from(commandStats.values()).reduce(
-      (sum, s) => sum + s.uses,
-      0,
-    ),
-    totalErrors: Array.from(commandStats.values()).reduce(
-      (sum, s) => sum + s.errors,
-      0,
-    ),
+    totalCommands: primaryCommands.size,
+    totalAliases: commands.size - primaryCommands.size,
+    totalEntries: commands.size,
+    totalUses,
+    totalErrors,
+    uniqueCommands: primaryCommands.size,
+    topCommands: Array.from(commandStats.entries())
+      .sort((a, b) => b[1].uses - a[1].uses)
+      .slice(0, 5)
+      .map(([name, stats]) => ({ name, uses: stats.uses }))
   };
 }
 
 export async function reloadCommands() {
   log.title("🔄 RELOADING COMMANDS");
+
   commands.clear();
+  primaryCommands.clear();
+  aliasMap.clear();
   commandStats.clear();
-  commandMetadata.clear();
+
+  for (const name in MODULES) {
+    delete MODULES[name];
+  }
+
   await loadAllModules();
   registerAllCommands();
-  log.success("Commands reloaded");
+
+  log.success("✅ Commands reloaded successfully");
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  EXPORTS
-// ════════════════════════════════════════════════════════════════════════════
-export { commands, commandStats, modules };
+setInterval(() => rateLimiter.cleanup(), 60000);
+
+export { MODULES as modules };

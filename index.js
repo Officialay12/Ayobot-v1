@@ -100,30 +100,30 @@ export const ENV = {
   CREATOR_GITHUB: "https://github.com/Officialay12",
 
   // ── AI & LLM KEYS ──────────────────────────────────────────
-  GEMINI_KEY: process.env.GEMINI_KEY, // Google Gemini — primary AI
-  GROQ_API_KEY: process.env.GROQ_API_KEY, // Groq — fast LLM fallback
-  OPENROUTER_KEY: process.env.OPENROUTER_KEY, // OpenRouter — multi-model
-  TOGETHER_KEY: process.env.TOGETHER_KEY, // Together AI
-  HF_TOKEN: process.env.HF_TOKEN, // HuggingFace — image gen etc
-  POLLINATIONS_KEY: process.env.POLLINATIONS_API_KEY, // Pollinations AI image gen
+  GEMINI_KEY: process.env.GEMINI_KEY,
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  OPENROUTER_KEY: process.env.OPENROUTER_KEY,
+  TOGETHER_KEY: process.env.TOGETHER_KEY,
+  HF_TOKEN: process.env.HF_TOKEN,
+  POLLINATIONS_KEY: process.env.POLLINATIONS_API_KEY,
 
   // ── MEDIA & SEARCH KEYS ────────────────────────────────────
-  OPENWEATHER_KEY: process.env.OPENWEATHER_KEY, // Weather
-  NEWS_API_KEY: process.env.NEWS_API_KEY, // NewsData.io
-  TMDB_API_KEY: process.env.TMDB_API_KEY, // Movies & TV
-  OMDB_API_KEY: process.env.OMDB_API_KEY, // OMDb movies fallback
-  COINMARKETCAP_KEY: process.env.COINMARKETCAP_KEY, // Crypto prices
-  REMOVEBG_KEY: process.env.REMOVEBG_KEY, // Remove background
-  GIPHY_KEY: process.env.GIPHY_KEY, // GIF search
+  OPENWEATHER_KEY: process.env.OPENWEATHER_KEY,
+  NEWS_API_KEY: process.env.NEWS_API_KEY,
+  TMDB_API_KEY: process.env.TMDB_API_KEY,
+  OMDB_API_KEY: process.env.OMDB_API_KEY,
+  COINMARKETCAP_KEY: process.env.COINMARKETCAP_KEY,
+  REMOVEBG_KEY: process.env.REMOVEBG_KEY,
+  GIPHY_KEY: process.env.GIPHY_KEY,
   TENOR_KEY: process.env.TENOR_KEY || process.env.GEMINI_KEY,
-  PIXABAY_KEY: process.env.PIXABAY_KEY, // Stock images
-  UNSPLASH_KEY: process.env.UNSPLASH_KEY, // Stock photos
-  RAPIDAPI_KEY: process.env.RAPIDAPI_KEY, // RapidAPI hub
+  PIXABAY_KEY: process.env.PIXABAY_KEY,
+  UNSPLASH_KEY: process.env.UNSPLASH_KEY,
+  RAPIDAPI_KEY: process.env.RAPIDAPI_KEY,
 
   // ── SECURITY KEYS ─────────────────────────────────────────
-  VIRUSTOTAL_KEY: process.env.VIRUSTOTAL_KEY, // Virus/malware scan
-  GOOGLE_SAFE_BROWSING: process.env.GOOGLE_SAFE_BROWSING_KEY, // Safe browsing check
-  URLSCAN_KEY: process.env.URLSCAN_KEY, // URL scanner
+  VIRUSTOTAL_KEY: process.env.VIRUSTOTAL_KEY,
+  GOOGLE_SAFE_BROWSING: process.env.GOOGLE_SAFE_BROWSING_KEY,
+  URLSCAN_KEY: process.env.URLSCAN_KEY,
 
   // ── SHORTENER ─────────────────────────────────────────────
   SHORTENER_API: process.env.SHORTENER_API || "https://ayo-link.onrender.com",
@@ -154,7 +154,6 @@ if (!ENV.MONGODB_URI) {
 }
 
 function checkEnvVars() {
-  // Show loaded API keys on startup. — AYOCODES
   const loaded = [];
   const missing = [];
 
@@ -280,6 +279,43 @@ export const adminCache = new Map();
 export const groupMetadataCache = new Map();
 export const msgCache = new NodeCache({ stdTTL: 60, maxKeys: 5000 });
 
+// Initialize global trivia store
+if (!global.activeTrivia) {
+  global.activeTrivia = new Map();
+  console.log("✅ [index.js] Created global.activeTrivia");
+}
+
+// Session owner map for optimized lookups
+const sessionOwnerMap = new Map(); // ownerPhone -> session
+
+// ============================================================
+//   GROUP ACTIVATIONS - FIXED (ISSUE #3)
+//   Tracks which groups each session's owner has activated.
+//   sessionId → Set<groupJid>
+//   By default a bot only responds to its owner in a group.
+//   Owner must run .activate in a group to open it to everyone.
+//   This prevents two deployed bots from both replying to
+//   every message in a shared group. — AYOCODES
+// ============================================================
+export const groupActivations = new Map(); // sessionId -> Set<groupJid>
+
+export function activateGroup(sessionId, groupJid) {
+  if (!groupActivations.has(sessionId)) {
+    groupActivations.set(sessionId, new Set());
+  }
+  groupActivations.get(sessionId).add(groupJid);
+  log.ok(`[${sessionId.slice(0, 8)}] Group activated: ${groupJid}`);
+}
+
+export function deactivateGroup(sessionId, groupJid) {
+  groupActivations.get(sessionId)?.delete(groupJid);
+  log.info(`[${sessionId.slice(0, 8)}] Group deactivated: ${groupJid}`);
+}
+
+export function isGroupActivated(sessionId, groupJid) {
+  return groupActivations.get(sessionId)?.has(groupJid) === true;
+}
+
 // DB alias wrappers — moderation.js and settings.js import these. — AYOCODES
 export function saveBann(jid, reason = "") {
   bannedUsers.set(jid, { reason, timestamp: Date.now() });
@@ -304,69 +340,60 @@ export function saveGroupSettings() {
 
 // ============================================================
 //   DATABASE — now MongoDB-backed for multi-session
-//   warnings / bans / settings stored per-session in MongoDB.
-//   Each session has its own isolated data namespace. — AYOCODES
 // ============================================================
-let dbCollection = null; // set after mongo connects
+// Kept for compatibility with existing imports
+let dbCollection = null;
 
 export function loadDatabases() {
-  // In multi-session mode, per-user data is loaded per-session from MongoDB.
-  // Global maps here are shared across all sessions (legacy compatibility).
   log.ok("Databases ready (MongoDB)");
 }
 
 export function saveDatabases() {
-  // Persist to MongoDB per-session via the session's own save function.
-  // This no-op keeps submodule imports working without changes. — AYOCODES
+  // No-op — keeps submodule imports working without changes. — AYOCODES
 }
 
-// Owner helpers — per-session, called from session objects below. — AYOCODES
-// Backwards compatible isAdmin — works with 1 or 2 args.
-// If ownerPhone not passed, checks all active session owners.
-// This means obfuscated command files work without any changes. — AYOCODES
+// ============================================================
+//   ADMIN HELPERS - FIXED SECURITY (ISSUE #4)
+//   SECURITY FIX: If ownerPhone is missing/falsy, return false immediately
+//   This prevents cross-session privilege escalation where any
+//   user could claim admin rights against a different session's
+//   bot just because their number matched another session owner.
+//   — AYOCODES
+// ============================================================
 export function isAdmin(userJid, ownerPhone) {
-  if (!userJid) return false;
+  // SECURITY FIX: If ownerPhone is missing/falsy, return false immediately
+  if (!userJid || !ownerPhone) return false;
+
   const rawLocal = userJid.split("@")[0].split(":")[0];
   const u = normalizePhone(rawLocal);
+  const o = normalizePhone(ownerPhone);
 
-  // If ownerPhone passed directly — fast check. — AYOCODES
-  if (ownerPhone) {
-    const o = normalizePhone(ownerPhone);
-    return (
-      u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`
-    );
-  }
+  if (!u || !o) return false;
 
-  // Fallback: check against ALL active session owners.
-  // Handles obfuscated files that call isAdmin(jid) with one arg. — AYOCODES
-  for (const session of sessions.values()) {
-    if (!session.ownerPhone) continue;
-    const o = normalizePhone(session.ownerPhone);
-    if (u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`)
-      return true;
-  }
-  return false;
+  // Only return true if this user's phone exactly matches the session owner's phone
+  return u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`;
 }
 
 // Backwards compatible isAuthorized — works with 1, 2, or 3 args.
 // sessionMode = the per-session mode ("public" or "private"). — AYOCODES
 export function isAuthorized(userJid, ownerPhone, sessionMode) {
+  // First check if user is admin (owner)
   if (isAdmin(userJid, ownerPhone)) return true;
-  // Check per-session whitelist if ownerPhone provided. — AYOCODES
+
+  // Use cached session lookup instead of looping through all sessions
   if (ownerPhone) {
-    for (const session of sessions.values()) {
-      if (
-        session.ownerPhone === ownerPhone &&
-        session.authorizedUsers?.has(userJid)
-      )
-        return true;
-    }
+    const session = sessionOwnerMap.get(ownerPhone);
+    if (session?.authorizedUsers?.has(userJid)) return true;
   }
+
   // Check global whitelist (legacy compat). — AYOCODES
   if (authorizedUsers.has(userJid)) return true;
+
   // Use the passed session mode, or fall back to ENV default. — AYOCODES
   const mode = sessionMode || ENV.BOT_MODE || "public";
   if (mode === "public") return true;
+
+  // PRIVATE MODE: Only admin/authorized users are allowed
   return false;
 }
 export const authorizedUsers = new Set();
@@ -375,6 +402,7 @@ export const authorizedUsers = new Set();
 //   BAD MAC SUPPRESSION + PINO LOGGER
 // ============================================================
 const logger = pino({ level: "silent" });
+// FIX: Declare originalConsoleError before using it
 const originalConsoleError = console.error;
 console.error = function (...args) {
   const m = args[0];
@@ -452,8 +480,6 @@ async function useMongoAuthState(collection, sessionId) {
 
 // ============================================================
 //   SESSION OBJECT
-//   One of these per connected user. Contains everything
-//   that was previously global — now scoped per user. — AYOCODES
 // ============================================================
 function createSessionObject(sessionId) {
   return {
@@ -483,15 +509,15 @@ function createSessionObject(sessionId) {
     pingInterval: null,
     reconnectTimeout: null,
     pairingCodeTimeout: null,
+    mode: process.env.BOT_MODE || "public", // per-session mode — AYOCODES
+    authorizedUsers: new Set(), // per-session whitelist
   };
 }
 
 // ============================================================
 //   SESSION STORE
-//   All active sessions in memory. MongoDB stores credentials.
-//   On restart, sessions are restored from DB. — AYOCODES
 // ============================================================
-const sessions = new Map(); // sessionId -> session object
+const sessions = new Map();
 
 // ============================================================
 //   MONGODB CONNECTION
@@ -499,6 +525,7 @@ const sessions = new Map(); // sessionId -> session object
 let mongoClient = null;
 let authCollection = null;
 let sessionMetaCollection = null;
+let userLogCollection = null;
 
 async function connectMongo() {
   mongoClient = new MongoClient(ENV.MONGODB_URI);
@@ -506,8 +533,7 @@ async function connectMongo() {
   const db = mongoClient.db("ayobot");
   authCollection = db.collection("auth_states");
   sessionMetaCollection = db.collection("session_meta");
-  userLogCollection = db.collection("user_log"); // user tracking — AYOCODES
-  // Indexes for fast lookup. — AYOCODES
+  userLogCollection = db.collection("user_log");
   await authCollection.createIndex({ _id: 1 });
   await userLogCollection.createIndex({ phone: 1 }, { unique: true });
   await userLogCollection.createIndex({ lastSeen: -1 });
@@ -515,25 +541,36 @@ async function connectMongo() {
 }
 
 // ============================================================
-//   RESTORE SESSIONS ON STARTUP
-//   Reads previously active sessions from MongoDB and
-//   reconnects each one automatically. — AYOCODES
+//   RESTORE SESSIONS ON STARTUP - FIXED with proper error handling
 // ============================================================
 async function restoreAllSessions() {
   const saved = await sessionMetaCollection.find({ active: true }).toArray();
   log.info(`Restoring ${saved.length} saved session(s)...`);
-  for (const s of saved) {
+
+  const restorePromises = saved.map(async (s) => {
     try {
       const session = await startSession(s.sessionId, false);
-      // Restore saved mode so private bots stay private after restart. — AYOCODES
       if (session && s.mode) {
         session.mode = s.mode;
-        log.info(`[${s.sessionId.slice(0, 8)}] Mode restored: ${s.mode}`);
+
+        // Wait for handlers to be ready (max 30 seconds)
+        const startTime = Date.now();
+        while (!session.handlersReady && Date.now() - startTime < 30000) {
+          await delay(1000);
+        }
+
+        if (session.handlersReady) {
+          log.info(`[${s.sessionId.slice(0, 8)}] Session restored successfully`);
+        } else {
+          log.warn(`[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`);
+        }
       }
     } catch (e) {
       log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
     }
-  }
+  });
+
+  await Promise.allSettled(restorePromises);
 }
 
 // ============================================================
@@ -566,16 +603,16 @@ async function loadHandlersForSession(session) {
 }
 
 // ============================================================
-//   ATTACH MESSAGE LISTENERS — per session
-//   Identical logic to original but scoped to this session. — AYOCODES
+//   ATTACH MESSAGE LISTENERS — per session - FIXED with error handling
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
   const sid = session.id.slice(0, 8);
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify" && type !== "append") return;
     try {
+      if (type !== "notify" && type !== "append") return;
+
       const msg = messages[0];
       if (!msg?.message) return;
       if (msg.key.remoteJid === "status@broadcast") return;
@@ -626,7 +663,6 @@ function attachListeners(session) {
 
       session.messageCount++;
       messageCount++;
-      // Update user tracker every 10 messages — not every single one. — AYOCODES
       if (session.messageCount % 10 === 0)
         updateUserMessageCount(session).catch(() => {});
 
@@ -650,34 +686,47 @@ function attachListeners(session) {
       msg._sessionMode = session.mode || "public";
       msg._ownerPhone = session.ownerPhone || "";
 
-      await session.commandHandler(msg, sock);
+      // FIX: Add error handling for command handler
+      try {
+        await session.commandHandler(msg, sock);
+      } catch (cmdError) {
+        log.err(`[${sid}] Command handler error: ${cmdError.message}`);
+      }
     } catch (e) {
       if (
         !e.message?.includes("Bad MAC") &&
         !e.message?.includes("Connection Closed")
       )
-        log.err(`[${sid}] Message error: ${e.message}`);
+        log.err(`[${sid}] Message processing error: ${e.message}`);
     }
   });
 
   sock.ev.on("group-participants.update", async (update) => {
-    if (!session.connected || !session.groupHandler) return;
     try {
+      if (!session.connected || !session.groupHandler) return;
       await session.groupHandler(update, sock);
-    } catch (_) {}
+    } catch (err) {
+      log.warn(`[${sid}] Group handler error: ${err.message}`);
+    }
   });
 
   sock.ev.on("messages.update", async (updates) => {
-    if (
-      !session.connected ||
-      !ENV.ANTI_DELETE_ENABLED ||
-      !session.antiDeleteHandler
-    )
-      return;
-    for (const u of updates) {
-      try {
-        await session.antiDeleteHandler(u, sock);
-      } catch (_) {}
+    try {
+      if (
+        !session.connected ||
+        !ENV.ANTI_DELETE_ENABLED ||
+        !session.antiDeleteHandler
+      )
+        return;
+      for (const u of updates) {
+        try {
+          await session.antiDeleteHandler(u, sock);
+        } catch (err) {
+          log.warn(`[${sid}] Anti-delete error: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      log.warn(`[${sid}] Messages.update error: ${err.message}`);
     }
   });
 
@@ -685,13 +734,8 @@ function attachListeners(session) {
 }
 
 // ============================================================
-//   USER TRACKING — every user who connects is logged. — AYOCODES
-//   Stored in MongoDB "user_log" collection.
-//   Tracks: phone, name, firstSeen, lastSeen, totalMessages,
-//           sessionId, authMethod, botNumber
+//   USER TRACKING
 // ============================================================
-let userLogCollection = null; // set after mongo connects
-
 async function trackUser(session) {
   if (!userLogCollection || !session.ownerPhone) return;
   try {
@@ -711,7 +755,9 @@ async function trackUser(session) {
       },
       { upsert: true },
     );
-  } catch (_) {}
+  } catch (err) {
+    log.warn(`[${session.id.slice(0, 8)}] Track user error: ${err.message}`);
+  }
 }
 
 async function updateUserMessageCount(session) {
@@ -721,7 +767,9 @@ async function updateUserMessageCount(session) {
       { phone: session.ownerPhone },
       { $set: { lastSeen: new Date(), totalMessages: session.messageCount } },
     );
-  } catch (_) {}
+  } catch (err) {
+    // Silently fail
+  }
 }
 
 // ============================================================
@@ -735,7 +783,12 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
   session.ownerJid = cleanJid;
   session.ownerPhone = cleanPhone;
   session.ownerName = cleanName;
-  // Persist to MongoDB session meta. — AYOCODES
+
+  // Update session owner map for optimized lookups
+  if (cleanPhone) {
+    sessionOwnerMap.set(cleanPhone, session);
+  }
+
   sessionMetaCollection
     ?.updateOne(
       { sessionId: session.id },
@@ -749,7 +802,6 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
       { upsert: true },
     )
     .catch(() => {});
-  // Log to user tracker. — AYOCODES
   trackUser(session).catch(() => {});
   log.ok(
     `[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`,
@@ -757,88 +809,118 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
 }
 
 // ============================================================
-//   WELCOME MESSAGE — per session, same logic as original
+//   WELCOME MESSAGE — FIXED with better error handling and retry logic
 // ============================================================
 async function sendWelcomeMessage(session, sock) {
-  await delay(8000);
-  if (!session.connected) {
-    await delay(15000);
-    if (!session.connected) return;
-  }
-  if (!session.ownerJid) return;
-
-  const connectTime = Date.now() - session.startTime;
-  const speedLabel =
-    connectTime < 10000 ? "Fast" : connectTime < 20000 ? "Normal" : "Slow";
-  const speedIcon =
-    connectTime < 10000 ? "🟢" : connectTime < 20000 ? "🟡" : "🔴";
-  const connectSecs = (connectTime / 1000).toFixed(1);
-
-  const mem = process.memoryUsage();
-  const usedMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
-  const totalMB = (mem.heapTotal / 1024 / 1024).toFixed(1);
-
-  const displayName =
-    session.ownerName &&
-    session.ownerName !== session.ownerPhone &&
-    session.ownerName !== "Owner"
-      ? session.ownerName
-      : null;
-
-  const caption =
-    `━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🤖  *AYOBOT v1*  •  Online\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `${speedIcon} *${connectSecs}s* · ${speedLabel}\n\n` +
-    `┌─ *Bot Info* ──────────────\n` +
-    `│ 📱 +${session.botNumber}\n` +
-    (displayName ? `│ 👤 ${displayName}\n` : ``) +
-    `│ 💾 ${usedMB}/${totalMB} MB\n` +
-    `│ ⚡ ${ENV.BOT_MODE} mode\n` +
-    `│ 📦 v${ENV.BOT_VERSION}\n` +
-    `└───────────────────────\n\n` +
-    `👑 *Owner:* +${session.ownerPhone}\n` +
-    `_Full admin access_\n\n` +
-    `Type *${ENV.PREFIX}menu* for commands`;
-
   try {
-    await sock.sendMessage(session.ownerJid, {
-      audio: { url: ENV.WELCOME_AUDIO_URL },
-      mimetype: "audio/aac",
-      ptt: false,
-    });
-  } catch (_) {}
+    // Wait longer for connection to stabilize
+    await delay(15000);
 
-  for (let i = 1; i <= 5; i++) {
-    if (!session.connected) {
-      await delay(3000);
-      continue;
-    }
-    try {
-      const r = await sock.sendMessage(session.ownerJid, {
-        image: { url: ENV.WELCOME_IMAGE_URL },
-        caption,
-      });
-      if (r) {
-        log.ok(`[${session.id.slice(0, 8)}] Welcome sent!`);
-        return;
+    // Multiple connection checks with retry
+    let connectionChecked = false;
+    for (let i = 0; i < 3; i++) {
+      if (session.connected && session.ownerJid) {
+        connectionChecked = true;
+        break;
       }
-    } catch (e) {
+      log.info(`[${session.id.slice(0, 8)}] Waiting for connection... (${i+1}/3)`);
+      await delay(5000);
+    }
+
+    if (!connectionChecked) {
+      log.warn(`[${session.id.slice(0, 8)}] Welcome: still not ready, aborting`);
+      return;
+    }
+
+    if (!session.ownerJid) {
+      log.warn(`[${session.id.slice(0, 8)}] Welcome: no owner JID, aborting`);
+      return;
+    }
+
+    const connectTime = Date.now() - session.startTime;
+    const speedLabel =
+      connectTime < 15000 ? "Fast" : connectTime < 30000 ? "Normal" : "Slow";
+    const speedIcon =
+      connectTime < 15000 ? "🟢" : connectTime < 30000 ? "🟡" : "🔴";
+    const connectSecs = (connectTime / 1000).toFixed(1);
+
+    const mem = process.memoryUsage();
+    const usedMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
+    const totalMB = (mem.heapTotal / 1024 / 1024).toFixed(1);
+
+    const displayName =
+      session.ownerName &&
+      session.ownerName !== session.ownerPhone &&
+      session.ownerName !== "Owner"
+        ? session.ownerName
+        : null;
+
+    const caption =
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🤖  *AYOBOT v1*  •  Online\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `${speedIcon} *${connectSecs}s* · ${speedLabel}\n\n` +
+      `┌─ *Bot Info* ──────────────\n` +
+      `│ 📱 +${session.botNumber}\n` +
+      (displayName ? `│ 👤 ${displayName}\n` : ``) +
+      `│ 💾 ${usedMB}/${totalMB} MB\n` +
+      `│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n` +
+      `│ 📦 v${ENV.BOT_VERSION}\n` +
+      `└───────────────────────\n\n` +
+      `👑 *Owner:* +${session.ownerPhone}\n` +
+      `_Full admin access_\n\n` +
+      `Type *${ENV.PREFIX}menu* for commands`;
+
+    try {
+      await sock.sendMessage(session.ownerJid, {
+        audio: { url: ENV.WELCOME_AUDIO_URL },
+        mimetype: "audio/aac",
+        ptt: false,
+      });
+    } catch (audioErr) {
+      log.warn(`[${session.id.slice(0, 8)}] Audio failed: ${audioErr.message}`);
+    }
+
+    for (let i = 1; i <= 5; i++) {
+      if (!session.connected) {
+        await delay(3000);
+        continue;
+      }
       try {
-        const r = await sock.sendMessage(session.ownerJid, { text: caption });
+        const r = await sock.sendMessage(session.ownerJid, {
+          image: { url: ENV.WELCOME_IMAGE_URL },
+          caption,
+        });
         if (r) {
-          log.ok(`[${session.id.slice(0, 8)}] Welcome sent (text fallback)`);
+          log.ok(`[${session.id.slice(0, 8)}] Welcome sent!`);
           return;
         }
-      } catch (_) {}
+      } catch (e) {
+        log.warn(`[${session.id.slice(0, 8)}] Image attempt ${i} failed: ${e.message}`);
+        try {
+          const r = await sock.sendMessage(session.ownerJid, { text: caption });
+          if (r) {
+            log.ok(`[${session.id.slice(0, 8)}] Welcome sent (text fallback)`);
+            return;
+          }
+        } catch (textErr) {
+          // Silently continue to next attempt
+        }
+      }
+      await delay(4000 * i);
     }
-    await delay(4000 * i);
+
+    // Final fallback
+    try {
+      await sock.sendMessage(session.ownerJid, {
+        text: `✅ AYOBOT online! Type ${ENV.PREFIX}menu for commands.`,
+      });
+    } catch (finalErr) {
+      log.err(`[${session.id.slice(0, 8)}] All welcome attempts failed: ${finalErr.message}`);
+    }
+  } catch (error) {
+    log.err(`[${session.id.slice(0, 8)}] Welcome function error: ${error.message}`);
   }
-  try {
-    await sock.sendMessage(session.ownerJid, {
-      text: `✅ AYOBOT online! Type ${ENV.PREFIX}menu for commands.`,
-    });
-  } catch (_) {}
 }
 
 // ============================================================
@@ -846,9 +928,6 @@ async function sendWelcomeMessage(session, sock) {
 // ============================================================
 async function clearSessionAuth(sessionId) {
   try {
-    // Use $where-free prefix matching — avoids NoSQL injection via $regex. — AYOCODES
-    // sessionId is always a 32-char hex string (crypto.randomBytes) so this is safe,
-    // but we sanitize anyway to be absolutely certain. — AYOCODES
     const safePrefix = sessionId.replace(/[^a-f0-9]/gi, "");
     await authCollection.deleteMany({
       _id: { $regex: `^${safePrefix}:`, $options: "" },
@@ -860,7 +939,7 @@ async function clearSessionAuth(sessionId) {
 }
 
 // ============================================================
-//   RATE LIMIT CLEANUP — global
+//   RATE LIMIT CLEANUP — global - FIXED with better cleanup
 // ============================================================
 function cleanupRateLimits() {
   const now = Date.now();
@@ -872,8 +951,29 @@ function cleanupRateLimits() {
 }
 
 // ============================================================
-//   START SESSION — creates socket for one user
-//   isNew = true on first visit, false on restart restore. — AYOCODES
+//   CLEANUP STORES - FIXED: Added cleanup for deletedMessages
+// ============================================================
+function cleanupStores() {
+  const now = Date.now();
+  const ONE_HOUR = 3600000;
+
+  // Clean up deleted messages older than 1 hour
+  for (const [key, data] of deletedMessages.entries()) {
+    if (data && now - (data.timestamp || 0) > ONE_HOUR) {
+      deletedMessages.delete(key);
+    }
+  }
+
+  // Clean up user cooldowns older than 1 hour
+  for (const [key, timestamp] of userCooldown.entries()) {
+    if (now - timestamp > ONE_HOUR) {
+      userCooldown.delete(key);
+    }
+  }
+}
+
+// ============================================================
+//   START SESSION
 // ============================================================
 async function startSession(sessionId, isNew = true) {
   if (sessions.has(sessionId)) return sessions.get(sessionId);
@@ -952,7 +1052,6 @@ async function _startSocket(session) {
 
     session.sock = sock;
 
-    // Keep-alive ping. — AYOCODES
     if (session.pingInterval) clearInterval(session.pingInterval);
     session.pingInterval = setInterval(async () => {
       if (!session.connected || session.destroyed) {
@@ -965,7 +1064,6 @@ async function _startSocket(session) {
       } catch (_) {}
     }, 12000);
 
-    // ── CONNECTION EVENTS ──────────────────────────────────
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
@@ -1016,13 +1114,22 @@ async function _startSocket(session) {
         }
 
         await saveCreds();
-        await loadHandlersForSession(session);
+
+        // Load handlers with error handling
+        try {
+          await loadHandlersForSession(session);
+        } catch (handlerErr) {
+          log.err(`[${sid}] Failed to load handlers: ${handlerErr.message}`);
+        }
+
         attachListeners(session);
 
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
 
-        // Non-blocking welcome. — AYOCODES
-        sendWelcomeMessage(session, sock).catch(() => {});
+        // Send welcome message with error handling
+        sendWelcomeMessage(session, sock).catch(err =>
+          log.warn(`[${sid}] Welcome error: ${err.message}`)
+        );
       }
 
       if (connection === "close" && !session.destroyed) {
@@ -1054,7 +1161,6 @@ async function _startSocket(session) {
           return;
         }
 
-        // Exponential backoff. — AYOCODES
         session.reconnectAttempts++;
         const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
         log.info(
@@ -1084,6 +1190,12 @@ async function destroySession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
   session.destroyed = true;
+
+  // Remove from session owner map
+  if (session.ownerPhone) {
+    sessionOwnerMap.delete(session.ownerPhone);
+  }
+
   if (session.pingInterval) clearInterval(session.pingInterval);
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
   if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
@@ -1096,12 +1208,12 @@ async function destroySession(sessionId) {
   await clearSessionAuth(sessionId);
   await sessionMetaCollection.deleteOne({ sessionId });
   sessions.delete(sessionId);
+  groupActivations.delete(sessionId);
   log.info(`[${sessionId.slice(0, 8)}] Session destroyed.`);
 }
 
 // ============================================================
 //   REQUEST PAIRING CODE — per session
-//   Same fix as original: same socket, no throwaway. — AYOCODES
 // ============================================================
 async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
@@ -1169,7 +1281,6 @@ const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Cookie parser — no extra dependency. — AYOCODES
 function parseCookies(req) {
   const list = {};
   const rc = req.headers.cookie;
@@ -1185,7 +1296,6 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Admin auth. — AYOCODES
 const adminTokens = new Set();
 function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
@@ -1194,7 +1304,6 @@ function requireAdmin(req, res, next) {
   res.redirect("/ayocodes-admin/login");
 }
 
-// Each visitor gets a unique sessionId cookie — this isolates their bot. — AYOCODES
 function getOrCreateSessionId(req, res) {
   let sid = req.cookies?.ayoSessionId;
   if (!sid || !/^[a-f0-9]{32}$/.test(sid)) {
@@ -1211,18 +1320,15 @@ function getOrCreateSessionId(req, res) {
 //   WEB DASHBOARD ROUTES
 // ============================================================
 function setupWebDashboard() {
-  // ROOT → redirect to user's personal dashboard. — AYOCODES
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
     res.redirect(`/dashboard/${sid}`);
   });
 
-  // ── USER DASHBOARD ───────────────────────────────────────
   app.get("/dashboard/:sessionId", async (req, res) => {
     const { sessionId } = req.params;
     const cookieSid = req.cookies?.ayoSessionId;
 
-    // Security: only the cookie owner sees their own dashboard. — AYOCODES
     if (cookieSid !== sessionId) {
       const correctSid = cookieSid || sessionId;
       res.setHeader(
@@ -1251,7 +1357,6 @@ function setupWebDashboard() {
     return res.send(loadingHTML(sessionId));
   });
 
-  // ── API: STATUS ──────────────────────────────────────────
   app.get("/api/status/:sessionId", (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ exists: false, connected: false });
@@ -1269,13 +1374,12 @@ function setupWebDashboard() {
       hasQr: !!session.qr,
       pairingCode: session.pairingCode,
       pairingExpiry: session.pairingExpiry,
-      mode: ENV.BOT_MODE,
+      mode: session.mode || ENV.BOT_MODE,
       version: ENV.BOT_VERSION,
       prefix: ENV.PREFIX,
     });
   });
 
-  // ── API: REQUEST PAIRING CODE ────────────────────────────
   app.post("/api/request-pairing/:sessionId", async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber)
@@ -1287,7 +1391,6 @@ function setupWebDashboard() {
     res.json(await requestPairingCode(session, phoneNumber));
   });
 
-  // ── API: LOGOUT ──────────────────────────────────────────
   app.post("/api/logout/:sessionId", async (req, res) => {
     if (req.cookies?.ayoSessionId !== req.params.sessionId) {
       return res.json({ success: false, error: "Unauthorized" });
@@ -1297,7 +1400,6 @@ function setupWebDashboard() {
     res.json({ success: true });
   });
 
-  // ── HEALTH CHECK ─────────────────────────────────────────
   app.get("/health", (req, res) => {
     const all = Array.from(sessions.values());
     res.json({
@@ -1309,7 +1411,6 @@ function setupWebDashboard() {
     });
   });
 
-  // ── WAITLIST (preserved from original) ──────────────────
   app.post("/api/waitlist-join/:sessionId", async (req, res) => {
     const { version } = req.body;
     if (!version)
@@ -1333,7 +1434,6 @@ function setupWebDashboard() {
     }
   });
 
-  // ── AYOCODES ADMIN PANEL ─────────────────────────────────
   app.get("/ayocodes-admin/login", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(adminLoginHTML());
@@ -1397,8 +1497,6 @@ function setupWebDashboard() {
     res.json({ ok: true });
   });
 
-  // ── USER TRACKING ROUTES ─────────────────────────────────
-  // Full list of every user who ever connected. — AYOCODES
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(userTrackingHTML());
@@ -1432,7 +1530,6 @@ function setupWebDashboard() {
         userLogCollection.countDocuments(query),
       ]);
 
-      // Check which users are currently active. — AYOCODES
       const activeSessions = new Set(
         Array.from(sessions.values())
           .filter((s) => s.connected)
@@ -1453,7 +1550,6 @@ function setupWebDashboard() {
     }
   });
 
-  // Export all users as CSV. — AYOCODES
   app.get(
     "/ayocodes-admin/api/users/export",
     requireAdmin,
@@ -1508,7 +1604,6 @@ function setupWebDashboard() {
 
 // ============================================================
 //   DASHBOARD HTML — SHARED HEAD
-//   Same aesthetic as original. — AYOCODES
 // ============================================================
 function sharedHead(title) {
   return `<!DOCTYPE html><html lang="en"><head>
@@ -1650,7 +1745,6 @@ body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear
 
 // ============================================================
 //   CONNECTED DASHBOARD HTML
-//   Dashboard refresh changed from 10s → 60s as requested. — AYOCODES
 // ============================================================
 function connectedHTML(session) {
   const up = Math.floor((Date.now() - session.startTime) / 1000);
@@ -1667,7 +1761,7 @@ function connectedHTML(session) {
 <nav class="nav">
   <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div>
   <div style="display:flex;align-items:center;gap:16px">
-    <div class="mode-badge">⚡ ${(ENV.BOT_MODE || "public").toUpperCase()}</div>
+    <div class="mode-badge">⚡ ${(session.mode || ENV.BOT_MODE || "public").toUpperCase()}</div>
     <div class="nav-status"><div class="dot" id="navdot"></div><span id="navtxt">LIVE</span></div>
     <button class="logout-btn" onclick="logout()">⏏ LOGOUT</button>
   </div>
@@ -1711,7 +1805,7 @@ function connectedHTML(session) {
     </div>
     <div class="stat-card">
       <div class="stat-icon">🤖</div>
-      <div class="stat-val" style="font-size:18px;color:var(--text)">${ENV.BOT_MODE.toUpperCase()}</div>
+      <div class="stat-val" style="font-size:18px;color:var(--text)">${(session.mode || ENV.BOT_MODE).toUpperCase()}</div>
       <div class="stat-label">Mode</div>
     </div>
   </div>
@@ -1800,7 +1894,6 @@ function updateStats(){
     if(d.connected){dot.className='dot';txt.textContent='LIVE';}else{dot.className='dot offline';txt.textContent='OFFLINE';}
   }).catch(()=>{});
 }
-// Dashboard refresh: 60 seconds as requested. — AYOCODES
 updateStats();setInterval(updateStats,60000);
 function tick(){const n=new Date(),el=document.getElementById('footerTime');if(el)el.textContent=n.toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
 tick();setInterval(tick,1000);
@@ -1945,14 +2038,12 @@ async function requestCode(){
     }else{err.textContent='❌ '+d.error;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE';}
   }catch(e){err.textContent='❌ Network error: '+e.message;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE';}
 }
-// Poll for connection every 5s — reload when connected. — AYOCODES
 setInterval(()=>{
   fetch('/api/status/'+SID).then(r=>r.json()).then(d=>{
     if(d.connected)location.reload();
     if(d.hasQr && !document.getElementById('qrImg')?.src.startsWith('data:'))location.reload();
   }).catch(()=>{});
 },5000);
-// Also check if pairing code is waiting when page loads. — AYOCODES
 window.onload=function(){
   fetch('/api/status/'+SID).then(r=>r.json()).then(d=>{
     if(d.pairingCode){
@@ -2161,9 +2252,7 @@ tick();setInterval(tick,1000);
 }
 
 // ============================================================
-//   USER TRACKING PAGE HTML — AYOCODES ADMIN
-//   Full list of every user who ever connected their WhatsApp.
-//   Search, pagination, CSV export, live online status. — AYOCODES
+//   USER TRACKING PAGE HTML
 // ============================================================
 function userTrackingHTML() {
   return (
@@ -2269,7 +2358,6 @@ async function loadUsers(page=1){
     html+='</tbody></table></div>';
     document.getElementById('userTable').innerHTML=html;
 
-    // Pagination. — AYOCODES
     let pag='';
     if(d.pages>1){
       pag+='<button class="page-btn" onclick="loadUsers('+(d.page-1)+')" '+(d.page<=1?'disabled':'')+'>← PREV</button>';
@@ -2295,7 +2383,7 @@ function timeAgo(date){
 }
 
 loadUsers(1);
-setInterval(()=>loadUsers(currentPage),30000); // refresh every 30s
+setInterval(()=>loadUsers(currentPage),30000);
 function tick(){const e=document.getElementById('footerClock');if(e)e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
 tick();setInterval(tick,1000);
 </script>
@@ -2369,35 +2457,25 @@ async function loadAndDisplayFeatures() {
 
 // ============================================================
 //   STARTUP SEQUENCE
-//   Wrapped in async main() — top-level await requires
-//   "type":"module" in package.json. This wrapper works
-//   regardless so no one gets caught out. — AYOCODES
 // ============================================================
 async function main() {
   console.log(
-    `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1 Multi-Session by AYOCODES…${C.reset}\n`,
+    `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 Multi-Session by AYOCODES…${C.reset}\n`,
   );
   checkEnvVars();
 
-  // 1. Connect to MongoDB. — AYOCODES
   await connectMongo();
-
-  // 2. Start Express dashboard. — AYOCODES
   setupWebDashboard();
-
-  // 3. Rate limit cleanup every 5 minutes. — AYOCODES
   setInterval(cleanupRateLimits, 5 * 60 * 1000);
-
-  // 4. Restore previously active sessions. — AYOCODES
+  setInterval(cleanupStores, 30 * 60 * 1000); // Added cleanup for stores
   await restoreAllSessions();
 
-  // 5. Load feature list to terminal (non-blocking). — AYOCODES
   loadAndDisplayFeatures().catch((e) =>
     log.warn("Feature display: " + e.message),
   );
 
   console.log(
-    `${C.green}${C.bold}✨ AYOBOT Multi-Session ready. Anyone can visit the link and connect their own WhatsApp.${C.reset}\n`,
+    `${C.green}${C.bold}✨ AYOBOT v1.0.0 Multi-Session ready. Anyone can visit the link and connect their own WhatsApp.${C.reset}\n`,
   );
 }
 
@@ -2439,3 +2517,4 @@ process.on("uncaughtException", (e) => {
 process.on("exit", () => {
   console.error = originalConsoleError;
 });
+

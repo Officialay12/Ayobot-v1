@@ -2,7 +2,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Complete Basic Commands Module - FULLY FEATURED & ENHANCED
 //  Author  : AYOCODES
-//  Version : 1.0.0 (Enhanced)
+//  Version : 1.0.0 (Final - ALL COMMANDS INCLUDED)
 //  Features: 50+ commands, full error handling, advanced scraping, image tools
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -20,6 +20,9 @@ import {
   ENV,
   messageCount,
   waitlistEntries,
+  groupSettings,
+  activateGroup,
+  deactivateGroup,
 } from "../../index.js";
 import {
   formatData,
@@ -737,7 +740,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
 
     // Build the formatted menu text
     let menuText = `╔════════════════════════════════════════════╗\n`;
-    menuText += `║     ⚡ *AYOBOT v1.0.0 COMMAND MENU* ⚡    ║\n`;
+    menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
     menuText += `╚════════════════════════════════════════════╝\n\n`;
     menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
     menuText += `├ 💾 Memory: ${stats.memory}\n`;
@@ -785,36 +788,18 @@ export async function menu({ from, sock, isAdmin, ENV }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PING - ENHANCED WITH STATS
+//  PING - ENHANCED WITH STATS (FIXED ANIMATION)
 // ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
-  const loadingMsg = await sock.sendMessage(from, {
-    text: `🏓 *Pinging...*\n[▱▱▱▱▱▱▱▱▱▱] 0%`,
+
+  // Send initial message
+  await sock.sendMessage(from, {
+    text: `🏓 *Pinging...*`,
   });
 
-  const frames = [
-    "[▰▱▱▱▱▱▱▱▱▱] 10%",
-    "[▰▰▱▱▱▱▱▱▱▱] 20%",
-    "[▰▰▰▱▱▱▱▱▱▱] 30%",
-    "[▰▰▰▰▱▱▱▱▱▱] 40%",
-    "[▰▰▰▰▰▱▱▱▱▱] 50%",
-    "[▰▰▰▰▰▰▱▱▱▱] 60%",
-    "[▰▰▰▰▰▰▰▱▱▱] 70%",
-    "[▰▰▰▰▰▰▰▰▱▱] 80%",
-    "[▰▰▰▰▰▰▰▰▰▱] 90%",
-    "[▰▰▰▰▰▰▰▰▰▰] 100%",
-  ];
-
-  for (const frame of frames) {
-    await delay(80);
-    try {
-      await sock.sendMessage(from, {
-        text: `🏓 *Pinging...*\n${frame}`,
-        edit: loadingMsg.key,
-      });
-    } catch (_) {}
-  }
+  // Simulate thinking
+  await delay(500);
 
   const uptime = Date.now() - getSafeStartTime();
   const h = Math.floor(uptime / 3_600_000);
@@ -844,7 +829,6 @@ export async function ping({ from, sock }) {
       `🟢 *Status:* ONLINE\n` +
       `🤖 *Version:* 1.0.0\n` +
       `👑 *AYOBOT v1* \n`,
-    edit: loadingMsg.key,
   });
 }
 
@@ -2529,7 +2513,101 @@ export async function imgbb({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT - ALL COMMANDS
+//  ACTIVATE GROUP - NEW (FIXES ISSUE #3)
+// ════════════════════════════════════════════════════════════════════════════
+export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
+  if (!isGroup) {
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups."
+    });
+  }
+  if (!isAdmin) {
+    return sock.sendMessage(from, {
+      text: "⛔ Only the bot owner can activate the bot in this group."
+    });
+  }
+
+  activateGroup(sessionId, from);
+
+  await sock.sendMessage(from, {
+    text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DEACTIVATE GROUP - NEW (FIXES ISSUE #3)
+// ════════════════════════════════════════════════════════════════════════════
+export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
+  if (!isGroup) {
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups."
+    });
+  }
+  if (!isAdmin) {
+    return sock.sendMessage(from, {
+      text: "⛔ Only the bot owner can deactivate the bot in this group."
+    });
+  }
+
+  deactivateGroup(sessionId, from);
+
+  await sock.sendMessage(from, {
+    text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ANTILINK TOGGLE - NEW (FIXES ISSUE FROM SCREENSHOT)
+// ════════════════════════════════════════════════════════════════════════════
+export async function antilink({ args, from, sock, isAdmin, isGroup }) {
+  if (!isGroup) {
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups."
+    });
+  }
+
+  if (!isAdmin) {
+    return sock.sendMessage(from, {
+      text: "⛔ Only group admins can use this command."
+    });
+  }
+
+  const sub = args[0]?.toLowerCase();
+
+  // Get current setting
+  let currentSetting = groupSettings.get(from) || {};
+
+  if (!sub || !["on", "off", "status"].includes(sub)) {
+    const status = currentSetting.antilink ? "ON" : "OFF";
+    return sock.sendMessage(from, {
+      text: `🔗 *ANTI-LINK SETTINGS*\n\nCurrent Status: *${status}*\n\n${ENV.PREFIX}antilink on — Enable anti-link\n${ENV.PREFIX}antilink off — Disable anti-link\n${ENV.PREFIX}antilink status — Check status`
+    });
+  }
+
+  if (sub === "on") {
+    currentSetting.antilink = true;
+    groupSettings.set(from, currentSetting);
+    return sock.sendMessage(from, {
+      text: `✅ *Anti-Link ENABLED*\n\nLinks will now be automatically deleted.`
+    });
+  }
+
+  if (sub === "off") {
+    currentSetting.antilink = false;
+    groupSettings.set(from, currentSetting);
+    return sock.sendMessage(from, {
+      text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed.`
+    });
+  }
+
+  const status = currentSetting.antilink ? "ENABLED" : "DISABLED";
+  await sock.sendMessage(from, {
+    text: `🔗 *Anti-Link Status:* ${status}`
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DEFAULT EXPORT - ALL COMMANDS (UPDATED WITH NEW COMMANDS)
 // ════════════════════════════════════════════════════════════════════════════
 export default {
   menu,
@@ -2563,4 +2641,7 @@ export default {
   imgbb,
   pdf,
   test,
+  activate,
+  deactivate,
+  antilink,
 };
