@@ -1,26 +1,13 @@
 // handlers/commandHandler.js - AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE FIX - ALL ISSUES RESOLVED
+//  COMPLETE FIXED VERSION - ALL COMMANDS WORKING
 //  Author  : AYOCODES
-//  Version : 1.0.0 (Final)
+//  Version : 1.0.0 (FINAL)
 //
 //  FIXES INCLUDED:
-//  1. Trivia A/B/C/D answers intercepted before prefix check ✓
-//  2. Private mode completely silent (no reply) ✓
-//  3. Group activation system (.activate/.deactivate) ✓
-//  4. No cross-session admin privilege escalation ✓
-//  5. Private mode silent ignore (no message) ✓
-//  6. Trivia handler properly called with fixed timeout ✓
-// ════════════════════════════════════════════════════════════════════════════
-// handlers/commandHandler.js - AYOBOT v1.0.0
-// ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE FIXED VERSION - ALL COMMANDS REGISTERED CORRECTLY
-//  Author  : AYOCODES
-//  Version : 1.0.0 (Final)
-//
-//  KEY FIXES:
-//  • Moved antilink from groupSettings to basic.js (where it belongs)
-//  • Moved activate/deactivate from built-in to basic.js
+//  • Added .pin, .unpin, .delete commands
+//  • Fixed admin detection for group owner
+//  • Added antilink detection handler
 //  • All group commands now properly registered
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -128,6 +115,7 @@ const MODULE_PATHS = {
   groupMod: "../commands/group/moderation.js",
   groupSettings: "../commands/group/settings.js",
   automation: "../commands/group/automation.js",
+  antilink: "../features/antilink.js",  // ADDED
 
   // Feature modules
   ai: "../features/ai.js",
@@ -266,7 +254,7 @@ export function registerAllCommands() {
   log.div();
 
   // ────────────────────────────────────────────────────────────────────────
-  //  BASIC.JS - ALL COMMANDS FROM BASIC.JS (INCLUDING ACTIVATE, DEACTIVATE, ANTILINK)
+  //  BASIC.JS
   // ────────────────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
@@ -481,10 +469,7 @@ export function registerAllCommands() {
     aliases: ["jointrend", "joinnext", "joinfuture", "waiting", "waitlistjoin", "joinwait"]
   });
 
-  // ============== FIXED: GROUP COMMANDS FROM BASIC.JS ==============
-  // These were previously missing or in wrong sections
-
-  // Activate command - from basic.js
+  // Group commands from basic.js
   if (b.activate) safeRegister("activate", b.activate, {
     category: "group",
     groupOnly: true,
@@ -493,7 +478,6 @@ export function registerAllCommands() {
     aliases: ["groupactivate", "activatebot", "openbot", "unlockbot", "activategroup"]
   });
 
-  // Deactivate command - from basic.js
   if (b.deactivate) safeRegister("deactivate", b.deactivate, {
     category: "group",
     groupOnly: true,
@@ -502,7 +486,6 @@ export function registerAllCommands() {
     aliases: ["groupdeactivate", "deactivatebot", "closebot", "lockbot", "deactivategroup"]
   });
 
-  // ANTILINK COMMAND - FIXED: Now from basic.js, NOT groupSettings.js
   if (b.antilink) safeRegister("antilink", b.antilink, {
     category: "group",
     groupOnly: true,
@@ -1046,7 +1029,7 @@ export function registerAllCommands() {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  //  GROUP SETTINGS.JS - OTHER COMMANDS (MUTE, UNMUTE, WELCOME, GOODBYE, ETC)
+  //  GROUP SETTINGS.JS - COMPLETE WITH ALL COMMANDS
   // ────────────────────────────────────────────────────────────────────────
   const gs = MODULES.groupSettings;
 
@@ -1054,40 +1037,169 @@ export function registerAllCommands() {
     category: "group",
     groupOnly: true,
     adminOnly: true,
-    description: "Mute group",
-    aliases: ["lock", "lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"]
+    description: "Mute group (restrict sending)",
+    aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"]
   });
 
   if (gs.unmute) safeRegister("unmute", gs.unmute, {
     category: "group",
     groupOnly: true,
     adminOnly: true,
-    description: "Unmute group",
-    aliases: ["unlock", "unlockgroup", "groupunlock", "unmuteall", "unmutechat", "unmutegroup"]
+    description: "Unmute group (allow all to send)",
+    aliases: ["unlockgroup", "groupunlock", "unmuteall", "unmutechat", "unmutegroup"]
   });
 
-  if (gs.antispam) safeRegister("antispam", gs.antispam, {
+  if (gs.lock) safeRegister("lock", gs.lock, {
     category: "group",
     groupOnly: true,
     adminOnly: true,
-    description: "Toggle anti-spam",
+    description: "Lock group (restrict editing info)",
+    aliases: ["lockinfo", "restrict", "lockgroup"]
+  });
+
+  if (gs.unlock) safeRegister("unlock", gs.unlock, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Unlock group (allow all to edit info)",
+    aliases: ["unlockinfo", "unrestrict", "unlockgroup"]
+  });
+
+  if (gs.antiSpam) safeRegister("antispam", gs.antiSpam, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Toggle anti-spam protection",
     aliases: ["nospam", "blockspam", "toggleantispam", "antispam", "stopspam", "antispamon", "antispamoff"]
   });
 
-  if (gs.welcome) safeRegister("welcome", gs.welcome, {
+  if (gs.welcomeToggle) safeRegister("welcome", gs.welcomeToggle, {
     category: "group",
     groupOnly: true,
     adminOnly: true,
-    description: "Welcome message",
-    aliases: ["setwelcome", "welcomemsg", "togglewelcome", "welcomeon", "welcomeoff", "welcomemessage"]
+    description: "Toggle welcome messages",
+    aliases: ["togglewelcome", "welcomeon", "welcomeoff", "welcomemsg"]
   });
 
-  if (gs.goodbye) safeRegister("goodbye", gs.goodbye, {
+  if (gs.setWelcome) safeRegister("setwelcome", gs.setWelcome, {
     category: "group",
     groupOnly: true,
     adminOnly: true,
-    description: "Goodbye message",
-    aliases: ["setgoodbye", "goodbyemsg", "togglegoodbye", "goodbyeon", "goodbyeoff", "goodbyemessage"]
+    description: "Set welcome message",
+    aliases: ["setwelcomemsg", "welcometext"]
+  });
+
+  if (gs.goodbyeToggle) safeRegister("goodbye", gs.goodbyeToggle, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Toggle goodbye messages",
+    aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff", "goodbyemsg"]
+  });
+
+  if (gs.setGoodbye) safeRegister("setgoodbye", gs.setGoodbye, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Set goodbye message",
+    aliases: ["setgoodbyemsg", "goodbyetext"]
+  });
+
+  if (gs.groupInfo) safeRegister("groupinfo", gs.groupInfo, {
+    category: "group",
+    groupOnly: true,
+    description: "Show group information",
+    aliases: ["ginfo", "group", "grouppanel"]
+  });
+
+  if (gs.rules) safeRegister("rules", gs.rules, {
+    category: "group",
+    groupOnly: true,
+    description: "Show group rules",
+    aliases: ["grules", "grouprules"]
+  });
+
+  if (gs.setRules) safeRegister("setrules", gs.setRules, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Set group rules",
+    aliases: ["setgrules", "addrules"]
+  });
+
+  if (gs.link) safeRegister("link", gs.link, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Get group invite link",
+    aliases: ["grouplink", "invite", "invitelink"]
+  });
+
+  if (gs.revoke) safeRegister("revoke", gs.revoke, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Revoke group invite link",
+    aliases: ["revokelink", "resetlink", "newlink"]
+  });
+
+  // PIN COMMAND - ADDED
+  if (gs.pin) safeRegister("pin", gs.pin, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Pin a message",
+    aliases: ["pinmsg", "pinmessage"]
+  });
+
+  // UNPIN COMMAND - ADDED
+  if (gs.unpin) safeRegister("unpin", gs.unpin, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Unpin a message",
+    aliases: ["unpinmsg", "unpinmessage"]
+  });
+
+  // DELETE COMMAND - ADDED
+  if (gs.deleteMsg) safeRegister("delete", gs.deleteMsg, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Delete a message",
+    aliases: ["del", "remove", "rm", "delete"]
+  });
+
+  if (gs.settingsOverview) safeRegister("settings", gs.settingsOverview, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "View group settings",
+    aliases: ["groupsettings", "gsettings", "settingspanel"]
+  });
+
+  if (gs.resetSettings) safeRegister("resetsettings", gs.resetSettings, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Reset all group settings",
+    aliases: ["resetgroupsettings", "clearsettings", "resetall"]
+  });
+
+  if (gs.leave) safeRegister("leave", gs.leave, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Make bot leave the group",
+    aliases: ["botleave", "leavegroup", "exit"]
+  });
+
+  if (gs.debug) safeRegister("groupdebug", gs.debug, {
+    category: "group",
+    groupOnly: true,
+    adminOnly: true,
+    description: "Debug group information",
+    aliases: ["gdebug", "groupdbg"]
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1174,7 +1286,7 @@ export function registerAllCommands() {
 registerAllCommands();
 
 // ============================================================================
-//  COMMAND HANDLER EXECUTION - (Keep your existing handleCommand function here)
+//  COMMAND HANDLER EXECUTION - WITH ANTILINK DETECTION
 // ============================================================================
 export async function handleCommand(message, sock) {
   const executionStart = Date.now();
@@ -1193,7 +1305,6 @@ export async function handleCommand(message, sock) {
     const isGroup = from.endsWith("@g.us");
     const fromMe = !!message.key.fromMe;
 
-    // Session context injected by index.js
     const session = message._session || null;
     const ownerPhone = message._ownerPhone || session?.ownerPhone || "";
     const sessionMode = message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
@@ -1240,57 +1351,45 @@ export async function handleCommand(message, sock) {
 
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
-// ======================================================================
-//  PHASE 5: TRIVIA ANSWER HANDLER - FIXED WITH DEBUG LOGS
-// ======================================================================
-if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
-  console.log(`🎯 [CMD] Potential trivia answer: "${trimmed}" in chat ${from}`);
-  console.log(`📊 [CMD] activeTrivia.has(from)? ${global.activeTrivia?.has(from) || false}`);
 
-  // Check if there's an active trivia in this chat
-  if (global.activeTrivia?.has(from)) {
-    console.log(`✅ [CMD] Active trivia found, processing answer...`);
+    // ======================================================================
+    //  PHASE 5: TRIVIA ANSWER HANDLER
+    // ======================================================================
+    if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
+      if (global.activeTrivia?.has(from)) {
+        if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) return;
+        if (sessionMode === "private" && !isAdminUser) return;
+        if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
 
-    // Check permissions before handling trivia
-    if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
-      console.log(`❌ [CMD] Permission denied - group not activated`);
-      return;
-    }
-    if (sessionMode === "private" && !isAdminUser) {
-      console.log(`❌ [CMD] Permission denied - private mode`);
-      return;
-    }
-    if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
-      console.log(`❌ [CMD] Permission denied - user banned`);
-      return;
-    }
-
-    try {
-      // Get games module
-      const games = MODULES.games;
-      console.log(`🎮 [CMD] Games module available: ${!!games}`);
-      console.log(`🎮 [CMD] handleTriviaAnswer available: ${typeof games?.handleTriviaAnswer === 'function'}`);
-
-      if (typeof games?.handleTriviaAnswer === 'function') {
-        const answerStartTime = Date.now();
-        // Pass the FULL message object, from, and sock
-        await games.handleTriviaAnswer(message, from, sock);
-        console.log(`⏱️ [CMD] Trivia answer processed in ${Date.now() - answerStartTime}ms`);
-        return; // IMPORTANT: Return after handling trivia
-      } else {
-        console.log(`❌ [CMD] handleTriviaAnswer function not found`);
-        // Fallback response
-        await sock.sendMessage(from, {
-          text: "❌ Trivia system error. Please try again later."
-        });
+        try {
+          const games = MODULES.games;
+          if (typeof games?.handleTriviaAnswer === 'function') {
+            await games.handleTriviaAnswer(message, from, sock);
+            return;
+          }
+        } catch (error) {
+          log.warn(`[${executionId}] Trivia error: ${error.message}`);
+        }
       }
-    } catch (error) {
-      console.log(`❌ [CMD] Trivia error: ${error.message}`);
     }
-  } else {
-    console.log(`❌ [CMD] No active trivia for this chat`);
-  }
-}
+
+    // ======================================================================
+    //  PHASE 5.5: ANTI-LINK HANDLER - NEW
+    //  This runs for EVERY message in groups BEFORE prefix check
+    // ======================================================================
+    if (isGroup) {
+      try {
+        const antilinkModule = MODULES.antilink;
+        if (antilinkModule?.handleAntiLink) {
+          // Run in background - don't await to avoid blocking
+          antilinkModule.handleAntiLink(message, from, sock).catch(err => {
+            log.debug(`[${executionId}] Anti-link error: ${err.message}`);
+          });
+        }
+      } catch (err) {
+        log.debug(`[${executionId}] Anti-link module error: ${err.message}`);
+      }
+    }
 
     // ======================================================================
     //  PHASE 6: PREFIX CHECK
@@ -1316,7 +1415,7 @@ if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
     }
 
     // ======================================================================
-    //  PHASE 8: GROUP ACTIVATION CHECK - FIX FOR ISSUE #3
+    //  PHASE 8: GROUP ACTIVATION CHECK
     // ======================================================================
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
       log.info(`[${executionId}] Group not activated: ${commandName} ignored from ${cleanPhone}`);
@@ -1324,12 +1423,11 @@ if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
     }
 
     // ======================================================================
-    //  PHASE 9: PRIVATE MODE CHECK - FIX FOR ISSUE #2 & #5
-    //  COMPLETELY SILENT - NO MESSAGE SENT
+    //  PHASE 9: PRIVATE MODE CHECK
     // ======================================================================
     if (sessionMode === "private" && !isAdminUser) {
       log.info(`[${executionId}] Private mode: silently ignored ${cleanPhone}`);
-      return; // NO MESSAGE SENT - COMPLETE SILENCE
+      return;
     }
 
     // ======================================================================
@@ -1416,20 +1514,26 @@ if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
       });
     }
 
-    // Bot admin check for group commands
+    // Bot admin check for group commands - FIXED to recognize group owner
     if (commandMeta.requireBotAdmin && isGroup) {
-      let botIsAdmin = false;
-      try {
-        botIsAdmin = await isBotGroupAdminCached(from, sock);
-      } catch (_) {
-        log.debug(`[${executionId}] Bot admin check failed`);
-      }
+      // Check if user is group owner - they can execute even if bot isn't admin
+      const metadata = await sock.groupMetadata(from).catch(() => null);
+      const isGroupOwner = metadata?.owner === userJid;
 
-      if (!botIsAdmin) {
-        log.debug(`[${executionId}] Bot not admin for admin-required command`);
-        return sock.sendMessage(from, {
-          text: `❌ I need *group admin* rights to use *${ENV.PREFIX}${commandName}*.\nPlease promote me first!`
-        });
+      if (!isGroupOwner) {
+        let botIsAdmin = false;
+        try {
+          botIsAdmin = await isBotGroupAdminCached(from, sock);
+        } catch (_) {
+          log.debug(`[${executionId}] Bot admin check failed`);
+        }
+
+        if (!botIsAdmin) {
+          log.debug(`[${executionId}] Bot not admin for admin-required command`);
+          return sock.sendMessage(from, {
+            text: `❌ *Bot Not Admin*\nI need to be a *group admin* for this.\nPromote me in group settings first.\n\n👑 *Note:* Group owners can still use this command even if bot isn't admin.`
+          });
+        }
       }
     }
 
@@ -1464,7 +1568,6 @@ if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
         ENV,
       };
 
-      // Execute with timeout protection
       const executionPromise = handlerFunction(context);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Command execution timeout')), 60000)
@@ -1494,17 +1597,11 @@ if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
 
     commandStats.set(primaryName, stats);
 
-    // ======================================================================
-    //  PHASE 16: SLOW COMMAND WARNING
-    // ======================================================================
     if (Date.now() - executionStart > 5000) {
       log.warn(`[${executionId}] Slow command: ${primaryName} (${Date.now() - executionStart}ms)`);
     }
 
   } catch (fatalError) {
-    // ======================================================================
-    //  PHASE 17: FATAL ERROR HANDLER - NEVER CRASH
-    // ======================================================================
     log.err(`[${executionId}] FATAL: ${fatalError.message}`);
     log.debug(fatalError.stack);
 
