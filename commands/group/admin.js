@@ -183,6 +183,18 @@ export async function mode({
   } else if (session) {
     // Fallback: directly set on session object if setMode not available. — AYOCODES
     session.mode = newMode;
+
+    // Also try to persist to MongoDB if available
+    try {
+      const { sessionMetaCollection } = await import("../../index.js");
+      if (sessionMetaCollection) {
+        await sessionMetaCollection.updateOne(
+          { sessionId: session.id },
+          { $set: { mode: newMode } },
+          { upsert: true }
+        );
+      }
+    } catch (_) {}
   }
 
   const modeEmoji = newMode === "private" ? "🔒" : "🌐";
@@ -701,8 +713,8 @@ export async function adminEval({ fullArgs, from, sock, isAdmin }) {
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
-    const fn = new AsyncFunction("sock", "ENV", fullArgs);
-    const result = await fn(sock, ENV);
+    const fn = new AsyncFunction("sock", "ENV", "from", fullArgs);
+    const result = await fn(sock, ENV, from);
     const output =
       typeof result === "object"
         ? JSON.stringify(result, null, 2)
@@ -725,3 +737,24 @@ export async function adminEval({ fullArgs, from, sock, isAdmin }) {
     });
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DEFAULT EXPORT
+// ════════════════════════════════════════════════════════════════════════════
+export default {
+  addUser,
+  removeUser,
+  listUsers,
+  mode,
+  broadcast,
+  globalBroadcast,
+  stats,
+  superBan,
+  unban,
+  listBanned,
+  clearBans,
+  restart,
+  shutdown,
+  botStatus,
+  adminEval,
+};

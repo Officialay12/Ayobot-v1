@@ -1351,46 +1351,81 @@ export async function handleCommand(message, sock) {
 
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
+// ======================================================================
+//  PHASE 5: TRIVIA ANSWER HANDLER - FIXED VERSION
+//  This MUST come BEFORE the prefix check
+// ======================================================================
+if (!trimmed.startsWith(ENV.PREFIX)) {
+  // Check for trivia answers in non-command messages
+  if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
+    console.log(`🎯 [CMD] Potential trivia answer: "${trimmed}" in chat ${from}`);
+    console.log(`📊 [CMD] activeTrivia.has(from)? ${global.activeTrivia?.has(from) || false}`);
 
-    // ======================================================================
-    //  PHASE 5: TRIVIA ANSWER HANDLER
-    // ======================================================================
-    if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
-      if (global.activeTrivia?.has(from)) {
-        if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) return;
-        if (sessionMode === "private" && !isAdminUser) return;
-        if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
+    // Check if there's an active trivia in this chat
+    if (global.activeTrivia?.has(from)) {
+      console.log(`✅ [CMD] Active trivia found, processing answer...`);
 
-        try {
-          const games = MODULES.games;
-          if (typeof games?.handleTriviaAnswer === 'function') {
-            await games.handleTriviaAnswer(message, from, sock);
-            return;
-          }
-        } catch (error) {
-          log.warn(`[${executionId}] Trivia error: ${error.message}`);
-        }
+      // Check permissions before handling trivia
+      if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
+        console.log(`❌ [CMD] Permission denied - group not activated`);
+        return;
       }
-    }
+      if (sessionMode === "private" && !isAdminUser) {
+        console.log(`❌ [CMD] Permission denied - private mode`);
+        return;
+      }
+      if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
+        console.log(`❌ [CMD] Permission denied - user banned`);
+        return;
+      }
 
-    // ======================================================================
-    //  PHASE 5.5: ANTI-LINK HANDLER - NEW
-    //  This runs for EVERY message in groups BEFORE prefix check
-    // ======================================================================
-    if (isGroup) {
       try {
-        const antilinkModule = MODULES.antilink;
-        if (antilinkModule?.handleAntiLink) {
-          // Run in background - don't await to avoid blocking
-          antilinkModule.handleAntiLink(message, from, sock).catch(err => {
-            log.debug(`[${executionId}] Anti-link error: ${err.message}`);
+        // Get games module
+        const games = MODULES.games;
+        console.log(`🎮 [CMD] Games module available: ${!!games}`);
+        console.log(`🎮 [CMD] handleTriviaAnswer available: ${typeof games?.handleTriviaAnswer === 'function'}`);
+
+        if (typeof games?.handleTriviaAnswer === 'function') {
+          const answerStartTime = Date.now();
+          // Pass the FULL message object, from, and sock
+          await games.handleTriviaAnswer(message, from, sock);
+          console.log(`⏱️ [CMD] Trivia answer processed in ${Date.now() - answerStartTime}ms`);
+          return; // IMPORTANT: Return after handling trivia
+        } else {
+          console.log(`❌ [CMD] handleTriviaAnswer function not found`);
+          // Fallback response
+          await sock.sendMessage(from, {
+            text: "❌ Trivia system error. Please try again later."
           });
         }
-      } catch (err) {
-        log.debug(`[${executionId}] Anti-link module error: ${err.message}`);
+      } catch (error) {
+        console.log(`❌ [CMD] Trivia error: ${error.message}`);
       }
+    } else {
+      console.log(`❌ [CMD] No active trivia for this chat`);
     }
+  }
+  return; // Not a command and not trivia, ignore
+}
+// ======================================================================
+//  PHASE 5.5: ANTILINK HANDLER - DETECT AND DELETE LINKS
+//  This runs for EVERY message in groups BEFORE prefix check
+// ======================================================================
+if (isGroup) {
+  try {
+    // Import antilink from automation module
+    const automationModule = MODULES.automation;
 
+    if (automationModule?.handleAntiLink) {
+      // Run in background - don't await to avoid blocking
+      automationModule.handleAntiLink(message, from, sock).catch(err => {
+        log.debug(`[${executionId}] Anti-link error: ${err.message}`);
+      });
+    }
+  } catch (err) {
+    log.debug(`[${executionId}] Anti-link module error: ${err.message}`);
+  }
+}
     // ======================================================================
     //  PHASE 6: PREFIX CHECK
     // ======================================================================

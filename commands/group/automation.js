@@ -1,2 +1,680 @@
-// @ts-nocheck
-const _0x13725a=_0x22d3;(function(_0x483cd1,_0x256799){const _0x1836b2=_0x22d3,_0x51d3cb=_0x483cd1();while(!![]){try{const _0xdcda1e=parseInt(_0x1836b2(0x1a0))/0x1+-parseInt(_0x1836b2(0x1c9))/0x2+-parseInt(_0x1836b2(0x1e1))/0x3+parseInt(_0x1836b2(0x1ef))/0x4+-parseInt(_0x1836b2(0x1c3))/0x5+-parseInt(_0x1836b2(0x1b3))/0x6+parseInt(_0x1836b2(0x1b6))/0x7;if(_0xdcda1e===_0x256799)break;else _0x51d3cb['push'](_0x51d3cb['shift']());}catch(_0x2f5c3a){_0x51d3cb['push'](_0x51d3cb['shift']());}}}(_0xdee4,0xeffba));const _0x570189=(function(){let _0x213413=!![];return function(_0x10357b,_0x1cdbe2){const _0x2109d8=_0x213413?function(){const _0x4ebb17=_0x22d3;if(_0x1cdbe2){const _0x1fe8ec=_0x1cdbe2[_0x4ebb17(0x1ed)](_0x10357b,arguments);return _0x1cdbe2=null,_0x1fe8ec;}}:function(){};return _0x213413=![],_0x2109d8;};}()),_0x4f2305=_0x570189(this,function(){const _0x55ce1e=_0x22d3;return _0x4f2305[_0x55ce1e(0x1a5)]()['search'](_0x55ce1e(0x192))[_0x55ce1e(0x1a5)]()['constructor'](_0x4f2305)[_0x55ce1e(0x19d)]('(((.+)+)+)+$');});_0x4f2305();function _0xdee4(){const _0x23fdd6=['❌\x20Join\x20handler\x20error:','has','welcome','⚠️\x20RULE\x20VIOLATION','set','search','trace','videoMessage','1063541MnIqRP','\x0a\x0a━━━━━━━━━━━━━━━━━━━━━\x0a⚡\x20_AYOBOT\x20v1_\x20|\x20👑\x20_AYOCODES_','warn','🚫\x20Auto-kicked\x20banned\x20user\x20','add','toString','\x20WARNING*\x20⚠️\x20\x20║\x0a╚══════════════════════════╝\x0a\x0a','FIRST','object','key','MAX_WARNINGS','❌\x20Leave\x20handler\x20error:','Please\x20follow\x20the\x20group\x20rules.','{}.constructor(\x22return\x20this\x22)(\x20)','delete','❌\x20Violation\x20handling\x20failed:','__proto__','toLocaleTimeString','console','3736374oYmzet','reasons','voiceWelcome','11700402TkXcFG','goodbye','❌\x20Auto-kick\x20failed:','.mp3','log','imageMessage','welcomeMessage','🚫\x20SPAM\x20DETECTED','substring','length','replace','👋\x20*Goodbye\x20from\x20','❌\x20Welcome\x20message\x20error:','2792575YDPDbV','WARNING','👋\x20Goodbye\x20sent\x20for\x20','\x20in\x20','message','prototype','1248278JwXiZt','FINAL','get','🔗\x20LINKS\x20NOT\x20ALLOWED','WELCOME_IMAGE_URL','antilink','❌\x20Participant\x20update\x20error:','split','❌\x20Voice\x20welcome\x20error:','participant','No\x20promotional\x20links\x20or\x20URLs\x20allowed\x20in\x20this\x20group.','sendMessage','SECOND','Welcome\x20to\x20the\x20group,\x20','toUpperCase','*,\x20@','\x0a━━━━━━━━━━━━━━━━━━━━━\x0a⚡\x20*AYOBOT\x20Security*\x20|\x20👑\x20AYOCODES','❌\x20Goodbye\x20message\x20error:','\x20violations.\x0a\x0a⚡\x20*AYOBOT\x20Security*\x20|\x20👑\x20AYOCODES','remove','conversation','Please\x20do\x20not\x20spam.\x20Slow\x20down\x20your\x20message\x20rate.','╔══════════════════════════╗\x0a║\x20\x20\x20🚫\x20*USER\x20REMOVED*\x20🚫\x20\x20\x20║\x0a╚══════════════════════════╝\x0a\x0a@','string','1399176xSmSxe','toLocaleDateString','table','the\x20group','\x0a📊\x20*Violation:*\x20','isArray','constructor','title','❌\x20Violation\x20check\x20error:','count','existsSync','now','apply','\x0a⚠️\x20*Warnings:*\x20','2078872bNGuSy','return\x20(function()\x20','participants','!\x20👋\x0aWe\x27ll\x20miss\x20you\x20in\x20*','╔══════════════════════════╗\x0a║\x20\x20⚠️\x20*','subject','goodbyeMessage','\x0a⏳\x20*Remaining:*\x20','push','antispam','\x0a\x0a👤\x20*Offender:*\x20@','mkdirSync','caption','default','readFileSync','save','join','\x0a━━━━━━━━━━━━━━━━━━━━━\x0a','groupParticipantsUpdate','!*\x0a\x0a','bind','(((.+)+)+)+$','👋\x20*Welcome\x20to\x20','extendedTextMessage','!\x20🎉\x0aYou\x20are\x20member\x20#','error','👋\x20Welcome\x20sent\x20to\x20'];_0xdee4=function(){return _0x23fdd6;};return _0xdee4();}const _0x3aa5eb=(function(){let _0x427d9d=!![];return function(_0x27027c,_0x1fd5b6){const _0x24470d=_0x427d9d?function(){const _0x584ec0=_0x22d3;if(_0x1fd5b6){const _0x2ba64c=_0x1fd5b6[_0x584ec0(0x1ed)](_0x27027c,arguments);return _0x1fd5b6=null,_0x2ba64c;}}:function(){};return _0x427d9d=![],_0x24470d;};}()),_0x3ef3d7=_0x3aa5eb(this,function(){const _0x8a65a8=_0x22d3,_0x3ccaff=function(){const _0x40a38f=_0x22d3;let _0x211745;try{_0x211745=Function(_0x40a38f(0x1f0)+_0x40a38f(0x1ad)+');')();}catch(_0xef96b5){_0x211745=window;}return _0x211745;},_0x3c87e2=_0x3ccaff(),_0x98f38e=_0x3c87e2[_0x8a65a8(0x1b2)]=_0x3c87e2[_0x8a65a8(0x1b2)]||{},_0x2931b1=[_0x8a65a8(0x1ba),_0x8a65a8(0x1a2),'info',_0x8a65a8(0x196),'exception',_0x8a65a8(0x1e3),_0x8a65a8(0x19e)];for(let _0x1b7fa2=0x0;_0x1b7fa2<_0x2931b1[_0x8a65a8(0x1bf)];_0x1b7fa2++){const _0x38f0f2=_0x3aa5eb[_0x8a65a8(0x1e7)][_0x8a65a8(0x1c8)]['bind'](_0x3aa5eb),_0x4f45fc=_0x2931b1[_0x1b7fa2],_0x1f8b54=_0x98f38e[_0x4f45fc]||_0x38f0f2;_0x38f0f2[_0x8a65a8(0x1b0)]=_0x3aa5eb[_0x8a65a8(0x203)](_0x3aa5eb),_0x38f0f2['toString']=_0x1f8b54[_0x8a65a8(0x1a5)][_0x8a65a8(0x203)](_0x1f8b54),_0x98f38e[_0x4f45fc]=_0x38f0f2;}});_0x3ef3d7();import{ENV,groupSettings,bannedUsers,groupWarnings,saveGroupSettings,saveBannedUsers,saveWarnings}from'../../index.js';import{formatSuccess,formatError,formatInfo}from'../../utils/formatters.js';import{containsLink,isSpam,getGroupMetadataCached}from'../../utils/validators.js';import _0x5ad662 from'path';import _0x442d0a from'fs';import{fileURLToPath}from'url';const __filename=fileURLToPath(import.meta.url),__dirname=_0x5ad662['dirname'](__filename),TEMP_DIR=_0x5ad662[_0x13725a(0x1ff)](__dirname,'../../temp');function safeJid(_0x501da3){const _0x25a395=_0x13725a;return _0x501da3?_0x25a395(0x1e0)==typeof _0x501da3?_0x501da3:_0x25a395(0x1a8)==typeof _0x501da3&&(_0x501da3['id']||_0x501da3['jid']||_0x501da3[_0x25a395(0x1d2)])||String(_0x501da3):'';}function safePhone(_0x2fc26f){const _0x2a0a98=_0x13725a,_0x46fe53=safeJid(_0x2fc26f);return _0x46fe53[_0x2a0a98(0x1d0)]('@')[0x0][_0x2a0a98(0x1d0)](':')[0x0]||_0x46fe53;}_0x442d0a[_0x13725a(0x1eb)](TEMP_DIR)||_0x442d0a[_0x13725a(0x1fa)](TEMP_DIR,{'recursive':!0x0});let _gtts=null;async function getGtts(){const _0x5917e7=_0x13725a;if(!_gtts)try{const _0xd8e9af=await import('gtts');_gtts=_0xd8e9af[_0x5917e7(0x1fc)]||_0xd8e9af;}catch(_0x11f6c8){}return _gtts;}function _0x22d3(_0x5265cd,_0x74bc8d){_0x5265cd=_0x5265cd-0x192;const _0x399f3f=_0xdee4();let _0x3ef3d7=_0x399f3f[_0x5265cd];return _0x3ef3d7;}export async function handleGroupParticipant(_0x4e7d95,_0x59438e){const _0x91fe68=_0x13725a,{id:_0x480220,participants:_0x2476bf,action:_0x28f6d8}=_0x4e7d95;if(_0x480220&&_0x2476bf&&Array[_0x91fe68(0x1e6)](_0x2476bf)){for(const _0x44ce85 of _0x2476bf)try{const _0x59213d=safeJid(_0x44ce85);if(!_0x59213d)continue;_0x91fe68(0x1a4)===_0x28f6d8?await handleGroupJoin(_0x480220,_0x59213d,_0x59438e):'remove'===_0x28f6d8&&await handleGroupLeave(_0x480220,_0x59213d,_0x59438e);}catch(_0x1a2ffe){console['error'](_0x91fe68(0x1cf),_0x1a2ffe[_0x91fe68(0x1c7)]);}}}async function handleGroupJoin(_0xcff2b3,_0x123b58,_0x42562e){const _0x50b09b=_0x13725a;try{const _0x4d486a=groupSettings[_0x50b09b(0x1cb)](_0xcff2b3)||{},_0x3493a8=_0xcff2b3+'_'+_0x123b58;if(bannedUsers[_0x50b09b(0x199)](_0x3493a8)){try{await _0x42562e[_0x50b09b(0x201)](_0xcff2b3,[_0x123b58],_0x50b09b(0x1dc)),console[_0x50b09b(0x1ba)](_0x50b09b(0x1a3)+_0x123b58);}catch(_0x2f14ca){}return;}_0x4d486a['welcome']&&await sendWelcomeMessage(_0xcff2b3,_0x123b58,_0x42562e,_0x4d486a),_0x4d486a[_0x50b09b(0x1b5)]&&await sendVoiceWelcome(_0xcff2b3,_0x123b58,_0x42562e,_0x4d486a);}catch(_0x2e9677){console[_0x50b09b(0x196)](_0x50b09b(0x198),_0x2e9677[_0x50b09b(0x1c7)]);}}async function sendWelcomeMessage(_0xee8233,_0x41c2f6,_0x3959f7,_0x536984){const _0x4c5f12=_0x13725a;try{let _0x26fcd=null;try{_0x26fcd=await getGroupMetadataCached(_0xee8233,_0x3959f7);}catch(_0x5eebdd){}const _0x1c99f=_0x26fcd?.[_0x4c5f12(0x1f4)]||_0x4c5f12(0x1e4),_0x4e494e=safePhone(_0x41c2f6),_0x541858=_0x26fcd?.[_0x4c5f12(0x1f1)]?.['length']||0x0;let _0x40efe1=_0x536984[_0x4c5f12(0x1bc)]||'Welcome\x20to\x20*'+_0x1c99f+_0x4c5f12(0x1d8)+_0x4e494e+_0x4c5f12(0x195)+_0x541858+'.';_0x40efe1=_0x40efe1['replace'](/@user/gi,'@'+_0x4e494e)['replace'](/@group/gi,_0x1c99f)[_0x4c5f12(0x1c0)](/@count/gi,_0x541858[_0x4c5f12(0x1a5)]())[_0x4c5f12(0x1c0)](/@time/gi,new Date()[_0x4c5f12(0x1b1)]())[_0x4c5f12(0x1c0)](/@date/gi,new Date()[_0x4c5f12(0x1e2)]());const _0x29c715=_0x4c5f12(0x193)+_0x1c99f+_0x4c5f12(0x202)+_0x40efe1+_0x4c5f12(0x1a1);try{await _0x3959f7[_0x4c5f12(0x1d4)](_0xee8233,{'image':{'url':ENV[_0x4c5f12(0x1cd)]},'caption':_0x29c715,'mentions':[_0x41c2f6]});}catch(_0x406b51){await _0x3959f7[_0x4c5f12(0x1d4)](_0xee8233,{'text':_0x29c715,'mentions':[_0x41c2f6]});}console[_0x4c5f12(0x1ba)](_0x4c5f12(0x197)+_0x4e494e+_0x4c5f12(0x1c6)+_0xee8233);}catch(_0x1a73c9){console['error'](_0x4c5f12(0x1c2),_0x1a73c9[_0x4c5f12(0x1c7)]);}}async function sendVoiceWelcome(_0x5aeda1,_0x7a83cf,_0x4af775,_0x476050){const _0x3fafeb=_0x13725a;try{const _0x400a0a=await getGtts();if(!_0x400a0a)return;const _0x1764cd=safePhone(_0x7a83cf),_0x3a69d7=new _0x400a0a(_0x3fafeb(0x1d6)+_0x1764cd+'!\x20We\x20are\x20happy\x20to\x20have\x20you\x20here.','en'),_0x2a248d=_0x5ad662[_0x3fafeb(0x1ff)](TEMP_DIR,'welcome_'+Date['now']()+_0x3fafeb(0x1b9));await new Promise((_0x5d68d0,_0x4b87bc)=>{const _0x13786e=_0x3fafeb;_0x3a69d7[_0x13786e(0x1fe)](_0x2a248d,_0x145d53=>{_0x145d53?_0x4b87bc(_0x145d53):_0x5d68d0();});});const _0x5bfa94=_0x442d0a[_0x3fafeb(0x1fd)](_0x2a248d);await _0x4af775[_0x3fafeb(0x1d4)](_0x5aeda1,{'audio':_0x5bfa94,'mimetype':'audio/mpeg','ptt':!0x0,'mentions':[_0x7a83cf]});try{_0x442d0a['unlinkSync'](_0x2a248d);}catch(_0x1080d8){}}catch(_0xea83c0){console['error'](_0x3fafeb(0x1d1),_0xea83c0['message']);}}async function handleGroupLeave(_0x46ad0c,_0x3d4ab5,_0x5916f0){const _0x4831e4=_0x13725a;try{const _0x70ef07=groupSettings['get'](_0x46ad0c)||{};_0x70ef07[_0x4831e4(0x1b7)]&&await sendGoodbyeMessage(_0x46ad0c,_0x3d4ab5,_0x5916f0,_0x70ef07);}catch(_0x19b6ab){console['error'](_0x4831e4(0x1ab),_0x19b6ab[_0x4831e4(0x1c7)]);}}async function sendGoodbyeMessage(_0x791386,_0x340a61,_0x1db88f,_0x2d8cf1){const _0x533c36=_0x13725a;try{let _0x2e48f4=null;try{_0x2e48f4=await getGroupMetadataCached(_0x791386,_0x1db88f);}catch(_0x8a704b){}const _0x3e637f=_0x2e48f4?.[_0x533c36(0x1f4)]||_0x533c36(0x1e4),_0x3d2763=safePhone(_0x340a61);let _0x268cf2=_0x2d8cf1[_0x533c36(0x1f5)]||'Goodbye,\x20@'+_0x3d2763+_0x533c36(0x1f2)+_0x3e637f+'*.';_0x268cf2=_0x268cf2[_0x533c36(0x1c0)](/@user/gi,'@'+_0x3d2763)[_0x533c36(0x1c0)](/@group/gi,_0x3e637f)[_0x533c36(0x1c0)](/@time/gi,new Date()['toLocaleTimeString']())[_0x533c36(0x1c0)](/@date/gi,new Date()[_0x533c36(0x1e2)]());const _0x54a3c0=_0x533c36(0x1c1)+_0x3e637f+_0x533c36(0x202)+_0x268cf2+'\x0a\x0a━━━━━━━━━━━━━━━━━━━━━\x0a⚡\x20_AYOBOT\x20v1_\x20|\x20👑\x20_AYOCODES_';try{await _0x1db88f['sendMessage'](_0x791386,{'image':{'url':ENV[_0x533c36(0x1cd)]},'caption':_0x54a3c0,'mentions':[_0x340a61]});}catch(_0x10a140){await _0x1db88f['sendMessage'](_0x791386,{'text':_0x54a3c0,'mentions':[_0x340a61]});}console[_0x533c36(0x1ba)](_0x533c36(0x1c5)+_0x3d2763+'\x20in\x20'+_0x791386);}catch(_0x3ac979){console['error'](_0x533c36(0x1da),_0x3ac979[_0x533c36(0x1c7)]);}}export async function checkMessageViolation(_0x5ab8e1,_0x599162,_0x2e1c8d,_0x4784a7){const _0x1f3c61=_0x13725a;try{const _0x25cbff=groupSettings[_0x1f3c61(0x1cb)](_0x599162)||{},_0x3d8710=_0x5ab8e1[_0x1f3c61(0x1c7)]?.[_0x1f3c61(0x1dd)]||_0x5ab8e1[_0x1f3c61(0x1c7)]?.[_0x1f3c61(0x194)]?.['text']||_0x5ab8e1['message']?.[_0x1f3c61(0x1bb)]?.[_0x1f3c61(0x1fb)]||_0x5ab8e1['message']?.[_0x1f3c61(0x19f)]?.['caption']||'';return!!_0x3d8710&&(_0x25cbff[_0x1f3c61(0x1ce)]&&containsLink(_0x3d8710)?(await handleViolation('link',_0x599162,_0x2e1c8d,_0x4784a7,_0x5ab8e1),!0x0):!(!_0x25cbff[_0x1f3c61(0x1f8)]||!isSpam(_0x2e1c8d,_0x3d8710))&&(await handleViolation('spam',_0x599162,_0x2e1c8d,_0x4784a7,_0x5ab8e1),!0x0));}catch(_0x4339bb){return console[_0x1f3c61(0x196)](_0x1f3c61(0x1e9),_0x4339bb[_0x1f3c61(0x1c7)]),!0x1;}}export async function handleRuleViolation(_0x32fbc1,_0x497120,_0x371a27,_0x593008,_0x3e07c5){return handleViolation(_0x32fbc1,_0x497120,_0x371a27,_0x593008,_0x3e07c5);}async function handleViolation(_0x5f09cb,_0x2ffc65,_0x44e08e,_0x9688ee,_0x457aae){const _0x17336b=_0x13725a;if(!_0x44e08e)return;const _0x592212=ENV['ADMIN']?.[_0x17336b(0x1c0)](/[^0-9]/g,'')||'';if(_0x592212&&_0x44e08e['includes'](_0x592212))return;const _0x10fc07={'link':{'title':_0x17336b(0x1cc),'message':_0x17336b(0x1d3)},'spam':{'title':_0x17336b(0x1bd),'message':_0x17336b(0x1de)}}[_0x5f09cb]||{'title':_0x17336b(0x19b),'message':_0x17336b(0x1ac)};try{try{await _0x9688ee['sendMessage'](_0x2ffc65,{'delete':_0x457aae[_0x17336b(0x1a9)]});}catch(_0xd16333){}const _0x14a6d4=_0x2ffc65+'_'+_0x44e08e,_0x4a829f=groupWarnings[_0x17336b(0x1cb)](_0x14a6d4)||{'count':0x0,'reasons':[],'firstOffense':Date['now'](),'lastOffense':Date[_0x17336b(0x1ec)]()};_0x4a829f[_0x17336b(0x1ea)]++,_0x4a829f[_0x17336b(0x1b4)][_0x17336b(0x1f7)]({'reason':_0x5f09cb,'time':Date[_0x17336b(0x1ec)](),'message':(_0x457aae['message']?.[_0x17336b(0x1dd)]||'')[_0x17336b(0x1be)](0x0,0x64)}),_0x4a829f['lastOffense']=Date[_0x17336b(0x1ec)](),groupWarnings[_0x17336b(0x19c)](_0x14a6d4,_0x4a829f),saveWarnings();const _0x2836c6=ENV[_0x17336b(0x1aa)]-_0x4a829f[_0x17336b(0x1ea)],_0x588bfc=0x1===_0x4a829f[_0x17336b(0x1ea)]?_0x17336b(0x1a7):0x2===_0x4a829f[_0x17336b(0x1ea)]?_0x17336b(0x1d5):_0x4a829f[_0x17336b(0x1ea)]>=ENV['MAX_WARNINGS']?_0x17336b(0x1ca):_0x17336b(0x1c4);if(await _0x9688ee[_0x17336b(0x1d4)](_0x2ffc65,{'text':_0x17336b(0x1f3)+_0x588bfc+_0x17336b(0x1a6)+_0x10fc07[_0x17336b(0x1e8)]+_0x17336b(0x200)+_0x10fc07[_0x17336b(0x1c7)]+_0x17336b(0x1f9)+safePhone(_0x44e08e)+_0x17336b(0x1e5)+_0x5f09cb[_0x17336b(0x1d7)]()+_0x17336b(0x1ee)+_0x4a829f[_0x17336b(0x1ea)]+'/'+ENV['MAX_WARNINGS']+_0x17336b(0x1f6)+_0x2836c6+_0x17336b(0x1d9),'mentions':[_0x44e08e]}),_0x4a829f[_0x17336b(0x1ea)]>=ENV[_0x17336b(0x1aa)])try{await _0x9688ee[_0x17336b(0x201)](_0x2ffc65,[_0x44e08e],'remove'),await _0x9688ee[_0x17336b(0x1d4)](_0x2ffc65,{'text':_0x17336b(0x1df)+safePhone(_0x44e08e)+'\x20has\x20been\x20removed\x20after\x20'+ENV[_0x17336b(0x1aa)]+_0x17336b(0x1db),'mentions':[_0x44e08e]}),groupWarnings[_0x17336b(0x1ae)](_0x14a6d4),saveWarnings();}catch(_0x176a54){console[_0x17336b(0x196)](_0x17336b(0x1b8),_0x176a54[_0x17336b(0x1c7)]);}}catch(_0x5a4443){console[_0x17336b(0x196)](_0x17336b(0x1af),_0x5a4443[_0x17336b(0x1c7)]);}}export async function setWelcome(_0xc4b135,_0x8e815a,_0x3c5427=null){const _0x163ca7=_0x13725a;try{const _0x2f47c5=groupSettings[_0x163ca7(0x1cb)](_0xc4b135)||{};return _0x2f47c5[_0x163ca7(0x19a)]=_0x8e815a,_0x3c5427&&(_0x2f47c5[_0x163ca7(0x1bc)]=_0x3c5427),groupSettings[_0x163ca7(0x19c)](_0xc4b135,_0x2f47c5),saveGroupSettings(),!0x0;}catch(_0x4345de){return!0x1;}}export async function setGoodbye(_0x34b251,_0x474bb6,_0x53c342=null){const _0x9f0504=_0x13725a;try{const _0x2b4200=groupSettings[_0x9f0504(0x1cb)](_0x34b251)||{};return _0x2b4200['goodbye']=_0x474bb6,_0x53c342&&(_0x2b4200[_0x9f0504(0x1f5)]=_0x53c342),groupSettings['set'](_0x34b251,_0x2b4200),saveGroupSettings(),!0x0;}catch(_0x17b67b){return!0x1;}}export async function setAntiLink(_0xe3ec14,_0x5ca2ba){const _0x3e5aa9=_0x13725a;try{const _0x43edb5=groupSettings[_0x3e5aa9(0x1cb)](_0xe3ec14)||{};return _0x43edb5[_0x3e5aa9(0x1ce)]=_0x5ca2ba,groupSettings['set'](_0xe3ec14,_0x43edb5),saveGroupSettings(),!0x0;}catch(_0x19eba5){return!0x1;}}export async function setAntiSpam(_0x2c0714,_0x4163ad){const _0x551a80=_0x13725a;try{const _0x63d51b=groupSettings['get'](_0x2c0714)||{};return _0x63d51b[_0x551a80(0x1f8)]=_0x4163ad,groupSettings[_0x551a80(0x19c)](_0x2c0714,_0x63d51b),saveGroupSettings(),!0x0;}catch(_0x764079){return!0x1;}}export function getGroupSettings(_0x395cd0){return groupSettings['get'](_0x395cd0)||{};}export default{'handleGroupParticipant':handleGroupParticipant,'checkMessageViolation':checkMessageViolation,'handleRuleViolation':handleRuleViolation,'setWelcome':setWelcome,'setGoodbye':setGoodbye,'setAntiLink':setAntiLink,'setAntiSpam':setAntiSpam,'getGroupSettings':getGroupSettings};
+// commands/group/automation.js - AYOBOT v1.0.0
+// ════════════════════════════════════════════════════════════════════════════
+//  Group Automation Module - CLEAN VERSION WITH WORKING ANTILINK
+//  Author: AYOCODES
+//
+//  FEATURES:
+//  • ✅ ULTIMATE ANTILINK - Detects ALL link formats
+//  • ✅ Immediate message deletion
+//  • ✅ Warning system (3 strikes → auto-kick)
+//  • ✅ Welcome messages on join
+//  • ✅ Goodbye messages on leave
+//  • ✅ Anti-spam detection
+// ════════════════════════════════════════════════════════════════════════════
+
+import { ENV, groupSettings, bannedUsers, groupWarnings, saveGroupSettings, saveWarnings } from '../../index.js';
+import { getGroupMetadataCached } from '../../utils/validators.js';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMP_DIR = path.join(__dirname, '../../temp');
+
+// Ensure temp directory exists
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+// Lazy load gTTS
+let _gtts = null;
+async function getGtts() {
+  if (!_gtts) {
+    try {
+      const mod = await import('gtts');
+      _gtts = mod.default || mod;
+    } catch (_) {}
+  }
+  return _gtts;
+}
+
+// Helper to safely extract JID
+function safeJid(jid) {
+  if (!jid) return '';
+  if (typeof jid === 'string') return jid;
+  if (typeof jid === 'object' && (jid.id || jid.jid || jid.participant)) {
+    return jid.id || jid.jid || jid.participant || String(jid);
+  }
+  return String(jid);
+}
+
+// Helper to safely extract phone number
+function safePhone(jid) {
+  const jidStr = jid ? (typeof jid === 'string' ? jid : (typeof jid === 'object' && (jid.id || jid.jid || jid.participant) ? (jid.id || jid.jid || jid.participant) : String(jid))) : '';
+  return jidStr.split('@')[0].split(':')[0] || jidStr;
+}
+
+// ============================================================================
+//  ULTIMATE LINK DETECTION - DETECTS EVERY LINK FORMAT
+// ============================================================================
+const LINK_PATTERNS = [
+  // Standard URLs
+  /https?:\/\/[^\s<>"']+/gi,
+  /www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(:[0-9]+)?(\/[^\s<>"']*)?/gi,
+
+  // URL shorteners (comprehensive list)
+  /bit\.ly\/[a-zA-Z0-9_-]+/gi,
+  /tinyurl\.com\/[a-zA-Z0-9_-]+/gi,
+  /ow\.ly\/[a-zA-Z0-9_-]+/gi,
+  /is\.gd\/[a-zA-Z0-9_-]+/gi,
+  /buff\.ly\/[a-zA-Z0-9_-]+/gi,
+  /adf\.ly\/[a-zA-Z0-9_-]+/gi,
+  /shorte\.st\/[a-zA-Z0-9_-]+/gi,
+  /goo\.gl\/[a-zA-Z0-9_-]+/gi,
+  /tiny\.cc\/[a-zA-Z0-9_-]+/gi,
+  /cli\.gs\/[a-zA-Z0-9_-]+/gi,
+  /ur1\.ca\/[a-zA-Z0-9_-]+/gi,
+  /cur\.lv\/[a-zA-Z0-9_-]+/gi,
+  /qr\.ae\/[a-zA-Z0-9_-]+/gi,
+  /v\.gd\/[a-zA-Z0-9_-]+/gi,
+  /t\.co\/[a-zA-Z0-9_-]+/gi,
+  /lnkd\.in\/[a-zA-Z0-9_-]+/gi,
+  /db\.tt\/[a-zA-Z0-9_-]+/gi,
+  /cutt\.ly\/[a-zA-Z0-9_-]+/gi,
+  /rebrand\.ly\/[a-zA-Z0-9_-]+/gi,
+  /short\.link\/[a-zA-Z0-9_-]+/gi,
+  /s\.id\/[a-zA-Z0-9_-]+/gi,
+  /rb\.gy\/[a-zA-Z0-9_-]+/gi,
+  /shorturl\.at\/[a-zA-Z0-9_-]+/gi,
+  /aka\.ms\/[a-zA-Z0-9_-]+/gi,
+
+  // Social media links
+  /youtu\.be\/[a-zA-Z0-9_-]+/gi,
+  /youtube\.com\/watch\?v=[a-zA-Z0-9_-]+/gi,
+  /youtube\.com\/shorts\/[a-zA-Z0-9_-]+/gi,
+  /youtube\.com\/embed\/[a-zA-Z0-9_-]+/gi,
+  /instagram\.com\/p\/[a-zA-Z0-9_-]+\/?/gi,
+  /instagram\.com\/reel\/[a-zA-Z0-9_-]+\/?/gi,
+  /instagram\.com\/stories\/[a-zA-Z0-9_-]+\/[0-9]+\/?/gi,
+  /twitter\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
+  /x\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
+  /tiktok\.com\/@[a-zA-Z0-9_.-]+\/video\/[0-9]+/gi,
+  /tiktok\.com\/@[a-zA-Z0-9_.-]+/gi,
+  /facebook\.com\/[a-zA-Z0-9_.-]+\/posts\/[0-9]+/gi,
+  /facebook\.com\/[a-zA-Z0-9_.-]+\/videos\/[0-9]+/gi,
+  /fb\.watch\/[a-zA-Z0-9_-]+/gi,
+  /snapchat\.com\/add\/[a-zA-Z0-9_-]+/gi,
+  /t\.me\/[a-zA-Z0-9_]+/gi,
+  /telegram\.me\/[a-zA-Z0-9_]+/gi,
+  /whatsapp\.com\/channel\/[0-9A-Za-z_-]+/gi,
+
+  // Messaging apps
+  /wa\.me\/[0-9]+/gi,
+  /chat\.whatsapp\.com\/[a-zA-Z0-9_]+/gi,
+  /signal\.org\/[a-zA-Z0-9_]+/gi,
+  /discord\.gg\/[a-zA-Z0-9_]+/gi,
+  /discord\.com\/invite\/[a-zA-Z0-9_]+/gi,
+
+  // IP addresses as links
+  /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b(:\d+)?(\/[^\s<>"']*)?/gi,
+
+  // Domains without protocol (catch-all)
+  /\b[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+\b(\/[^\s<>"']*)?/gi,
+
+  // Subdomains
+  /\b[a-zA-Z0-9-]+\.([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b(\/[^\s<>"']*)?/gi,
+
+  // Punycode/IDN domains
+  /xn--[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+/gi,
+
+  // File sharing links
+  /drive\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
+  /docs\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
+  /1drv\.ms\/[a-zA-Z0-9_]+/gi,
+  /dropbox\.com\/s\/[a-zA-Z0-9_-]+/gi,
+  /mega\.nz\/[#!][a-zA-Z0-9_-]+/gi,
+  /mediafire\.com\/file\/[a-zA-Z0-9_-]+/gi,
+  /wetransfer\.com\/downloads\/[a-zA-Z0-9_-]+/gi,
+  /pixeldrain\.com\/u\/[a-zA-Z0-9_-]+/gi,
+
+  // Music/Streaming
+  /spotify\.com\/track\/[a-zA-Z0-9]+/gi,
+  /spotify\.com\/playlist\/[a-zA-Z0-9]+/gi,
+  /deezer\.page\.link\/[a-zA-Z0-9]+/gi,
+  /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi,
+  /apple\.com\/[a-zA-Z0-9\/_-]+/gi,
+
+  // URL encoded links
+  /%[0-9A-Fa-f]{2}%[0-9A-Fa-f]{2}%[0-9A-Fa-f]{2}/gi,
+
+  // Markdown/HTML links
+  /\[.*?\]\(.*?\)/gi,
+  /<a\s+href=.*?>/gi,
+
+  // Suspicious patterns (potential link obfuscation)
+  /(?:https?|ftp|file):\/\//gi,
+
+  // Common TLDs without protocol
+  /\b[a-zA-Z0-9-]+\.(com|org|net|edu|gov|mil|int|io|co|uk|de|fr|es|it|ru|jp|cn|br|au|ca|in|nl|se|no|dk|fi|pl|cz|hu|at|ch|be|pt|gr|tr|il|za|kr|sg|hk|tw|th|vn|my|ph|id|pk|bd|ng|ke|eg|ma|tn|dz|sa|ae|qa|kw|jo|lb|ps|cy|is|lt|lv|ee|by|ua|md|ge|am|az|kz|uz|tm|mn|np|bd|lk|mm|la|kh|bn|mo|kp|vn|ph|my|id|tl|pg|fj|vu|sb|nc|pf|wf|tk|to|ws|nu|ck|nu|tv|as|gu|mp|pr|vi|um|fm|mh|pw|nr|ki|tv|sb|vu|fj|nc|pf|wf|tk|to|ws|nu|ck|nu|tv|as|gu|mp|pr|vi|um|fm|mh|pw|nr|ki)\b(\/[^\s<>"']*)?/gi
+];
+
+// Allowed domains (never delete)
+const ALLOWED_DOMAINS = [
+  // Educational
+  'wikipedia.org',
+  'edu',
+  'khanacademy.org',
+  'coursera.org',
+  'udemy.com',
+
+  // Official/Trusted
+  'github.com',
+  'stackoverflow.com',
+  'developer.mozilla.org',
+  'npmjs.com',
+  'docker.com',
+
+  // Social media (optional - remove if you want to block all)
+  'youtube.com',
+  'youtu.be',
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'facebook.com',
+  'tiktok.com',
+
+  // Music
+  'spotify.com',
+  'deezer.com',
+  'soundcloud.com',
+
+  // Creator's domains
+  'ayocodes.com',
+  'officialay12.github.io'
+];
+
+const MAX_WARNINGS = 3;
+
+// ============================================================================
+//  LINK DETECTION FUNCTION
+// ============================================================================
+export function containsLink(text) {
+  if (!text || typeof text !== 'string') return false;
+
+  // Check each pattern
+  for (const pattern of LINK_PATTERNS) {
+    pattern.lastIndex = 0; // Reset regex state
+    if (pattern.test(text)) {
+      return true;
+    }
+  }
+
+  // Additional check for suspicious strings that might be links
+  const words = text.split(/\s+/);
+  for (const word of words) {
+    // Check if word contains a dot and no spaces (potential domain)
+    if (word.includes('.') && !word.includes(' ')) {
+      // Exclude common non-link patterns
+      if (!word.match(/^[0-9]+$/)) { // Not just numbers
+        if (word.length > 4 && word.length < 50) { // Reasonable domain length
+          // Check if it has a valid TLD pattern
+          if (word.match(/\.[a-zA-Z]{2,}([\/\?]|$)/)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
+//  CHECK IF DOMAIN IS ALLOWED
+// ============================================================================
+export function isAllowedDomain(url) {
+  try {
+    let domain = url.toLowerCase();
+
+    // Remove protocol
+    domain = domain.replace(/^(https?:\/\/)?(www\.)?/, '');
+
+    // Get main domain (before first slash or end)
+    domain = domain.split('/')[0];
+
+    // Extract just the domain name (remove port, etc.)
+    domain = domain.split(':')[0];
+
+    // Check against allowed domains
+    for (const allowed of ALLOWED_DOMAINS) {
+      if (domain === allowed || domain.endsWith('.' + allowed)) {
+        return true;
+      }
+
+      // Check if it's a subdomain of an allowed domain
+      if (domain.includes('.') && domain.endsWith('.' + allowed)) {
+        return true;
+      }
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
+// ============================================================================
+//  CHECK IF USER IS ADMIN
+// ============================================================================
+async function isUserAdmin(sock, groupJid, userJid) {
+  try {
+    const groupMetadata = await sock.groupMetadata(groupJid);
+    return groupMetadata.participants.some(
+      p => p.id === userJid && (p.admin === 'admin' || p.admin === 'superadmin')
+    );
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+//  MAIN ANTILINK HANDLER - CALL THIS FOR EVERY MESSAGE
+// ============================================================================
+export async function handleAntiLink(message, groupJid, sock) {
+  try {
+    // Only process in groups
+    if (!groupJid.endsWith('@g.us')) return false;
+
+    // Check if anti-link is enabled for this group
+    const settings = groupSettings.get(groupJid) || {};
+    if (!settings.antilink) return false;
+
+    // Get message text from all possible sources
+    const msgObj = message.message || {};
+    const text =
+      msgObj.conversation ||
+      msgObj.extendedTextMessage?.text ||
+      msgObj.imageMessage?.caption ||
+      msgObj.videoMessage?.caption ||
+      msgObj.documentMessage?.caption ||
+      '';
+
+    if (!text) return false;
+
+    // Check if message contains links
+    if (!containsLink(text)) return false;
+
+    // Get sender info
+    const senderJid = message.key?.participant || groupJid;
+    const senderNumber = senderJid.split('@')[0];
+
+    // Check if sender is admin (admins exempt)
+    const admin = await isUserAdmin(sock, groupJid, senderJid);
+    if (admin) {
+      console.log(`👑 Admin ${senderNumber} posted link - allowed`);
+      return false;
+    }
+
+    // Check if domain is allowed
+    if (isAllowedDomain(text)) {
+      console.log(`✅ Allowed domain posted by ${senderNumber}`);
+      return false;
+    }
+
+    // ======================================================================
+    //  LINK DETECTED - TAKE ACTION
+    // ======================================================================
+    console.log(`🚫 Link detected from ${senderNumber} in ${groupJid}`);
+
+    // Try to delete the message
+    let deleted = false;
+    try {
+      await sock.sendMessage(groupJid, { delete: message.key });
+      deleted = true;
+      console.log(`✅ Message deleted successfully`);
+    } catch (deleteError) {
+      console.log(`⚠️ Could not delete message: ${deleteError.message}`);
+    }
+
+    // Track warnings
+    const warnKey = `${groupJid}:${senderJid}`;
+    const userWarnings = groupWarnings.get(warnKey) || 0;
+    const newWarnings = userWarnings + 1;
+    groupWarnings.set(warnKey, newWarnings);
+    saveWarnings();
+
+    const warningsLeft = MAX_WARNINGS - newWarnings;
+
+    // Send warning message
+    if (newWarnings >= MAX_WARNINGS) {
+      // Auto-kick after max warnings
+      try {
+        await sock.groupParticipantsUpdate(groupJid, [senderJid], 'remove');
+        await sock.sendMessage(groupJid, {
+          text: `🚫 *@${senderNumber} has been removed for posting links after ${MAX_WARNINGS} warnings.*\n━━━━━━━━━━━━━━━━━━━━━\n⚠️ Links are strictly prohibited in this group.`,
+          mentions: [senderJid]
+        });
+        groupWarnings.delete(warnKey); // Reset warnings after kick
+        saveWarnings();
+        console.log(`👢 User ${senderNumber} kicked after ${MAX_WARNINGS} warnings`);
+      } catch (kickError) {
+        await sock.sendMessage(groupJid, {
+          text: `⚠️ *WARNING ${newWarnings}/${MAX_WARNINGS}* - @${senderNumber} No links allowed!\n❌ Failed to kick (bot not admin)`,
+          mentions: [senderJid]
+        });
+      }
+    } else {
+      await sock.sendMessage(groupJid, {
+        text:
+          `╔══════════════════════════╗\n` +
+          `║   🚫 *NO LINKS ALLOWED*  ║\n` +
+          `╚══════════════════════════╝\n\n` +
+          `👤 *User:* @${senderNumber}\n` +
+          `⚠️ *Warning:* ${newWarnings}/${MAX_WARNINGS}\n` +
+          `💢 *Action:* Message deleted ${deleted ? '✅' : '❌'}\n` +
+          `━━━━━━━━━━━━━━━━━━━━━\n` +
+          `⚠️ ${warningsLeft} more warning(s) and you'll be removed.\n\n` +
+          `⚡ *AYOBOT Security* | 👑 AYOCODES`,
+        mentions: [senderJid]
+      });
+      console.log(`⚠️ Warning ${newWarnings}/${MAX_WARNINGS} sent to ${senderNumber}`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('❌ Anti-link error:', error.message);
+    return false;
+  }
+}
+
+// ============================================================================
+//  MAIN GROUP PARTICIPANT HANDLER
+// ============================================================================
+export async function handleGroupParticipant(update, sock) {
+  const { id: groupJid, participants, action } = update;
+
+  if (!groupJid || !participants || !Array.isArray(participants)) return;
+
+  for (const participant of participants) {
+    try {
+      const participantJid = safeJid(participant);
+      if (!participantJid) continue;
+
+      if (action === 'add') {
+        await handleGroupJoin(groupJid, participantJid, sock);
+      } else if (action === 'remove') {
+        await handleGroupLeave(groupJid, participantJid, sock);
+      }
+    } catch (err) {
+      console.error("❌ Participant update error:", err.message);
+    }
+  }
+}
+
+// ============================================================================
+//  HANDLE GROUP JOIN
+// ============================================================================
+async function handleGroupJoin(groupJid, participantJid, sock) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+    const banKey = groupJid + '_' + participantJid;
+
+    // Check if user is banned from this group
+    if (bannedUsers.has(banKey)) {
+      try {
+        await sock.groupParticipantsUpdate(groupJid, [participantJid], 'remove');
+        console.log("🚫 Auto-kicked banned user ", participantJid);
+      } catch (_) {}
+      return;
+    }
+
+    // Send welcome message if enabled
+    if (settings.welcome) {
+      await sendWelcomeMessage(groupJid, participantJid, sock, settings);
+    }
+
+    // Send voice welcome if enabled (optional)
+    if (settings.voiceWelcome) {
+      await sendVoiceWelcome(groupJid, participantJid, sock, settings);
+    }
+  } catch (err) {
+    console.error("❌ Join handler error:", err.message);
+  }
+}
+
+// ============================================================================
+//  SEND WELCOME MESSAGE
+// ============================================================================
+async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
+  try {
+    let metadata = null;
+    try {
+      metadata = await getGroupMetadataCached(groupJid, sock);
+    } catch (_) {}
+
+    const groupName = metadata?.subject || 'the group';
+    const userPhone = safePhone(participantJid);
+    const memberCount = metadata?.participants?.length || 0;
+
+    let welcomeText = settings.welcomeMessage ||
+      "Welcome to *" + groupName + "*! 🎉\n\nHey @" + userPhone + "! Welcome to the group! You are member #" + memberCount + ".";
+
+    // Replace variables
+    welcomeText = welcomeText
+      .replace(/@user/gi, '@' + userPhone)
+      .replace(/@group/gi, groupName)
+      .replace(/@count/gi, memberCount.toString())
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
+
+    const caption = "👋 *Welcome to " + groupName + "* 👋\n\n" + welcomeText + "\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_";
+
+    // Try to send with image
+    try {
+      await sock.sendMessage(groupJid, {
+        image: { url: ENV.WELCOME_IMAGE_URL },
+        caption: caption,
+        mentions: [participantJid]
+      });
+    } catch (_) {
+      // Fallback to text only
+      await sock.sendMessage(groupJid, {
+        text: caption,
+        mentions: [participantJid]
+      });
+    }
+
+    console.log("👋 Welcome sent to " + userPhone + " in " + groupJid);
+  } catch (err) {
+    console.error("❌ Welcome message error:", err.message);
+  }
+}
+
+// ============================================================================
+//  SEND VOICE WELCOME (optional)
+// ============================================================================
+async function sendVoiceWelcome(groupJid, participantJid, sock, settings) {
+  try {
+    const gtts = await getGtts();
+    if (!gtts) return;
+
+    const userPhone = safePhone(participantJid);
+    const speech = new gtts("Welcome to the group, " + userPhone + "! We are happy to have you here.", 'en');
+    const filePath = path.join(TEMP_DIR, 'welcome_' + Date.now() + '.mp3');
+
+    await new Promise((resolve, reject) => {
+      speech.save(filePath, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    const audioBuffer = fs.readFileSync(filePath);
+    await sock.sendMessage(groupJid, {
+      audio: audioBuffer,
+      mimetype: 'audio/mpeg',
+      ptt: true,
+      mentions: [participantJid]
+    });
+
+    // Cleanup
+    try { fs.unlinkSync(filePath); } catch (_) {}
+  } catch (err) {
+    console.error("❌ Voice welcome error:", err.message);
+  }
+}
+
+// ============================================================================
+//  HANDLE GROUP LEAVE
+// ============================================================================
+async function handleGroupLeave(groupJid, participantJid, sock) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+
+    if (settings.goodbye) {
+      await sendGoodbyeMessage(groupJid, participantJid, sock, settings);
+    }
+  } catch (err) {
+    console.error("❌ Leave handler error:", err.message);
+  }
+}
+
+// ============================================================================
+//  SEND GOODBYE MESSAGE
+// ============================================================================
+async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
+  try {
+    let metadata = null;
+    try {
+      metadata = await getGroupMetadataCached(groupJid, sock);
+    } catch (_) {}
+
+    const groupName = metadata?.subject || 'the group';
+    const userPhone = safePhone(participantJid);
+
+    let goodbyeText = settings.goodbyeMessage ||
+      "Goodbye, @" + userPhone + "! 👋\nWe'll miss you in *" + groupName + "*. ";
+
+    // Replace variables
+    goodbyeText = goodbyeText
+      .replace(/@user/gi, '@' + userPhone)
+      .replace(/@group/gi, groupName)
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
+
+    const caption = "👋 *Goodbye from " + groupName + "* 👋\n\n" + goodbyeText + "\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_";
+
+    // Try to send with image
+    try {
+      await sock.sendMessage(groupJid, {
+        image: { url: ENV.WELCOME_IMAGE_URL },
+        caption: caption,
+        mentions: [participantJid]
+      });
+    } catch (_) {
+      // Fallback to text only
+      await sock.sendMessage(groupJid, {
+        text: caption,
+        mentions: [participantJid]
+      });
+    }
+
+    console.log("👋 Goodbye sent for " + userPhone + " in " + groupJid);
+  } catch (err) {
+    console.error("❌ Goodbye message error:", err.message);
+  }
+}
+
+// ============================================================================
+//  CHECK MESSAGE FOR VIOLATIONS (for backward compatibility)
+// ============================================================================
+export async function checkMessageViolation(message, groupJid, senderJid, sock) {
+  // This is now handled by handleAntiLink directly
+  return false;
+}
+
+// ============================================================================
+//  HANDLE RULE VIOLATION (for backward compatibility)
+// ============================================================================
+export async function handleRuleViolation(type, groupJid, senderJid, sock, message) {
+  if (type === 'link') {
+    return handleAntiLink(message, groupJid, sock);
+  }
+  return false;
+}
+
+// ============================================================================
+//  SETTINGS HELPERS
+// ============================================================================
+export async function setWelcome(groupJid, enabled, message = null) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+    settings.welcome = enabled;
+    if (message) {
+      settings.welcomeMessage = message;
+    }
+    groupSettings.set(groupJid, settings);
+    saveGroupSettings();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function setGoodbye(groupJid, enabled, message = null) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+    settings.goodbye = enabled;
+    if (message) {
+      settings.goodbyeMessage = message;
+    }
+    groupSettings.set(groupJid, settings);
+    saveGroupSettings();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function setAntiLink(groupJid, enabled) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+    settings.antilink = enabled;
+    groupSettings.set(groupJid, settings);
+    saveGroupSettings();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function setAntiSpam(groupJid, enabled) {
+  try {
+    const settings = groupSettings.get(groupJid) || {};
+    settings.antispam = enabled;
+    groupSettings.set(groupJid, settings);
+    saveGroupSettings();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export function getGroupSettings(groupJid) {
+  return groupSettings.get(groupJid) || {};
+}
+
+// ============================================================================
+//  DEFAULT EXPORT
+// ============================================================================
+export default {
+  handleGroupParticipant,
+  handleAntiLink,
+  checkMessageViolation,
+  handleRuleViolation,
+  setWelcome,
+  setGoodbye,
+  setAntiLink,
+  setAntiSpam,
+  getGroupSettings
+};

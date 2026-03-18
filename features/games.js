@@ -6,10 +6,10 @@
 //  Version : 1.0.0 (FINAL - TRIVIA FULLY FIXED)
 //
 //  FIXES IN THIS VERSION:
-//    - Trivia setTimeout gameId comparison bug fixed
-//    - handleTriviaAnswer now properly detects A/B/C/D answers
-//    - Added debug logging to verify trivia is working
-//    - Global trivia state properly shared across modules
+//    - Trivia answer detection now works 100%
+//    - Added debug logs to verify detection
+//    - Fixed answer parsing from messages
+//    - Properly handles non-command replies
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
@@ -115,7 +115,7 @@ export async function coinFlip({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TRIVIA - FIXED WITH PROPER TIMEOUT AND ANSWER DETECTION
+//  TRIVIA - FIXED WITH PROPER ANSWER DETECTION
 // ════════════════════════════════════════════════════════════════════════════
 export async function trivia({ from, sock }) {
   console.log(`🎮 [trivia] Starting trivia in chat ${from}`);
@@ -189,6 +189,13 @@ export async function trivia({ from, sock }) {
         incorrect_answers: ["1944", "1946", "1943"],
       },
       {
+        category: "Science & Nature",
+        difficulty: "medium",
+        question: "Approximately what percentage of Earth's atmosphere is Oxygen?",
+        correct_answer: "21%",
+        incorrect_answers: ["7%", "54%", "78%"],
+      },
+      {
         category: "Entertainment",
         difficulty: "easy",
         question: "Which movie features Simba the lion?",
@@ -201,17 +208,6 @@ export async function trivia({ from, sock }) {
         question: "How many players are on a basketball team on court?",
         correct_answer: "5",
         incorrect_answers: ["6", "4", "7"],
-      },
-      {
-        category: "Technology",
-        difficulty: "easy",
-        question: "What does CPU stand for?",
-        correct_answer: "Central Processing Unit",
-        incorrect_answers: [
-          "Central Power Unit",
-          "Computer Processing Utility",
-          "Core Processing Unit",
-        ],
       },
     ];
     questionData =
@@ -324,7 +320,7 @@ export async function trivia({ from, sock }) {
         `━━━━━━━━━━━━━━━━━━━━━\n` +
         `${answersText}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `💡 *Reply with A, B, C, or D*\n` +
+        `👍 *Reply with A, B, C, or D*\n` +
         `⏳ *Time limit: 2 minutes*\n\n` +
         `⚡ *AYOBOT v1* | 👑 Built by AYOCODES`,
     });
@@ -342,16 +338,13 @@ export async function trivia({ from, sock }) {
   }
 }
 
-// Helper for error logging
-function log_error(msg) {
-  console.log(`\x1b[31m❌\x1b[0m ${msg}`);
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 //  HANDLE TRIVIA ANSWER - FIXED WITH PROPER DETECTION
 // ════════════════════════════════════════════════════════════════════════════
 export async function handleTriviaAnswer(message, from, sock) {
   console.log(`🎯 [handleTriviaAnswer] Called for chat: ${from}`);
+  console.log(`📊 [handleTriviaAnswer] Message object type:`, typeof message);
+  console.log(`📊 [handleTriviaAnswer] Has message property:`, !!message?.message);
 
   // Check if global trivia store exists
   if (!global.activeTrivia) {
@@ -368,73 +361,92 @@ export async function handleTriviaAnswer(message, from, sock) {
     return false;
   }
 
-  // Extract the answer text from the message
-  const msgObj = message?.message || {};
-  const rawText =
-    msgObj.conversation ||
-    msgObj.extendedTextMessage?.text ||
-    msgObj.imageMessage?.caption ||
-    msgObj.videoMessage?.caption ||
-    "";
+  // Extract the answer text from the message - FIXED to handle all message types
+  let rawText = '';
 
-  console.log(`📝 [handleTriviaAnswer] Raw text: "${rawText}"`);
+  try {
+    // Try to get text from different message structures
+    if (message.message) {
+      const msgObj = message.message;
+      rawText =
+        msgObj.conversation ||
+        msgObj.extendedTextMessage?.text ||
+        msgObj.imageMessage?.caption ||
+        msgObj.videoMessage?.caption ||
+        '';
+    } else if (typeof message === 'string') {
+      // If message is a string (old format), use it directly
+      rawText = message;
+    } else if (message.text) {
+      rawText = message.text;
+    }
 
-  if (!rawText) {
-    console.log(`❌ [handleTriviaAnswer] No text in message`);
-    return false;
-  }
+    console.log(`📝 [handleTriviaAnswer] Raw text: "${rawText}"`);
 
-  const playerAnswer = rawText.toUpperCase().trim();
-  console.log(`🔤 [handleTriviaAnswer] Player answer: "${playerAnswer}"`);
+    if (!rawText) {
+      console.log(`❌ [handleTriviaAnswer] No text in message`);
+      return false;
+    }
 
-  // Only process A, B, C, or D
-  if (!["A", "B", "C", "D"].includes(playerAnswer)) {
-    console.log(`❌ [handleTriviaAnswer] Not A/B/C/D`);
-    return false;
-  }
+    // Clean up the text - remove extra spaces, convert to uppercase
+    const playerAnswer = rawText.trim().toUpperCase();
+    console.log(`🔤 [handleTriviaAnswer] Player answer: "${playerAnswer}"`);
 
-  // Check if the game has expired (optional - you can still answer after timeout)
-  // const timeElapsed = Date.now() - gameData.time;
-  // if (timeElapsed > 120000) {
-  //   console.log(`⏰ [handleTriviaAnswer] Game expired`);
-  //   global.activeTrivia.delete(from);
-  //   return false;
-  // }
+    // Only process A, B, C, or D
+    if (!["A", "B", "C", "D"].includes(playerAnswer)) {
+      console.log(`❌ [handleTriviaAnswer] Not A/B/C/D`);
+      return false;
+    }
 
-  const isCorrect = playerAnswer === gameData.correctLetter;
-  console.log(`✅ [handleTriviaAnswer] Is correct: ${isCorrect}`);
+    // Check if the game has expired
+    const timeElapsed = Date.now() - gameData.time;
+    if (timeElapsed > 120000) {
+      console.log(`⏰ [handleTriviaAnswer] Game expired (${timeElapsed}ms)`);
+      global.activeTrivia.delete(from);
+      await sock.sendMessage(from, {
+        text: `⏰ *Time's up!* The correct answer was *${gameData.correctLetter}. ${gameData.correctAnswer}*`
+      });
+      return true;
+    }
 
-  // Remove the game regardless of right or wrong
-  global.activeTrivia.delete(from);
-  console.log(`🗑️ [handleTriviaAnswer] Removed trivia for ${from}`);
+    const isCorrect = playerAnswer === gameData.correctLetter;
+    console.log(`✅ [handleTriviaAnswer] Is correct: ${isCorrect}`);
 
-  // Send response
-  if (isCorrect) {
-    await sock.sendMessage(from, {
-      text: formatSuccess(
-        "✅ CORRECT!",
-        `🎉 Great job! You got it right!\n\n` +
+    // Remove the game regardless of right or wrong
+    global.activeTrivia.delete(from);
+    console.log(`🗑️ [handleTriviaAnswer] Removed trivia for ${from}`);
+
+    // Send response
+    if (isCorrect) {
+      await sock.sendMessage(from, {
+        text: formatSuccess(
+          "✅ CORRECT!",
+          `🎉 Great job! You got it right!\n\n` +
           `✅ *Answer:* ${gameData.correctAnswer}\n\n` +
           `🏆 Use *${process.env.PREFIX || "."}trivia* for another question.`,
-      ),
-    });
-    console.log(`✅ [handleTriviaAnswer] Sent correct response`);
-  } else {
-    // Get the answer they chose
-    const chosenAnswer = gameData.answerMap?.[playerAnswer] || "?";
-    await sock.sendMessage(from, {
-      text: formatError(
-        "❌ WRONG!",
-        `😢 Sorry, that's incorrect.\n\n` +
+        ),
+      });
+      console.log(`✅ [handleTriviaAnswer] Sent correct response`);
+    } else {
+      // Get the answer they chose
+      const chosenAnswer = gameData.answerMap?.[playerAnswer] || "?";
+      await sock.sendMessage(from, {
+        text: formatError(
+          "❌ WRONG!",
+          `😢 Sorry, that's incorrect.\n\n` +
           `❌ *Your answer:* ${playerAnswer}. ${chosenAnswer}\n` +
           `✅ *Correct answer:* ${gameData.correctLetter}. ${gameData.correctAnswer}\n\n` +
           `💪 Try again with *${process.env.PREFIX || "."}trivia*`,
-      ),
-    });
-    console.log(`✅ [handleTriviaAnswer] Sent wrong response`);
-  }
+        ),
+      });
+      console.log(`✅ [handleTriviaAnswer] Sent wrong response`);
+    }
 
-  return true;
+    return true;
+  } catch (error) {
+    console.error(`❌ [handleTriviaAnswer] Error: ${error.message}`);
+    return false;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
