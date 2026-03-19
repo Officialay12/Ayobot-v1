@@ -144,7 +144,6 @@ export async function test({
 
   return { text: "✅ Test completed" };
 }
-
 // ════════════════════════════════════════════════════════════════════════════
 //  MENU - FULLY ENHANCED WITH ALL COMMANDS
 // ════════════════════════════════════════════════════════════════════════════
@@ -163,947 +162,933 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       mode: isAdmin ? "ADMIN 👑" : "USER",
     };
 
-   // Build comprehensive command menu
-const menuCommands = [
-  // ── CORE ─────────────────────────────────────────────────
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.ping`",
-    emoji: "● 🏓",
-    desc: "Latency & uptime",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.menu`",
-    emoji: "● 📋",
-    desc: "Commands list",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.status`",
-    emoji: "● 📊",
-    desc: "Your status",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.creator`",
-    emoji: "● 👑",
-    desc: "Creator info",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.github`",
-    emoji: "● 💻",
-    desc: "GitHub",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.connect`",
-    emoji: "● 📢",
-    desc: "Community",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.prefix`",
-    emoji: "● ℹ️",
-    desc: "Prefix info",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.auto`",
-    emoji: "● 🤖",
-    desc: "Auto-reply",
-  },
-  {
-    category: "*🔰 CORE*",
-    cmd: "`.test`",
-    emoji: "● 🧪",
-    desc: "Test command",
-  },
-
-  // ── WEB TOOLS ────────────────────────────────────────────
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.ip`",
-    emoji: "● 🔍",
-    desc: "IP lookup",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.myip`",
-    emoji: "● 🌐",
-    desc: "Your IP",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.whois`",
-    emoji: "● 🔎",
-    desc: "Domain WHOIS",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.dns`",
-    emoji: "● 🗂️",
-    desc: "DNS lookup",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.url`",
-    emoji: "● 📡",
-    desc: "URL info",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.fetch`",
-    emoji: "● 📥",
-    desc: "Fetch data",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.scrape`",
-    emoji: "● 🕸️",
-    desc: "Web scrape",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.screenshot`",
-    emoji: "● 📷",
-    desc: "Screenshot",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.shorten`",
-    emoji: "● 🔗",
-    desc: "URL shorten",
-  },
-  {
-    category: "> *_🌐 WEB TOOLS_*",
-    cmd: "`.inspect`",
-    emoji: "● 🔍",
-    desc: "Inspect page",
-  },
-
-  // ── MEDIA ────────────────────────────────────────────────
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.sticker`",
-    emoji: "● 🎭",
-    desc: "Make sticker",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.toimage`",
-    emoji: "● 🖼️",
-    desc: "Sticker to image",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.tovideo`",
-    emoji: "● 🎥",
-    desc: "Sticker to video",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.toaudio`",
-    emoji: "● 🎵",
-    desc: "Video to audio",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.tts`",
-    emoji: "● 🗣️",
-    desc: "Text to speech",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.removebg`",
-    emoji: "● ✨",
-    desc: "Remove background",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.vv`",
-    emoji: "● 👁️",
-    desc: "View once",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.take`",
-    emoji: "● ✂️",
-    desc: "Take sticker",
-  },
-  {
-    category: "> *_🎬 MEDIA_*",
-    cmd: "`.imgbb`",
-    emoji: "● 📤",
-    desc: "Upload image",
-  },
-
-  // ── MUSIC & DOWNLOADS ─────────────────────────────────────
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.play`",
-    emoji: "● ▶️",
-    desc: "Download & play music",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.lyrics`",
-    emoji: "● 📝",
-    desc: "Get song lyrics",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.spotify`",
-    emoji: "● 🎧",
-    desc: "Spotify info",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.tiktok`",
-    emoji: "● 🎵",
-    desc: "Download TikTok",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.youtube`",
-    emoji: "● 📺",
-    desc: "YouTube info",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.instagram`",
-    emoji: "● 📸",
-    desc: "Download Instagram",
-    alias: "`.ig`"
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.facebook`",
-    emoji: "● 👤",
-    desc: "Download Facebook",
-    alias: "`.fb`"
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.twitter`",
-    emoji: "● 🐦",
-    desc: "Download Twitter/X",
-    alias: "`.x`"
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.trending`",
-    emoji: "● 📈",
-    desc: "Trending songs",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.random`",
-    emoji: "● 🎲",
-    desc: "Random song",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.artist`",
-    emoji: "● 👤",
-    desc: "Artist info",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.album`",
-    emoji: "● 💿",
-    desc: "Album info",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.musicsearch`",
-    emoji: "● 🔍",
-    desc: "Search music",
-  },
-  {
-    category: "> *_🎵 MUSIC & DOWNLOADS_*",
-    cmd: "`.genius`",
-    emoji: "● 🎤",
-    desc: "Genius lyrics",
-  },
-
-  // ── IMAGE & GIF SEARCH ───────────────────────────────────
-  {
-    category: "> *_🖼️ IMAGE & GIF_*",
-    cmd: "`.img`",
-    emoji: "● 🖼️",
-    desc: "Search images",
-    alias: "`.image`"
-  },
-  {
-    category: "> *_🖼️ IMAGE & GIF_*",
-    cmd: "`.gif`",
-    emoji: "● 🎞️",
-    desc: "Search GIFs",
-    alias: "`.giphy`"
-  },
-  {
-    category: "> *_🖼️ IMAGE & GIF_*",
-    cmd: "`.pin`",
-    emoji: "● 📌",
-    desc: "Pinterest search",
-    alias: "`.pinterest`"
-  },
-
-  // ── UNIVERSAL DOWNLOADER ─────────────────────────────────
-  {
-    category: "> *_⬇️ UNIVERSAL DOWNLOADER_*",
-    cmd: "`.dl`",
-    emoji: "● ⬇️",
-    desc: "Download from URL",
-    alias: "`.download`"
-  },
-
-  // ── AI ───────────────────────────────────────────────────
-  {
-    category: "> *_🤖 AI_*",
-    cmd: "`.ayobot`",
-    emoji: "● 🧠",
-    desc: "Chat with AI",
-  },
-  {
-    category: "> *_🤖 AI_*",
-    cmd: "`.jarvis`",
-    emoji: "● 🤖",
-    desc: "Jarvis AI",
-  },
-  {
-    category: "> *_🤖 AI_*",
-    cmd: "`.jarvisv`",
-    emoji: "● 🔊",
-    desc: "Jarvis voice",
-  },
-  {
-    category: "> *_🤖 AI_*",
-    cmd: "`.summarize`",
-    emoji: "● 📋",
-    desc: "Summarize text",
-  },
-  {
-    category: "> *_🤖 AI_*",
-    cmd: "`.grammar`",
-    emoji: "● ✍️",
-    desc: "Check grammar",
-  },
-
-  // ── INFO ─────────────────────────────────────────────────
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.weather`",
-    emoji: "● ☁️",
-    desc: "Weather forecast",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.time`",
-    emoji: "● ⏰",
-    desc: "World time",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.news`",
-    emoji: "● 📰",
-    desc: "Latest news",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.movie`",
-    emoji: "● 🎬",
-    desc: "Movie info",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.crypto`",
-    emoji: "● 💰",
-    desc: "Crypto prices",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.stock`",
-    emoji: "● 📈",
-    desc: "Stock prices",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.dict`",
-    emoji: "● 📖",
-    desc: "Dictionary",
-  },
-  {
-    category: "> *_🔭 INFO_*",
-    cmd: "`.translate`",
-    emoji: "● 🌍",
-    desc: "Translate text",
-  },
-
-  // ── FUN ──────────────────────────────────────────────────
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.joke`",
-    emoji: "● 😂",
-    desc: "Random joke",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.quote`",
-    emoji: "● 💫",
-    desc: "Inspirational quote",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.trivia`",
-    emoji: "● ❓",
-    desc: "Trivia question",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.dice`",
-    emoji: "● 🎲",
-    desc: "Roll dice",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.flip`",
-    emoji: "● 🪙",
-    desc: "Flip coin",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.rps`",
-    emoji: "● ✊",
-    desc: "Rock paper scissors",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.roast`",
-    emoji: "● 🔥",
-    desc: "Roast someone",
-  },
-  {
-    category: "> *_🎮 FUN_*",
-    cmd: "`.pickup`",
-    emoji: "● 💘",
-    desc: "Pickup line",
-  },
-
-  // ── ENCRYPTION ───────────────────────────────────────────
-  {
-    category: "> *_🔐 ENCRYPTION_*",
-    cmd: "`.encrypt`",
-    emoji: "● 🔒",
-    desc: "Encrypt text",
-  },
-  {
-    category: "> *_🔐 ENCRYPTION_*",
-    cmd: "`.decrypt`",
-    emoji: "● 🔓",
-    desc: "Decrypt text",
-  },
-  {
-    category: "> *_🔐 ENCRYPTION_*",
-    cmd: "`.hash`",
-    emoji: "● #️⃣",
-    desc: "Hash text",
-  },
-  {
-    category: "> *_🔐 ENCRYPTION_*",
-    cmd: "`.password`",
-    emoji: "● 🔑",
-    desc: "Generate password",
-  },
-
-  // ── STORAGE & UTILITIES ─────────────────────────────────
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.note`",
-    emoji: "● 💾",
-    desc: "Save note",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.getnote`",
-    emoji: "● 📂",
-    desc: "Get note",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.notes`",
-    emoji: "● 🗂️",
-    desc: "List notes",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.delnote`",
-    emoji: "● 🗑️",
-    desc: "Delete note",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.remind`",
-    emoji: "● ⏰",
-    desc: "Set reminder",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.reminders`",
-    emoji: "● 📋",
-    desc: "List reminders",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.cancelreminder`",
-    emoji: "● ❌",
-    desc: "Cancel reminder",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.snooze`",
-    emoji: "● 💤",
-    desc: "Snooze reminder",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.calc`",
-    emoji: "● 🧮",
-    desc: "Calculator",
-  },
-  {
-    category: "> *_💾 STORAGE_*",
-    cmd: "`.convert`",
-    emoji: "● ⚖️",
-    desc: "Unit converter",
-  },
-
-  // ── DOCUMENTS ────────────────────────────────────────────
-  {
-    category: "> *_📄 DOCUMENTS_*",
-    cmd: "`.qr`",
-    emoji: "● 📱",
-    desc: "Generate QR code",
-  },
-  {
-    category: "> *_📄 DOCUMENTS_*",
-    cmd: "`.qencode`",
-    emoji: "● 📱",
-    desc: "QR encode",
-  },
-  {
-    category: "> *_📄 DOCUMENTS_*",
-    cmd: "`.pdf`",
-    emoji: "● 📄",
-    desc: "Create PDF",
-  },
-  {
-    category: "> *_📄 DOCUMENTS_*",
-    cmd: "`.vcf`",
-    emoji: "● 📇",
-    desc: "Create vCard",
-  },
-
-  // ── PROFILE ──────────────────────────────────────────────
-  {
-    category: "> *_👤 PROFILE_*",
-    cmd: "`.getpp`",
-    emoji: "● 🖼️",
-    desc: "Get profile pic",
-  },
-  {
-    category: "> *_👤 PROFILE_*",
-    cmd: "`.getgpp`",
-    emoji: "● 👥",
-    desc: "Get group pic",
-  },
-
-  // ── GROUP MANAGEMENT ─────────────────────────────────────
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.kick`",
-    emoji: "● 👢",
-    desc: "Kick member",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.add`",
-    emoji: "● ➕",
-    desc: "Add member",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.promote`",
-    emoji: "● ⭐",
-    desc: "Make admin",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.demote`",
-    emoji: "● 🔽",
-    desc: "Remove admin",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.mute`",
-    emoji: "● 🔇",
-    desc: "Mute group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.unmute`",
-    emoji: "● 🔊",
-    desc: "Unmute group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.lock`",
-    emoji: "● 🔒",
-    desc: "Lock group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.unlock`",
-    emoji: "● 🔓",
-    desc: "Unlock group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.antilink`",
-    emoji: "● 🚫",
-    desc: "Anti-link",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.antispam`",
-    emoji: "● 🛡️",
-    desc: "Anti-spam",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.warn`",
-    emoji: "● ⚠️",
-    desc: "Warn user",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.warnings`",
-    emoji: "● 📊",
-    desc: "View warnings",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.ban`",
-    emoji: "● 🔨",
-    desc: "Ban user",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.unban`",
-    emoji: "● ✅",
-    desc: "Unban user",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.tagall`",
-    emoji: "● 📢",
-    desc: "Tag all",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.hidetag`",
-    emoji: "● 👻",
-    desc: "Hidden tag",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.welcome`",
-    emoji: "● 👋",
-    desc: "Toggle welcome",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.setwelcome`",
-    emoji: "● ✏️",
-    desc: "Set welcome msg",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.goodbye`",
-    emoji: "● 👋",
-        desc: "Toggle goodbye",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.setgoodbye`",
-    emoji: "● ✏️",
-    desc: "Set goodbye msg",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.link`",
-    emoji: "● 🔗",
-    desc: "Group invite link",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.revoke`",
-    emoji: "● 🔄",
-    desc: "Revoke group link",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.admins`",
-    emoji: "● 👑",
-    desc: "List admins",
-    alias: "`.listadmins`"
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.groupinfo`",
-    emoji: "● ℹ️",
-    desc: "Group information",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.rules`",
-    emoji: "● 📜",
-    desc: "Show rules",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.setrules`",
-    emoji: "● ✏️",
-    desc: "Set group rules",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.pin`",
-    emoji: "● 📌",
-    desc: "Pin message",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.unpin`",
-    emoji: "● ❌",
-    desc: "Unpin message",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.delete`",
-    emoji: "● 🗑️",
-    desc: "Delete message",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.settings`",
-    emoji: "● 📜",
-        desc: "View group settings",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.resetsettings`",
-    emoji: "● 🔄",
-    desc: "Reset group settings",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.leave`",
-    emoji: "● 👋",
-    desc: "Bot leave group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.activate`",
-    emoji: "● ✅",
-    desc: "Activate bot in group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.deactivate`",
-    emoji: "● ❌",
-    desc: "Deactivate bot in group",
-  },
-  {
-    category: "> *_👥 GROUP_*",
-    cmd: "`.groupdebug`",
-    emoji: "● 🐛",
-    desc: "Debug group info",
-  },
-
-  // ── ADMIN ─────────────────────────────────────────────────
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.mode`",
-    emoji: "● ⚙️",
-    desc: "Change bot mode",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.adduser`",
-    emoji: "● ✅",
-    desc: "Add authorized user",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.removeuser`",
-    emoji: "● ❌",
-    desc: "Remove authorized user",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.listusers`",
-    emoji: "● 📋",
-    desc: "List authorized users",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.broadcast`",
-    emoji: "● 📢",
-    desc: "Broadcast to users",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.globalbc`",
-    emoji: "● 🌍",
-    desc: "Broadcast to groups",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.stats`",
-    emoji: "● 📊",
-    desc: "Bot statistics",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.botstatus`",
-    emoji: "● 📈",
-    desc: "Detailed status",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.superban`",
-    emoji: "● 🔨",
-    desc: "Permanently ban user",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.unban`",
-    emoji: "● ✅",
-    desc: "Unban user",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.listbanned`",
-    emoji: "● 📋",
-    desc: "List banned users",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.clearbans`",
-    emoji: "● 🧹",
-    desc: "Clear all bans",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.restart`",
-    emoji: "● 🔄",
-    desc: "Restart bot",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.shutdown`",
-    emoji: "● ⛔",
-    desc: "Shutdown bot",
-  },
-  {
-    category: "> *_👑 ADMIN_*",
-    cmd: "`.eval`",
-    emoji: "● ⚡",
-    desc: "Execute code",
-  },
-
-  // ── WAITLIST ──────────────────────────────────────────────
-  {
-    category: "> *_📋 WAITLIST_*",
-    cmd: "`.waitlist`",
-    emoji: "● 📝",
-    desc: "Join waitlist",
-    alias: "`.jointrend`"
-  },
-  {
-    category: "> *_📋 WAITLIST_*",
-    cmd: "`.waitlistview`",
-    emoji: "● 👁️",
-    desc: "View waitlist (admin)",
-  },
-
-  // ── SECURITY ──────────────────────────────────────────────
-  {
-    category: "> *_🛡️ SECURITY_*",
-    cmd: "`.scan`",
-    emoji: "● 🔍",
-    desc: "Scan URL for threats",
-  },
-];
-
-// Add admin commands if user is admin
-if (isAdmin) {
-  // Admin commands are already included in the main list above
-  // This section can be used for any admin-specific additions
-}
-
-// Build the formatted menu text
-let menuText = `╔════════════════════════════════════════════╗\n`;
-menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
-menuText += `╚════════════════════════════════════════════╝\n\n`;
-menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
-menuText += `├ 💾 Memory: ${stats.memory}\n`;
-menuText += `├ 👤 Mode: ${stats.mode}\n`;
-menuText += `└ 📨 Messages: ${messageCount || 0}\n\n`;
-
-let currentCategory = "";
-for (const cmd of menuCommands) {
-  if (cmd.category !== currentCategory) {
-    currentCategory = cmd.category;
-    menuText += `\n${currentCategory}\n`;
-  }
-  menuText += `${cmd.emoji} ${cmd.cmd}`;
-  if (cmd.alias) {
-    menuText += ` (${cmd.alias})`;
-  }
-  menuText += ` — ${cmd.desc}\n`;
-}
-
-// Add footer
-menuText += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-menuText += `⚡ _Total Commands: ${menuCommands.length}_\n`;
-menuText += `👑 _Created by AYOCODES_`;
-
-// Send with image
-try {
-  await sock.sendMessage(from, {
-    image: {
-      url:
-        ENV?.WELCOME_IMAGE_URL ||
-        "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
-    },
-    caption: menuText,
-    contextInfo: {
-      forwardingScore: 999,
-      isForwarded: true,
-      forwardedNewsletterMessageInfo: {
-        newsletterJid: "120363422418001588@newsletter",
-        newsletterName: "AyoBot Tech Hub",
-        serverMessageId: Date.now(),
+    // Build comprehensive command menu
+    const menuCommands = [
+      // ── CORE ─────────────────────────────────────────────────
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.ping`",
+        emoji: "● 🏓",
+        desc: "Latency & uptime",
       },
-    },
-  });
-} catch (error) {
-  console.warn("[MENU] Image failed, sending text:", error.message);
-  await sock.sendMessage(from, { text: menuText });
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.menu`",
+        emoji: "● 📋",
+        desc: "Commands list",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.status`",
+        emoji: "● 📊",
+        desc: "Your status",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.creator`",
+        emoji: "● 👑",
+        desc: "Creator info",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.github`",
+        emoji: "● 💻",
+        desc: "GitHub",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.connect`",
+        emoji: "● 📢",
+        desc: "Community",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.prefix`",
+        emoji: "● ℹ️",
+        desc: "Prefix info",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.auto`",
+        emoji: "● 🤖",
+        desc: "Auto-reply",
+      },
+      {
+        category: "*🔰 CORE*",
+        cmd: "`.test`",
+        emoji: "● 🧪",
+        desc: "Test command",
+      },
+
+      // ── WEB TOOLS ────────────────────────────────────────────
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.ip`",
+        emoji: "● 🔍",
+        desc: "IP lookup",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.myip`",
+        emoji: "● 🌐",
+        desc: "Your IP",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.whois`",
+        emoji: "● 🔎",
+        desc: "Domain WHOIS",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.dns`",
+        emoji: "● 🗂️",
+        desc: "DNS lookup",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.url`",
+        emoji: "● 📡",
+        desc: "URL info",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.fetch`",
+        emoji: "● 📥",
+        desc: "Fetch data",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.scrape`",
+        emoji: "● 🕸️",
+        desc: "Web scrape",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.screenshot`",
+        emoji: "● 📷",
+        desc: "Screenshot",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.shorten`",
+        emoji: "● 🔗",
+        desc: "URL shorten",
+      },
+      {
+        category: "> *_🌐 WEB TOOLS_*",
+        cmd: "`.inspect`",
+        emoji: "● 🔍",
+        desc: "Inspect page",
+      },
+
+      // ── MEDIA ────────────────────────────────────────────────
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.sticker`",
+        emoji: "● 🎭",
+        desc: "Make sticker",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.toimage`",
+        emoji: "● 🖼️",
+        desc: "Sticker to image",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.tovideo`",
+        emoji: "● 🎥",
+        desc: "Sticker to video",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.toaudio`",
+        emoji: "● 🎵",
+        desc: "Video to audio",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.tts`",
+        emoji: "● 🗣️",
+        desc: "Text to speech",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.removebg`",
+        emoji: "● ✨",
+        desc: "Remove background",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.vv`",
+        emoji: "● 👁️",
+        desc: "View once",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.take`",
+        emoji: "● ✂️",
+        desc: "Take sticker",
+      },
+      {
+        category: "> *_🎬 MEDIA_*",
+        cmd: "`.imgbb`",
+        emoji: "● 📤",
+        desc: "Upload image",
+      },
+
+      // ── MUSIC & DOWNLOADS ─────────────────────────────────────
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.play`",
+        emoji: "● ▶️",
+        desc: "Download & play music",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.lyrics`",
+        emoji: "● 📝",
+        desc: "Get song lyrics",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.spotify`",
+        emoji: "● 🎧",
+        desc: "Spotify info",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.tiktok`",
+        emoji: "● 🎵",
+        desc: "Download TikTok",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.youtube`",
+        emoji: "● 📺",
+        desc: "YouTube info",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.instagram`",
+        emoji: "● 📸",
+        desc: "Download Instagram",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.facebook`",
+        emoji: "● 👤",
+        desc: "Download Facebook",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.twitter`",
+        emoji: "● 🐦",
+        desc: "Download Twitter/X",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.trending`",
+        emoji: "● 📈",
+        desc: "Trending songs",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.random`",
+        emoji: "● 🎲",
+        desc: "Random song",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.artist`",
+        emoji: "● 👤",
+        desc: "Artist info",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.album`",
+        emoji: "● 💿",
+        desc: "Album info",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.musicsearch`",
+        emoji: "● 🔍",
+        desc: "Search music",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.genius`",
+        emoji: "● 🎤",
+        desc: "Genius lyrics",
+      },
+      {
+        category: "> *_🎵 MUSIC & DOWNLOADS_*",
+        cmd: "`.dl`",
+        emoji: "● ⬇️",
+        desc: "Universal downloader",
+      },
+
+      // ── IMAGE & GIF SEARCH ───────────────────────────────────
+      {
+        category: "> *_🖼️ IMAGE & GIF_*",
+        cmd: "`.img`",
+        emoji: "● 🖼️",
+        desc: "Search images",
+      },
+      {
+        category: "> *_🖼️ IMAGE & GIF_*",
+        cmd: "`.gif`",
+        emoji: "● 🎞️",
+        desc: "Search GIFs",
+      },
+      {
+        category: "> *_🖼️ IMAGE & GIF_*",
+        cmd: "`.pin`",
+        emoji: "● 📌",
+        desc: "Pinterest search",
+      },
+
+      // ── AI ───────────────────────────────────────────────────
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.ayobot`",
+        emoji: "● 🧠",
+        desc: "Chat with AI",
+      },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.jarvis`",
+        emoji: "● 🤖",
+        desc: "Jarvis AI",
+      },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.jarvisv`",
+        emoji: "● 🔊",
+        desc: "Jarvis voice",
+      },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.summarize`",
+        emoji: "● 📋",
+        desc: "Summarize text",
+      },
+      {
+        category: "> *_🤖 AI_*",
+        cmd: "`.grammar`",
+        emoji: "● ✍️",
+        desc: "Check grammar",
+      },
+
+      // ── INFO ─────────────────────────────────────────────────
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.weather`",
+        emoji: "● ☁️",
+        desc: "Weather forecast",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.time`",
+        emoji: "● ⏰",
+        desc: "World time",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.news`",
+        emoji: "● 📰",
+        desc: "Latest news",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.movie`",
+        emoji: "● 🎬",
+        desc: "Movie info",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.crypto`",
+        emoji: "● 💰",
+        desc: "Crypto prices",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.stock`",
+        emoji: "● 📈",
+        desc: "Stock prices",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.dict`",
+        emoji: "● 📖",
+        desc: "Dictionary",
+      },
+      {
+        category: "> *_🔭 INFO_*",
+        cmd: "`.translate`",
+        emoji: "● 🌍",
+        desc: "Translate text",
+      },
+
+      // ── FUN ──────────────────────────────────────────────────
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.joke`",
+        emoji: "● 😂",
+        desc: "Random joke",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.quote`",
+        emoji: "● 💫",
+        desc: "Inspirational quote",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.trivia`",
+        emoji: "● ❓",
+        desc: "Trivia question",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.dice`",
+        emoji: "● 🎲",
+        desc: "Roll dice",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.flip`",
+        emoji: "● 🪙",
+        desc: "Flip coin",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.rps`",
+        emoji: "● ✊",
+        desc: "Rock paper scissors",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.roast`",
+        emoji: "● 🔥",
+        desc: "Roast someone",
+      },
+      {
+        category: "> *_🎮 FUN_*",
+        cmd: "`.pickup`",
+        emoji: "● 💘",
+        desc: "Pickup line",
+      },
+
+      // ── ENCRYPTION ───────────────────────────────────────────
+      {
+        category: "> *_🔐 ENCRYPTION_*",
+        cmd: "`.encrypt`",
+        emoji: "● 🔒",
+        desc: "Encrypt text",
+      },
+      {
+        category: "> *_🔐 ENCRYPTION_*",
+        cmd: "`.decrypt`",
+        emoji: "● 🔓",
+        desc: "Decrypt text",
+      },
+      {
+        category: "> *_🔐 ENCRYPTION_*",
+        cmd: "`.hash`",
+        emoji: "● #️⃣",
+        desc: "Hash text",
+      },
+      {
+        category: "> *_🔐 ENCRYPTION_*",
+        cmd: "`.password`",
+        emoji: "● 🔑",
+        desc: "Generate password",
+      },
+
+      // ── STORAGE & UTILITIES ─────────────────────────────────
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.note`",
+        emoji: "● 💾",
+        desc: "Save note",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.getnote`",
+        emoji: "● 📂",
+        desc: "Get note",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.notes`",
+        emoji: "● 🗂️",
+        desc: "List notes",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.delnote`",
+        emoji: "● 🗑️",
+        desc: "Delete note",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.remind`",
+        emoji: "● ⏰",
+        desc: "Set reminder",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.reminders`",
+        emoji: "● 📋",
+        desc: "List reminders",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.cancelreminder`",
+        emoji: "● ❌",
+        desc: "Cancel reminder",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.snooze`",
+        emoji: "● 💤",
+        desc: "Snooze reminder",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.calc`",
+        emoji: "● 🧮",
+        desc: "Calculator",
+      },
+      {
+        category: "> *_💾 STORAGE_*",
+        cmd: "`.convert`",
+        emoji: "● ⚖️",
+        desc: "Unit converter",
+      },
+
+      // ── DOCUMENTS ────────────────────────────────────────────
+      {
+        category: "> *_📄 DOCUMENTS_*",
+        cmd: "`.qr`",
+        emoji: "● 📱",
+        desc: "Generate QR code",
+      },
+      {
+        category: "> *_📄 DOCUMENTS_*",
+        cmd: "`.qencode`",
+        emoji: "● 📱",
+        desc: "QR encode",
+      },
+      {
+        category: "> *_📄 DOCUMENTS_*",
+        cmd: "`.pdf`",
+        emoji: "● 📄",
+        desc: "Create PDF",
+      },
+      {
+        category: "> *_📄 DOCUMENTS_*",
+        cmd: "`.vcf`",
+        emoji: "● 📇",
+        desc: "Create vCard",
+      },
+
+      // ── PROFILE ──────────────────────────────────────────────
+      {
+        category: "> *_👤 PROFILE_*",
+        cmd: "`.getpp`",
+        emoji: "● 🖼️",
+        desc: "Get profile pic",
+      },
+      {
+        category: "> *_👤 PROFILE_*",
+        cmd: "`.getgpp`",
+        emoji: "● 👥",
+        desc: "Get group pic",
+      },
+
+      // ── GROUP MANAGEMENT ─────────────────────────────────────
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.kick`",
+        emoji: "● 👢",
+        desc: "Kick member",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.add`",
+        emoji: "● ➕",
+        desc: "Add member",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.promote`",
+        emoji: "● ⭐",
+        desc: "Make admin",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.demote`",
+        emoji: "● 🔽",
+        desc: "Remove admin",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.mute`",
+        emoji: "● 🔇",
+        desc: "Mute group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unmute`",
+        emoji: "● 🔊",
+        desc: "Unmute group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.lock`",
+        emoji: "● 🔒",
+        desc: "Lock group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unlock`",
+        emoji: "● 🔓",
+        desc: "Unlock group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.antilink`",
+        emoji: "● 🚫",
+        desc: "Anti-link",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.antispam`",
+        emoji: "● 🛡️",
+        desc: "Anti-spam",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.warn`",
+        emoji: "● ⚠️",
+        desc: "Warn user",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.warnings`",
+        emoji: "● 📊",
+        desc: "View warnings",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.ban`",
+        emoji: "● 🔨",
+        desc: "Ban user",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unban`",
+        emoji: "● ✅",
+        desc: "Unban user",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.tagall`",
+        emoji: "● 📢",
+        desc: "Tag all",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.hidetag`",
+        emoji: "● 👻",
+        desc: "Hidden tag",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.welcome`",
+        emoji: "● 👋",
+        desc: "Toggle welcome",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.setwelcome`",
+        emoji: "● ✏️",
+        desc: "Set welcome msg",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.goodbye`",
+        emoji: "● 👋",
+        desc: "Toggle goodbye",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.setgoodbye`",
+        emoji: "● ✏️",
+        desc: "Set goodbye msg",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.link`",
+        emoji: "● 🔗",
+        desc: "Group invite link",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.revoke`",
+        emoji: "● 🔄",
+        desc: "Revoke group link",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.admins`",
+        emoji: "● 👑",
+        desc: "List admins",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.groupinfo`",
+        emoji: "● ℹ️",
+        desc: "Group information",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.rules`",
+        emoji: "● 📜",
+        desc: "Show rules",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.setrules`",
+        emoji: "● ✏️",
+        desc: "Set group rules",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.pin`",
+        emoji: "● 📌",
+        desc: "Pin message",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.unpin`",
+        emoji: "● ❌",
+        desc: "Unpin message",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.delete`",
+        emoji: "● 🗑️",
+        desc: "Delete message",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.settings`",
+        emoji: "● 📜",
+        desc: "View group settings",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.resetsettings`",
+        emoji: "● 🔄",
+        desc: "Reset group settings",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.leave`",
+        emoji: "● 👋",
+        desc: "Bot leave group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.activate`",
+        emoji: "● ✅",
+        desc: "Activate bot in group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.deactivate`",
+        emoji: "● ❌",
+        desc: "Deactivate bot in group",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.groupdebug`",
+        emoji: "● 🐛",
+        desc: "Debug group info",
+      },
+
+      // ── ADMIN ─────────────────────────────────────────────────
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.mode`",
+        emoji: "● ⚙️",
+        desc: "Change bot mode",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.adduser`",
+        emoji: "● ✅",
+        desc: "Add authorized user",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.removeuser`",
+        emoji: "● ❌",
+        desc: "Remove authorized user",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.listusers`",
+        emoji: "● 📋",
+        desc: "List authorized users",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.broadcast`",
+        emoji: "● 📢",
+        desc: "Broadcast to users",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.globalbc`",
+        emoji: "● 🌍",
+        desc: "Broadcast to groups",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.stats`",
+        emoji: "● 📊",
+        desc: "Bot statistics",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.botstatus`",
+        emoji: "● 📈",
+        desc: "Detailed status",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.superban`",
+        emoji: "● 🔨",
+        desc: "Permanently ban user",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.unban`",
+        emoji: "● ✅",
+        desc: "Unban user",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.listbanned`",
+        emoji: "● 📋",
+        desc: "List banned users",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.clearbans`",
+        emoji: "● 🧹",
+        desc: "Clear all bans",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.restart`",
+        emoji: "● 🔄",
+        desc: "Restart bot",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.shutdown`",
+        emoji: "● ⛔",
+        desc: "Shutdown bot",
+      },
+      {
+        category: "> *_👑 ADMIN_*",
+        cmd: "`.eval`",
+        emoji: "● ⚡",
+        desc: "Execute code",
+      },
+
+      // ── WAITLIST ──────────────────────────────────────────────
+      {
+        category: "> *_📋 WAITLIST_*",
+        cmd: "`.waitlist`",
+        emoji: "● 📝",
+        desc: "Join waitlist",
+      },
+      {
+        category: "> *_📋 WAITLIST_*",
+        cmd: "`.waitlistview`",
+        emoji: "● 👁️",
+        desc: "View waitlist (admin)",
+      },
+
+      // ── SECURITY ──────────────────────────────────────────────
+      {
+        category: "> *_🛡️ SECURITY_*",
+        cmd: "`.scan`",
+        emoji: "● 🔍",
+        desc: "Scan URL for threats",
+      },
+    ];
+
+    // Build the formatted menu text
+    let menuText = `╔════════════════════════════════════════════╗\n`;
+    menuText += `║     ⚡ *AYOBOT v1.0.0 COMMAND MENU* ⚡    ║\n`;
+    menuText += `╚════════════════════════════════════════════╝\n\n`;
+    menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
+    menuText += `├ 💾 Memory: ${stats.memory}\n`;
+    menuText += `├ 👤 Mode: ${stats.mode}\n`;
+    menuText += `└ 📨 Messages: ${messageCount || 0}\n\n`;
+
+    let currentCategory = "";
+    for (const cmd of menuCommands) {
+      if (cmd.category !== currentCategory) {
+        currentCategory = cmd.category;
+        menuText += `\n${currentCategory}\n`;
+      }
+      menuText += `${cmd.emoji} ${cmd.cmd} — ${cmd.desc}\n`;
+    }
+
+    // Add footer
+    menuText += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    menuText += `⚡ _Total Commands: ${menuCommands.length}_\n`;
+    menuText += `👑 _Created by AYOCODES_`;
+
+    // Send with image
+    try {
+      await sock.sendMessage(from, {
+        image: {
+          url:
+            ENV?.WELCOME_IMAGE_URL ||
+            "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
+        },
+        caption: menuText,
+        contextInfo: {
+          forwardingScore: 999,
+          isForwarded: true,
+          forwardedNewsletterMessageInfo: {
+            newsletterJid: "120363422418001588@newsletter",
+            newsletterName: "AyoBot Tech Hub",
+            serverMessageId: Date.now(),
+          },
+        },
+      });
+    } catch (error) {
+      console.warn("[MENU] Image failed, sending text:", error.message);
+      await sock.sendMessage(from, { text: menuText });
+    }
+  } catch (error) {
+    console.error("[MENU ERROR]", error.message);
+    await sock.sendMessage(from, {
+      text: `🚀 *AYOBOT v1.0.0*\n👑 *AYOCODES*\nwa.me/2349159180375\n\nType ${ENV.PREFIX}help for commands`,
+    });
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1581,7 +1566,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     return sock.sendMessage(from, {
       text: formatError(
         "INVALID EMAIL",
-        `Provide a valid email address.\n\nExample: ${ENV.PREFIX}jointrend user@example.com`
+        `Provide a valid email address.\n\nExample: ${ENV.PREFIX}jointrend user@example.com`,
       ),
     });
   }
@@ -1610,7 +1595,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     timestamp,
     userJid,
     name: pushname || "Unknown",
-    platform: "WhatsApp"
+    platform: "WhatsApp",
   };
 
   // Store in waitlist
@@ -1621,9 +1606,9 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     text: formatSuccess(
       "✅ WAITLIST JOINED",
       `📧 *Email:* ${email}\n` +
-      `📱 *Phone:* +${phone}\n` +
-      `⏰ *Time:* ${timestamp}\n\n` +
-      `You've been added to our waitlist! You'll be notified when new versions launch.`
+        `📱 *Phone:* +${phone}\n` +
+        `⏰ *Time:* ${timestamp}\n\n` +
+        `You've been added to our waitlist! You'll be notified when new versions launch.`,
     ),
   });
 
@@ -1651,11 +1636,10 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
 
     await sock.sendMessage(adminJid, {
       text: adminMessage,
-      mentions: [userJid]
+      mentions: [userJid],
     });
 
     console.log(`✅ Waitlist entry sent to admin: ${email} (${phone})`);
-
   } catch (adminErr) {
     console.error("❌ Failed to send waitlist to admin:", adminErr.message);
 
@@ -1674,10 +1658,10 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
         `END:VCARD`;
 
       await sock.sendMessage(adminJid, {
-        document: Buffer.from(vcard, 'utf-8'),
-        mimetype: 'text/vcard',
+        document: Buffer.from(vcard, "utf-8"),
+        mimetype: "text/vcard",
         fileName: `waitlist_${phone}.vcf`,
-        caption: `📋 *New Waitlist Entry*\n👤 ${pushname || phone}\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`
+        caption: `📋 *New Waitlist Entry*\n👤 ${pushname || phone}\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`,
       });
 
       console.log(`✅ Waitlist vCard sent to admin`);
@@ -2066,20 +2050,22 @@ export async function time({ fullArgs, from, sock }) {
       text: formatInfo(
         "⏰ WORLD TIME",
         `Get current time in any city or timezone\n\n` +
-        `📌 *Usage:* ${ENV.PREFIX}time <city or timezone>\n\n` +
-        `📋 *Examples:*\n` +
-        `${ENV.PREFIX}time Lagos\n` +
-        `${ENV.PREFIX}time New York\n` +
-        `${ENV.PREFIX}time London\n` +
-        `${ENV.PREFIX}time Tokyo\n` +
-        `${ENV.PREFIX}time Africa/Lagos\n` +
-        `${ENV.PREFIX}time America/New_York\n\n` +
-        `🌍 *Popular timezones:* Africa/Lagos, America/New_York, Europe/London, Asia/Tokyo`
+          `📌 *Usage:* ${ENV.PREFIX}time <city or timezone>\n\n` +
+          `📋 *Examples:*\n` +
+          `${ENV.PREFIX}time Lagos\n` +
+          `${ENV.PREFIX}time New York\n` +
+          `${ENV.PREFIX}time London\n` +
+          `${ENV.PREFIX}time Tokyo\n` +
+          `${ENV.PREFIX}time Africa/Lagos\n` +
+          `${ENV.PREFIX}time America/New_York\n\n` +
+          `🌍 *Popular timezones:* Africa/Lagos, America/New_York, Europe/London, Asia/Tokyo`,
       ),
     });
   }
 
-  await sock.sendMessage(from, { text: `⏰ *Fetching time for "${fullArgs}"...*` });
+  await sock.sendMessage(from, {
+    text: `⏰ *Fetching time for "${fullArgs}"...*`,
+  });
 
   let timeData = null;
   let errorMessages = [];
@@ -2102,7 +2088,7 @@ export async function time({ fullArgs, from, sock }) {
         day_of_week: res.data.day_of_week,
         week_number: res.data.week_number,
         dst: res.data.dst,
-        source: "WorldTimeAPI"
+        source: "WorldTimeAPI",
       };
     }
   } catch (err) {
@@ -2114,9 +2100,12 @@ export async function time({ fullArgs, from, sock }) {
   // ======================================================================
   if (!timeData) {
     try {
-      const res = await axios.get(`https://www.timeapi.io/api/Time/current/zone?timeZone=${encodeURIComponent(query)}`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(
+        `https://www.timeapi.io/api/Time/current/zone?timeZone=${encodeURIComponent(query)}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data) {
         const dateTime = new Date(res.data.dateTime);
@@ -2127,7 +2116,7 @@ export async function time({ fullArgs, from, sock }) {
           day_of_week: dateTime.getDay(),
           week_number: Math.ceil(dateTime.getDate() / 7),
           dst: false,
-          source: "TimeAPI"
+          source: "TimeAPI",
         };
       }
     } catch (err) {
@@ -2140,9 +2129,12 @@ export async function time({ fullArgs, from, sock }) {
   // ======================================================================
   if (!timeData && ENV.TIMEZONEDB_KEY) {
     try {
-      const res = await axios.get(`http://api.timezonedb.com/v2.1/get-time-zone?key=${ENV.TIMEZONEDB_KEY}&format=json&by=zone&zone=${encodeURIComponent(query)}`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(
+        `http://api.timezonedb.com/v2.1/get-time-zone?key=${ENV.TIMEZONEDB_KEY}&format=json&by=zone&zone=${encodeURIComponent(query)}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data && res.data.status === "OK") {
         const dateTime = new Date(res.data.timestamp * 1000);
@@ -2153,7 +2145,7 @@ export async function time({ fullArgs, from, sock }) {
           day_of_week: dateTime.getDay(),
           week_number: Math.ceil(dateTime.getDate() / 7),
           dst: res.data.dst === "1",
-          source: "TimeZoneDB"
+          source: "TimeZoneDB",
         };
       }
     } catch (err) {
@@ -2167,17 +2159,23 @@ export async function time({ fullArgs, from, sock }) {
   if (!timeData) {
     try {
       // First get coordinates from city name
-      const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1`, {
-        timeout: 5000,
-      });
+      const geoRes = await axios.get(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (geoRes.data?.results?.[0]) {
         const { latitude, longitude, name, country } = geoRes.data.results[0];
 
         // Then get time from coordinates
-        const timeRes = await axios.get(`https://timeapi.io/api/Time/current/coordinate?latitude=${latitude}&longitude=${longitude}`, {
-          timeout: 5000,
-        });
+        const timeRes = await axios.get(
+          `https://timeapi.io/api/Time/current/coordinate?latitude=${latitude}&longitude=${longitude}`,
+          {
+            timeout: 5000,
+          },
+        );
 
         if (timeRes.data) {
           const dateTime = new Date(timeRes.data.dateTime);
@@ -2188,7 +2186,7 @@ export async function time({ fullArgs, from, sock }) {
             day_of_week: dateTime.getDay(),
             week_number: Math.ceil(dateTime.getDate() / 7),
             dst: false,
-            source: "Geo + TimeAPI"
+            source: "Geo + TimeAPI",
           };
         }
       }
@@ -2202,9 +2200,12 @@ export async function time({ fullArgs, from, sock }) {
   // ======================================================================
   if (!timeData && ENV.ABSTRACTAPI_KEY) {
     try {
-      const res = await axios.get(`https://timezone.abstractapi.com/v1/current_time/?api_key=${ENV.ABSTRACTAPI_KEY}&location=${encodeURIComponent(query)}`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(
+        `https://timezone.abstractapi.com/v1/current_time/?api_key=${ENV.ABSTRACTAPI_KEY}&location=${encodeURIComponent(query)}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data) {
         const dateTime = new Date(res.data.datetime);
@@ -2215,7 +2216,7 @@ export async function time({ fullArgs, from, sock }) {
           day_of_week: dateTime.getDay(),
           week_number: Math.ceil(dateTime.getDate() / 7),
           dst: false,
-          source: "AbstractAPI"
+          source: "AbstractAPI",
         };
       }
     } catch (err) {
@@ -2229,32 +2230,36 @@ export async function time({ fullArgs, from, sock }) {
   if (!timeData) {
     try {
       // Try to create a timezone using Intl
-      const formatter = new Intl.DateTimeFormat('en-US', {
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: query,
         hour12: true,
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        weekday: 'long',
-        timeZoneName: 'long'
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+        timeZoneName: "long",
       });
 
       const now = new Date();
       const parts = formatter.formatToParts(now);
 
       // Parse the formatted parts
-      let dateStr = '', timeStr = '', tzName = query;
-      parts.forEach(part => {
-        if (part.type === 'weekday') dateStr += part.value + ', ';
-        else if (part.type === 'month') dateStr += part.value + ' ';
-        else if (part.type === 'day') dateStr += part.value + ', ';
-        else if (part.type === 'year') dateStr += part.value;
-        else if (['hour', 'minute', 'second', 'dayPeriod'].includes(part.type)) {
-          timeStr += part.value + ' ';
-        } else if (part.type === 'timeZoneName') {
+      let dateStr = "",
+        timeStr = "",
+        tzName = query;
+      parts.forEach((part) => {
+        if (part.type === "weekday") dateStr += part.value + ", ";
+        else if (part.type === "month") dateStr += part.value + " ";
+        else if (part.type === "day") dateStr += part.value + ", ";
+        else if (part.type === "year") dateStr += part.value;
+        else if (
+          ["hour", "minute", "second", "dayPeriod"].includes(part.type)
+        ) {
+          timeStr += part.value + " ";
+        } else if (part.type === "timeZoneName") {
           tzName = part.value;
         }
       });
@@ -2270,7 +2275,7 @@ export async function time({ fullArgs, from, sock }) {
         dst: false,
         source: "Intl (System)",
         customDate: dateStr,
-        customTime: timeStr.trim()
+        customTime: timeStr.trim(),
       };
     } catch (err) {
       errorMessages.push(`Intl: ${err.message}`);
@@ -2282,33 +2287,42 @@ export async function time({ fullArgs, from, sock }) {
   // ======================================================================
   if (!timeData) {
     const commonTimezones = [
-      "Africa/Lagos", "Africa/Nairobi", "Africa/Cairo",
-      "America/New_York", "America/Chicago", "America/Los_Angeles",
-      "Europe/London", "Europe/Paris", "Europe/Berlin",
-      "Asia/Tokyo", "Asia/Shanghai", "Asia/Dubai",
-      "Australia/Sydney", "Pacific/Auckland"
+      "Africa/Lagos",
+      "Africa/Nairobi",
+      "Africa/Cairo",
+      "America/New_York",
+      "America/Chicago",
+      "America/Los_Angeles",
+      "Europe/London",
+      "Europe/Paris",
+      "Europe/Berlin",
+      "Asia/Tokyo",
+      "Asia/Shanghai",
+      "Asia/Dubai",
+      "Australia/Sydney",
+      "Pacific/Auckland",
     ];
 
     const suggestions = commonTimezones
-      .filter(tz => tz.toLowerCase().includes(query.toLowerCase()))
+      .filter((tz) => tz.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 3);
 
-    let suggestionText = '';
+    let suggestionText = "";
     if (suggestions.length > 0) {
-      suggestionText = `\n\n💡 *Did you mean:*\n${suggestions.map(tz => `• ${tz}`).join('\n')}`;
+      suggestionText = `\n\n💡 *Did you mean:*\n${suggestions.map((tz) => `• ${tz}`).join("\n")}`;
     }
 
     return sock.sendMessage(from, {
       text: formatError(
         "TIME LOOKUP FAILED",
         `Could not find time for "${query}".${suggestionText}\n\n` +
-        `📋 *Try one of these:*\n` +
-        `• Africa/Lagos\n` +
-        `• America/New_York\n` +
-        `• Europe/London\n` +
-        `• Asia/Tokyo\n\n` +
-        `🔧 *Last errors:*\n${errorMessages.slice(0, 2).join('\n')}`
-      )
+          `📋 *Try one of these:*\n` +
+          `• Africa/Lagos\n` +
+          `• America/New_York\n` +
+          `• Europe/London\n` +
+          `• Asia/Tokyo\n\n` +
+          `🔧 *Last errors:*\n${errorMessages.slice(0, 2).join("\n")}`,
+      ),
     });
   }
 
@@ -2328,7 +2342,7 @@ export async function time({ fullArgs, from, sock }) {
 
     // Format UTC offset
     let utcOffset = timeData.utc_offset;
-    if (typeof utcOffset === 'number') {
+    if (typeof utcOffset === "number") {
       utcOffset = utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`;
     }
 
@@ -2336,23 +2350,35 @@ export async function time({ fullArgs, from, sock }) {
     const timezoneName = timeData.timezone || query;
 
     // Format date nicely
-    const formattedDate = timeData.customDate || d.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric"
-    });
+    const formattedDate =
+      timeData.customDate ||
+      d.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
 
     // Format time nicely
-    const formattedTime = timeData.customTime || d.toLocaleTimeString("en-US", {
-      hour12: true,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+    const formattedTime =
+      timeData.customTime ||
+      d.toLocaleTimeString("en-US", {
+        hour12: true,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
 
     // Get day of week name
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
     const dayName = days[d.getDay()];
 
     await sock.sendMessage(from, {
@@ -2368,9 +2394,8 @@ export async function time({ fullArgs, from, sock }) {
         `📊 *Day Progress:* ${dayPct}% ${dayBar}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
         `🔧 *Source:* ${timeData.source}\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
-
   } catch (formatErr) {
     // Fallback raw output if formatting fails
     await sock.sendMessage(from, {
@@ -2378,8 +2403,8 @@ export async function time({ fullArgs, from, sock }) {
         "🌍 Timezone": timeData.timezone || query,
         "📅 DateTime": new Date(timeData.datetime).toLocaleString(),
         "🕒 UTC Offset": timeData.utc_offset,
-        "🔧 Source": timeData.source
-      })
+        "🔧 Source": timeData.source,
+      }),
     });
   }
 }
@@ -2503,11 +2528,11 @@ export async function getip({ fullArgs, from, sock }) {
       text: formatInfo(
         "📍 IP LOOKUP",
         `Get detailed information about any IP address\n\n` +
-        `📌 *Usage:* ${ENV.PREFIX}ip <IP_ADDRESS>\n\n` +
-        `📋 *Examples:*\n` +
-        `${ENV.PREFIX}ip 8.8.8.8\n` +
-        `${ENV.PREFIX}ip 1.1.1.1\n` +
-        `${ENV.PREFIX}ip 208.67.222.222`
+          `📌 *Usage:* ${ENV.PREFIX}ip <IP_ADDRESS>\n\n` +
+          `📋 *Examples:*\n` +
+          `${ENV.PREFIX}ip 8.8.8.8\n` +
+          `${ENV.PREFIX}ip 1.1.1.1\n` +
+          `${ENV.PREFIX}ip 208.67.222.222`,
       ),
     });
   }
@@ -2515,11 +2540,15 @@ export async function getip({ fullArgs, from, sock }) {
   const cleanIP = fullArgs.trim();
 
   // Validate IP format
-  const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/;
+  const ipRegex =
+    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/;
 
   if (!ipRegex.test(cleanIP)) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID IP", `"${cleanIP}" is not a valid IP address.`)
+      text: formatError(
+        "INVALID IP",
+        `"${cleanIP}" is not a valid IP address.`,
+      ),
     });
   }
 
@@ -2530,11 +2559,14 @@ export async function getip({ fullArgs, from, sock }) {
 
   // API 1: ip-api.com (fastest, free)
   try {
-    const res = await axios.get(`http://ip-api.com/json/${cleanIP}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,mobile,proxy,hosting`, {
-      timeout: 5000
-    });
+    const res = await axios.get(
+      `http://ip-api.com/json/${cleanIP}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,mobile,proxy,hosting`,
+      {
+        timeout: 5000,
+      },
+    );
 
-    if (res.data.status === 'success') {
+    if (res.data.status === "success") {
       data = {
         query: res.data.query,
         country: res.data.country,
@@ -2551,7 +2583,7 @@ export async function getip({ fullArgs, from, sock }) {
         mobile: res.data.mobile || false,
         proxy: res.data.proxy || false,
         hosting: res.data.hosting || false,
-        source: 'ip-api.com'
+        source: "ip-api.com",
       };
     }
   } catch (err) {
@@ -2563,7 +2595,7 @@ export async function getip({ fullArgs, from, sock }) {
     try {
       const res = await axios.get(`https://ipapi.co/${cleanIP}/json/`, {
         timeout: 5000,
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+        headers: { "User-Agent": "Mozilla/5.0" },
       });
 
       if (!res.data.error) {
@@ -2583,7 +2615,7 @@ export async function getip({ fullArgs, from, sock }) {
           mobile: false,
           proxy: res.data.security?.is_proxy || false,
           hosting: res.data.security?.is_crawler || false,
-          source: 'ipapi.co'
+          source: "ipapi.co",
         };
       }
     } catch (err) {
@@ -2594,12 +2626,15 @@ export async function getip({ fullArgs, from, sock }) {
   // API 3: ipinfo.io (needs token but has free tier)
   if (!data && ENV.IPINFO_TOKEN) {
     try {
-      const res = await axios.get(`https://ipinfo.io/${cleanIP}/json?token=${ENV.IPINFO_TOKEN}`, {
-        timeout: 5000
-      });
+      const res = await axios.get(
+        `https://ipinfo.io/${cleanIP}/json?token=${ENV.IPINFO_TOKEN}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data) {
-        const loc = res.data.loc ? res.data.loc.split(',') : [null, null];
+        const loc = res.data.loc ? res.data.loc.split(",") : [null, null];
         data = {
           query: res.data.ip,
           country: res.data.country,
@@ -2616,7 +2651,7 @@ export async function getip({ fullArgs, from, sock }) {
           mobile: false,
           proxy: false,
           hosting: false,
-          source: 'ipinfo.io'
+          source: "ipinfo.io",
         };
       }
     } catch (err) {
@@ -2627,9 +2662,12 @@ export async function getip({ fullArgs, from, sock }) {
   // API 4: abstractapi.com (if key available)
   if (!data && ENV.ABSTRACTAPI_IP_KEY) {
     try {
-      const res = await axios.get(`https://ipgeolocation.abstractapi.com/v1/?api_key=${ENV.ABSTRACTAPI_IP_KEY}&ip_address=${cleanIP}`, {
-        timeout: 5000
-      });
+      const res = await axios.get(
+        `https://ipgeolocation.abstractapi.com/v1/?api_key=${ENV.ABSTRACTAPI_IP_KEY}&ip_address=${cleanIP}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data) {
         data = {
@@ -2644,11 +2682,13 @@ export async function getip({ fullArgs, from, sock }) {
           timezone: res.data.timezone.name,
           isp: res.data.connection?.isp,
           org: res.data.connection?.organization,
-          as: res.data.connection?.autonomous_system_number ? `AS${res.data.connection.autonomous_system_number}` : null,
+          as: res.data.connection?.autonomous_system_number
+            ? `AS${res.data.connection.autonomous_system_number}`
+            : null,
           mobile: false,
           proxy: res.data.security?.is_proxy || false,
           hosting: res.data.security?.is_crawler || false,
-          source: 'abstractapi.com'
+          source: "abstractapi.com",
         };
       }
     } catch (err) {
@@ -2659,9 +2699,12 @@ export async function getip({ fullArgs, from, sock }) {
   // API 5: ipdata.co (if key available)
   if (!data && ENV.IPDATA_KEY) {
     try {
-      const res = await axios.get(`https://api.ipdata.co/${cleanIP}?api-key=${ENV.IPDATA_KEY}`, {
-        timeout: 5000
-      });
+      const res = await axios.get(
+        `https://api.ipdata.co/${cleanIP}?api-key=${ENV.IPDATA_KEY}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data) {
         data = {
@@ -2680,7 +2723,7 @@ export async function getip({ fullArgs, from, sock }) {
           mobile: res.data.threat?.is_mobile || false,
           proxy: res.data.threat?.is_proxy || false,
           hosting: res.data.threat?.is_datacenter || false,
-          source: 'ipdata.co'
+          source: "ipdata.co",
         };
       }
     } catch (err) {
@@ -2693,19 +2736,20 @@ export async function getip({ fullArgs, from, sock }) {
       text: formatError(
         "LOOKUP FAILED",
         `Could not fetch information for IP: ${cleanIP}\n\n` +
-        `🔧 *Errors:*\n${errors.slice(0, 3).join('\n')}\n\n` +
-        `💡 Try again later or check if IP is valid.`
+          `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
+          `💡 Try again later or check if IP is valid.`,
       ),
     });
   }
 
-  const mapUrl = data.lat && data.lon
-    ? `https://www.google.com/maps?q=${data.lat},${data.lon}`
-    : null;
+  const mapUrl =
+    data.lat && data.lon
+      ? `https://www.google.com/maps?q=${data.lat},${data.lon}`
+      : null;
 
   // Format ASN properly
-  let asn = data.as || 'N/A';
-  if (asn && !asn.startsWith('AS') && asn.match(/^\d+$/)) {
+  let asn = data.as || "N/A";
+  if (asn && !asn.startsWith("AS") && asn.match(/^\d+$/)) {
     asn = `AS${asn}`;
   }
 
@@ -2715,26 +2759,26 @@ export async function getip({ fullArgs, from, sock }) {
       `║     📍 *IP INFO*         ║\n` +
       `╚══════════════════════════╝\n\n` +
       `🌐 *IP:* ${data.query || cleanIP}\n` +
-      `📍 *Country:* ${data.country || 'Unknown'} (${data.countryCode || '?'})\n` +
-      `🏙️ *City:* ${data.city || 'Unknown'}\n` +
-      `🗺️ *Region:* ${data.region || 'Unknown'}\n` +
-      `📮 *Postal:* ${data.zip || 'N/A'}\n` +
-      `🧭 *Coordinates:* ${data.lat && data.lon ? `${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}` : 'N/A'}\n` +
-      `⏰ *Timezone:* ${data.timezone || 'N/A'}\n` +
-      `📡 *ISP:* ${data.isp || 'Unknown'}\n` +
-      `🏢 *Organization:* ${data.org || 'N/A'}\n` +
+      `📍 *Country:* ${data.country || "Unknown"} (${data.countryCode || "?"})\n` +
+      `🏙️ *City:* ${data.city || "Unknown"}\n` +
+      `🗺️ *Region:* ${data.region || "Unknown"}\n` +
+      `📮 *Postal:* ${data.zip || "N/A"}\n` +
+      `🧭 *Coordinates:* ${data.lat && data.lon ? `${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}` : "N/A"}\n` +
+      `⏰ *Timezone:* ${data.timezone || "N/A"}\n` +
+      `📡 *ISP:* ${data.isp || "Unknown"}\n` +
+      `🏢 *Organization:* ${data.org || "N/A"}\n` +
       `🔗 *ASN:* ${asn}\n` +
-      `📱 *Mobile:* ${data.mobile ? '✅ Yes' : '❌ No'}\n` +
-      `🛡️ *Proxy/VPN:* ${data.proxy ? '✅ Yes' : '❌ No'}\n` +
-      `🏠 *Hosting:* ${data.hosting ? '✅ Yes' : '❌ No'}\n` +
+      `📱 *Mobile:* ${data.mobile ? "✅ Yes" : "❌ No"}\n` +
+      `🛡️ *Proxy/VPN:* ${data.proxy ? "✅ Yes" : "❌ No"}\n` +
+      `🏠 *Hosting:* ${data.hosting ? "✅ Yes" : "❌ No"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `🔧 *Source:* ${data.source}\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 
   if (mapUrl) {
     await sock.sendMessage(from, {
-      text: `🗺️ *View on Google Maps:*\n${mapUrl}`
+      text: `🗺️ *View on Google Maps:*\n${mapUrl}`,
     });
   }
 }
@@ -2756,7 +2800,7 @@ export async function myip({ from, sock }) {
     { url: "https://api.ipify.org?format=json", parser: (d) => d.ip },
     { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
     { url: "https://api.ip.sb/ip", parser: (d) => d.trim() },
-    { url: "https://icanhazip.com/", parser: (d) => d.trim() }
+    { url: "https://icanhazip.com/", parser: (d) => d.trim() },
   ];
 
   for (const service of ipServices) {
@@ -2773,7 +2817,7 @@ export async function myip({ from, sock }) {
     return sock.sendMessage(from, {
       text: formatError(
         "IP FETCH FAILED",
-        `Could not fetch your public IP.\n\n🔧 *Errors:*\n${errors.join('\n')}`
+        `Could not fetch your public IP.\n\n🔧 *Errors:*\n${errors.join("\n")}`,
       ),
     });
   }
@@ -2781,9 +2825,12 @@ export async function myip({ from, sock }) {
   // Get location info for the IP
   let locationInfo = null;
   try {
-    const infoRes = await axios.get(`http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`, {
-      timeout: 5000,
-    });
+    const infoRes = await axios.get(
+      `http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`,
+      {
+        timeout: 5000,
+      },
+    );
 
     if (infoRes.data.status === "success") {
       locationInfo = infoRes.data;
@@ -2802,12 +2849,12 @@ export async function myip({ from, sock }) {
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `🌍 *Location Info:*\n` +
       `• Country: ${locationInfo.country} (${locationInfo.countryCode})\n` +
-      `• City: ${locationInfo.city || 'Unknown'}\n` +
-      `• Region: ${locationInfo.regionName || 'Unknown'}\n` +
-      `• ISP: ${locationInfo.isp || 'Unknown'}\n` +
-      `• Organization: ${locationInfo.org || 'N/A'}\n` +
-      `• ASN: ${locationInfo.as || 'N/A'}\n` +
-      `• Timezone: ${locationInfo.timezone || 'N/A'}\n`;
+      `• City: ${locationInfo.city || "Unknown"}\n` +
+      `• Region: ${locationInfo.regionName || "Unknown"}\n` +
+      `• ISP: ${locationInfo.isp || "Unknown"}\n` +
+      `• Organization: ${locationInfo.org || "N/A"}\n` +
+      `• ASN: ${locationInfo.as || "N/A"}\n` +
+      `• Timezone: ${locationInfo.timezone || "N/A"}\n`;
 
     if (locationInfo.lat && locationInfo.lon) {
       response +=
@@ -2835,10 +2882,10 @@ export async function whois({ fullArgs, from, sock }) {
       text: formatInfo(
         "🔍 WHOIS LOOKUP",
         `Get domain registration information\n\n` +
-        `📌 *Usage:* ${ENV.PREFIX}whois <domain>\n\n` +
-        `📋 *Examples:*\n` +
-        `${ENV.PREFIX}whois google.com\n` +
-        `${ENV.PREFIX}whois github.com`
+          `📌 *Usage:* ${ENV.PREFIX}whois <domain>\n\n` +
+          `📋 *Examples:*\n` +
+          `${ENV.PREFIX}whois google.com\n` +
+          `${ENV.PREFIX}whois github.com`,
       ),
     });
   }
@@ -2850,15 +2897,19 @@ export async function whois({ fullArgs, from, sock }) {
   const domain = fullArgs
     .trim()
     .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/.*/, '');
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*/, "");
 
   // Validate domain format
-  const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
+  const domainRegex =
+    /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID DOMAIN", `"${domain}" is not a valid domain name.`)
+      text: formatError(
+        "INVALID DOMAIN",
+        `"${domain}" is not a valid domain name.`,
+      ),
     });
   }
 
@@ -2873,27 +2924,28 @@ export async function whois({ fullArgs, from, sock }) {
 
     if (res.data) {
       const d = res.data;
-      const ns = d.nameservers?.map(n => n.ldhName).join(', ') || 'Unknown';
-      const status = d.status?.join(', ') || 'Unknown';
+      const ns = d.nameservers?.map((n) => n.ldhName).join(", ") || "Unknown";
+      const status = d.status?.join(", ") || "Unknown";
 
       const evtMap = {};
-      (d.events || []).forEach(e => {
-        evtMap[e.eventAction] = e.eventDate?.split('T')[0];
+      (d.events || []).forEach((e) => {
+        evtMap[e.eventAction] = e.eventDate?.split("T")[0];
       });
 
-      const registrar = d.entities
-        ?.find(e => e.roles?.includes('registrar'))
-        ?.vcardArray?.[1]?.find(v => v[0] === 'fn')?.[3] || 'Unknown';
+      const registrar =
+        d.entities
+          ?.find((e) => e.roles?.includes("registrar"))
+          ?.vcardArray?.[1]?.find((v) => v[0] === "fn")?.[3] || "Unknown";
 
       whoisData = {
         domain: d.ldhName || domain,
         registrar,
         status,
         nameservers: ns,
-        created: evtMap['registration'] || evtMap['created'] || 'Unknown',
-        updated: evtMap['last changed'] || evtMap['changed'] || 'Unknown',
-        expires: evtMap['expiration'] || 'Unknown',
-        source: 'RDAP'
+        created: evtMap["registration"] || evtMap["created"] || "Unknown",
+        updated: evtMap["last changed"] || evtMap["changed"] || "Unknown",
+        expires: evtMap["expiration"] || "Unknown",
+        source: "RDAP",
       };
     }
   } catch (err) {
@@ -2903,22 +2955,35 @@ export async function whois({ fullArgs, from, sock }) {
   // API 2: whoisjson.com (free tier)
   if (!whoisData) {
     try {
-      const res = await axios.get(`https://whoisjson.com/api/v1/whois?domain=${domain}`, {
-        timeout: 8000,
-        headers: { 'Accept': 'application/json' }
-      });
+      const res = await axios.get(
+        `https://whoisjson.com/api/v1/whois?domain=${domain}`,
+        {
+          timeout: 8000,
+          headers: { Accept: "application/json" },
+        },
+      );
 
       if (res.data && res.data.data) {
         const d = res.data.data;
         whoisData = {
           domain: d.domain_name || domain,
-          registrar: d.registrar || 'Unknown',
-          status: d.status ? (Array.isArray(d.status) ? d.status.join(', ') : d.status) : 'Unknown',
-          nameservers: d.name_servers ? (Array.isArray(d.name_servers) ? d.name_servers.join(', ') : d.name_servers) : 'Unknown',
-          created: d.creation_date ? d.creation_date.split('T')[0] : 'Unknown',
-          updated: d.updated_date ? d.updated_date.split('T')[0] : 'Unknown',
-          expires: d.expiration_date ? d.expiration_date.split('T')[0] : 'Unknown',
-          source: 'whoisjson.com'
+          registrar: d.registrar || "Unknown",
+          status: d.status
+            ? Array.isArray(d.status)
+              ? d.status.join(", ")
+              : d.status
+            : "Unknown",
+          nameservers: d.name_servers
+            ? Array.isArray(d.name_servers)
+              ? d.name_servers.join(", ")
+              : d.name_servers
+            : "Unknown",
+          created: d.creation_date ? d.creation_date.split("T")[0] : "Unknown",
+          updated: d.updated_date ? d.updated_date.split("T")[0] : "Unknown",
+          expires: d.expiration_date
+            ? d.expiration_date.split("T")[0]
+            : "Unknown",
+          source: "whoisjson.com",
         };
       }
     } catch (err) {
@@ -2929,21 +2994,26 @@ export async function whois({ fullArgs, from, sock }) {
   // API 3: whoisapi.com (if key available)
   if (!whoisData && ENV.WHOISXML_API_KEY) {
     try {
-      const res = await axios.get(`https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${ENV.WHOISXML_API_KEY}&domainName=${domain}&outputFormat=JSON`, {
-        timeout: 8000,
-      });
+      const res = await axios.get(
+        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${ENV.WHOISXML_API_KEY}&domainName=${domain}&outputFormat=JSON`,
+        {
+          timeout: 8000,
+        },
+      );
 
       if (res.data && res.data.WhoisRecord) {
         const d = res.data.WhoisRecord;
         whoisData = {
           domain: d.domainName || domain,
-          registrar: d.registrarName || 'Unknown',
-          status: d.status || 'Unknown',
-          nameservers: d.nameServers ? d.nameServers.hostNames?.join(', ') || 'Unknown' : 'Unknown',
-          created: d.createdDate ? d.createdDate.split('T')[0] : 'Unknown',
-          updated: d.updatedDate ? d.updatedDate.split('T')[0] : 'Unknown',
-          expires: d.expiresDate ? d.expiresDate.split('T')[0] : 'Unknown',
-          source: 'whoisxmlapi.com'
+          registrar: d.registrarName || "Unknown",
+          status: d.status || "Unknown",
+          nameservers: d.nameServers
+            ? d.nameServers.hostNames?.join(", ") || "Unknown"
+            : "Unknown",
+          created: d.createdDate ? d.createdDate.split("T")[0] : "Unknown",
+          updated: d.updatedDate ? d.updatedDate.split("T")[0] : "Unknown",
+          expires: d.expiresDate ? d.expiresDate.split("T")[0] : "Unknown",
+          source: "whoisxmlapi.com",
         };
       }
     } catch (err) {
@@ -2954,20 +3024,23 @@ export async function whois({ fullArgs, from, sock }) {
   // API 4: whoapi.com (if key available)
   if (!whoisData && ENV.WHOAPI_KEY) {
     try {
-      const res = await axios.get(`http://api.whoapi.com/?apikey=${ENV.WHOAPI_KEY}&r=whois&domain=${domain}`, {
-        timeout: 8000,
-      });
+      const res = await axios.get(
+        `http://api.whoapi.com/?apikey=${ENV.WHOAPI_KEY}&r=whois&domain=${domain}`,
+        {
+          timeout: 8000,
+        },
+      );
 
-      if (res.data && res.data.status === '0') {
+      if (res.data && res.data.status === "0") {
         whoisData = {
           domain: res.data.domain_name || domain,
-          registrar: res.data.registrar || 'Unknown',
-          status: 'Active',
-          nameservers: res.data.nserver || 'Unknown',
-          created: res.data.created || 'Unknown',
-          updated: res.data.updated || 'Unknown',
-          expires: res.data.expires || 'Unknown',
-          source: 'whoapi.com'
+          registrar: res.data.registrar || "Unknown",
+          status: "Active",
+          nameservers: res.data.nserver || "Unknown",
+          created: res.data.created || "Unknown",
+          updated: res.data.updated || "Unknown",
+          expires: res.data.expires || "Unknown",
+          source: "whoapi.com",
         };
       }
     } catch (err) {
@@ -2980,8 +3053,8 @@ export async function whois({ fullArgs, from, sock }) {
       text: formatError(
         "WHOIS FAILED",
         `Could not fetch WHOIS information for "${domain}".\n\n` +
-        `🔧 *Errors:*\n${errors.slice(0, 3).join('\n')}\n\n` +
-        `💡 The domain might be invalid or the registry may be down.`
+          `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
+          `💡 The domain might be invalid or the registry may be down.`,
       ),
     });
   }
@@ -3000,7 +3073,7 @@ export async function whois({ fullArgs, from, sock }) {
       `⏰ *Expires:* ${whoisData.expires}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `🔧 *Source:* ${whoisData.source}\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 }
 
@@ -3013,28 +3086,32 @@ export async function dns({ fullArgs, from, sock }) {
       text: formatInfo(
         "🔍 DNS LOOKUP",
         `Get DNS records for a domain\n\n` +
-        `📌 *Usage:* ${ENV.PREFIX}dns <domain>\n\n` +
-        `📋 *Example:* ${ENV.PREFIX}dns google.com`
+          `📌 *Usage:* ${ENV.PREFIX}dns <domain>\n\n` +
+          `📋 *Example:* ${ENV.PREFIX}dns google.com`,
       ),
     });
   }
 
   await sock.sendMessage(from, {
-    text: `🌐 *DNS lookup for ${fullArgs}...*`
+    text: `🌐 *DNS lookup for ${fullArgs}...*`,
   });
 
   const domain = fullArgs
     .trim()
     .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/.*/, '');
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*/, "");
 
   // Validate domain format
-  const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
+  const domainRegex =
+    /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID DOMAIN", `"${domain}" is not a valid domain name.`)
+      text: formatError(
+        "INVALID DOMAIN",
+        `"${domain}" is not a valid domain name.`,
+      ),
     });
   }
 
@@ -3044,24 +3121,27 @@ export async function dns({ fullArgs, from, sock }) {
     MX: [],
     NS: [],
     TXT: [],
-    CNAME: []
+    CNAME: [],
   };
 
   let errors = [];
 
   // API 1: Google DNS over HTTPS (most reliable)
-  const recordTypes = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME'];
+  const recordTypes = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"];
 
   for (const type of recordTypes) {
     try {
-      const res = await axios.get(`https://dns.google/resolve?name=${domain}&type=${type}`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(
+        `https://dns.google/resolve?name=${domain}&type=${type}`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data && res.data.Answer) {
-        records[type] = res.data.Answer
-          .filter(ans => ans.type === type)
-          .map(ans => ans.data);
+        records[type] = res.data.Answer.filter((ans) => ans.type === type).map(
+          (ans) => ans.data,
+        );
       }
     } catch (err) {
       errors.push(`Google DNS (${type}): ${err.message}`);
@@ -3071,15 +3151,18 @@ export async function dns({ fullArgs, from, sock }) {
   // If Google DNS failed, try Cloudflare DNS
   if (records.A.length === 0 && records.MX.length === 0) {
     try {
-      const res = await axios.get(`https://cloudflare-dns.com/dns-query?name=${domain}&type=A`, {
-        timeout: 5000,
-        headers: { 'Accept': 'application/dns-json' }
-      });
+      const res = await axios.get(
+        `https://cloudflare-dns.com/dns-query?name=${domain}&type=A`,
+        {
+          timeout: 5000,
+          headers: { Accept: "application/dns-json" },
+        },
+      );
 
       if (res.data && res.data.Answer) {
-        records.A = res.data.Answer
-          .filter(ans => ans.type === 1)
-          .map(ans => ans.data);
+        records.A = res.data.Answer.filter((ans) => ans.type === 1).map(
+          (ans) => ans.data,
+        );
       }
     } catch (err) {
       errors.push(`Cloudflare DNS: ${err.message}`);
@@ -3088,15 +3171,18 @@ export async function dns({ fullArgs, from, sock }) {
 
   // Try Quad9 DNS for additional records
   try {
-    const res = await axios.get(`https://dns.quad9.net:5053/dns-query?name=${domain}&type=MX`, {
-      timeout: 5000,
-      headers: { 'Accept': 'application/dns-json' }
-    });
+    const res = await axios.get(
+      `https://dns.quad9.net:5053/dns-query?name=${domain}&type=MX`,
+      {
+        timeout: 5000,
+        headers: { Accept: "application/dns-json" },
+      },
+    );
 
     if (res.data && res.data.Answer && records.MX.length === 0) {
-      records.MX = res.data.Answer
-        .filter(ans => ans.type === 15)
-        .map(ans => ans.data);
+      records.MX = res.data.Answer.filter((ans) => ans.type === 15).map(
+        (ans) => ans.data,
+      );
     }
   } catch (err) {
     errors.push(`Quad9 DNS: ${err.message}`);
@@ -3105,14 +3191,17 @@ export async function dns({ fullArgs, from, sock }) {
   // Try dig.js API (fallback)
   if (records.A.length === 0) {
     try {
-      const res = await axios.get(`https://dig.jsondig.com/api/v1/dig/${domain}/A`, {
-        timeout: 5000,
-      });
+      const res = await axios.get(
+        `https://dig.jsondig.com/api/v1/dig/${domain}/A`,
+        {
+          timeout: 5000,
+        },
+      );
 
       if (res.data && res.data.answer) {
         records.A = res.data.answer
-          .filter(ans => ans.type === 'A')
-          .map(ans => ans.rdata);
+          .filter((ans) => ans.type === "A")
+          .map((ans) => ans.rdata);
       }
     } catch (err) {
       errors.push(`dig.js: ${err.message}`);
@@ -3121,12 +3210,12 @@ export async function dns({ fullArgs, from, sock }) {
 
   // Format records for display
   const formatRecords = (type, limit = 5) => {
-    if (!records[type] || records[type].length === 0) return 'No records';
+    if (!records[type] || records[type].length === 0) return "No records";
     const list = records[type].slice(0, limit);
     if (records[type].length > limit) {
       list.push(`... and ${records[type].length - limit} more`);
     }
-    return list.join('\n');
+    return list.join("\n");
   };
 
   await sock.sendMessage(from, {
@@ -3136,27 +3225,28 @@ export async function dns({ fullArgs, from, sock }) {
       `╚══════════════════════════╝\n\n` +
       `🌐 *Domain:* ${domain}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *A Records:*\n${formatRecords('A')}\n` +
+      `📋 *A Records:*\n${formatRecords("A")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *AAAA Records:*\n${formatRecords('AAAA') || 'No records'}\n` +
+      `📋 *AAAA Records:*\n${formatRecords("AAAA") || "No records"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *MX Records:*\n${formatRecords('MX')}\n` +
+      `📋 *MX Records:*\n${formatRecords("MX")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *NS Records:*\n${formatRecords('NS')}\n` +
+      `📋 *NS Records:*\n${formatRecords("NS")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *TXT Records:*\n${formatRecords('TXT', 3)}\n` +
-      (records.CNAME.length > 0 ?
-        `━━━━━━━━━━━━━━━━━━━━━\n📋 *CNAME:*\n${formatRecords('CNAME')}\n` : '') +
+      `📋 *TXT Records:*\n${formatRecords("TXT", 3)}\n` +
+      (records.CNAME.length > 0
+        ? `━━━━━━━━━━━━━━━━━━━━━\n📋 *CNAME:*\n${formatRecords("CNAME")}\n`
+        : "") +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 
   if (errors.length > 0) {
     await sock.sendMessage(from, {
       text: formatInfo(
         "DNS NOTES",
-        `⚠️ Some queries had issues:\n${errors.slice(0, 2).join('\n')}`
-      )
+        `⚠️ Some queries had issues:\n${errors.slice(0, 2).join("\n")}`,
+      ),
     });
   }
 }
@@ -3442,11 +3532,11 @@ export async function screenshot({ fullArgs, from, sock }) {
       text: formatInfo(
         "📷 SCREENSHOT",
         `Take a screenshot of any website\n\n` +
-        `📌 *Usage:* ${ENV.PREFIX}screenshot <url>\n\n` +
-        `📋 *Examples:*\n` +
-        `${ENV.PREFIX}screenshot https://google.com\n` +
-        `${ENV.PREFIX}screenshot github.com\n\n` +
-        `💡 *Note:* Some sites block screenshots.`
+          `📌 *Usage:* ${ENV.PREFIX}screenshot <url>\n\n` +
+          `📋 *Examples:*\n` +
+          `${ENV.PREFIX}screenshot https://google.com\n` +
+          `${ENV.PREFIX}screenshot github.com\n\n` +
+          `💡 *Note:* Some sites block screenshots.`,
       ),
     });
   }
@@ -3463,7 +3553,7 @@ export async function screenshot({ fullArgs, from, sock }) {
     new URL(urlStr);
   } catch (err) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`)
+      text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`),
     });
   }
 
@@ -3486,9 +3576,13 @@ export async function screenshot({ fullArgs, from, sock }) {
         {
           responseType: "arraybuffer",
           timeout: 20000,
-        }
+        },
       );
-      if (res.data && res.data.byteLength > 5000 && !res.data.toString().includes('error')) {
+      if (
+        res.data &&
+        res.data.byteLength > 5000 &&
+        !res.data.toString().includes("error")
+      ) {
         screenshotBuffer = Buffer.from(res.data);
         usedService = "ScreenshotLayer";
       }
@@ -3507,8 +3601,8 @@ export async function screenshot({ fullArgs, from, sock }) {
         {
           responseType: "arraybuffer",
           timeout: 15000,
-          headers: { "User-Agent": randomUA() }
-        }
+          headers: { "User-Agent": randomUA() },
+        },
       );
       if (res.data && res.data.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
@@ -3532,9 +3626,9 @@ export async function screenshot({ fullArgs, from, sock }) {
           timeout: 15000,
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": randomUA()
-          }
-        }
+            "User-Agent": randomUA(),
+          },
+        },
       );
       if (res.data && res.data.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
@@ -3555,8 +3649,8 @@ export async function screenshot({ fullArgs, from, sock }) {
         {
           responseType: "arraybuffer",
           timeout: 15000,
-          headers: { "User-Agent": randomUA() }
-        }
+          headers: { "User-Agent": randomUA() },
+        },
       );
       if (res.data && res.data.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
@@ -3577,7 +3671,7 @@ export async function screenshot({ fullArgs, from, sock }) {
         {
           responseType: "arraybuffer",
           timeout: 15000,
-        }
+        },
       );
       if (res.data && res.data.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
@@ -3598,7 +3692,7 @@ export async function screenshot({ fullArgs, from, sock }) {
         {
           responseType: "arraybuffer",
           timeout: 15000,
-        }
+        },
       );
       if (res.data && res.data.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
@@ -3618,15 +3712,20 @@ export async function screenshot({ fullArgs, from, sock }) {
         `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${urlEncoded}&screenshot=true`,
         {
           timeout: 15000,
-        }
+        },
       );
 
-      if (res.data && res.data.lighthouseResult && res.data.lighthouseResult.audits['final-screenshot']) {
-        const screenshotData = res.data.lighthouseResult.audits['final-screenshot'].details.data;
+      if (
+        res.data &&
+        res.data.lighthouseResult &&
+        res.data.lighthouseResult.audits["final-screenshot"]
+      ) {
+        const screenshotData =
+          res.data.lighthouseResult.audits["final-screenshot"].details.data;
         if (screenshotData) {
           // Remove data:image/jpeg;base64, prefix
-          const base64Data = screenshotData.split(',')[1] || screenshotData;
-          screenshotBuffer = Buffer.from(base64Data, 'base64');
+          const base64Data = screenshotData.split(",")[1] || screenshotData;
+          screenshotBuffer = Buffer.from(base64Data, "base64");
           usedService = "Google PageSpeed";
         }
       }
@@ -3644,10 +3743,15 @@ export async function screenshot({ fullArgs, from, sock }) {
         `https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false`,
         {
           timeout: 15000,
-        }
+        },
       );
 
-      if (res.data && res.data.data && res.data.data.screenshot && res.data.data.screenshot.url) {
+      if (
+        res.data &&
+        res.data.data &&
+        res.data.data.screenshot &&
+        res.data.data.screenshot.url
+      ) {
         const imgRes = await axios.get(res.data.data.screenshot.url, {
           responseType: "arraybuffer",
           timeout: 10000,
@@ -3670,7 +3774,7 @@ export async function screenshot({ fullArgs, from, sock }) {
       // Try to fetch page title at least
       const htmlRes = await axios.get(urlStr, {
         timeout: 10000,
-        headers: { "User-Agent": randomUA() }
+        headers: { "User-Agent": randomUA() },
       });
 
       const title = htmlRes.data.match(/<title>(.*?)<\/title>/i)?.[1] || urlStr;
@@ -3679,12 +3783,12 @@ export async function screenshot({ fullArgs, from, sock }) {
         text: formatInfo(
           "SCREENSHOT UNAVAILABLE",
           `Could not take screenshot of:\n${urlStr}\n\n` +
-          `📝 *Page Title:* ${title.substring(0, 200)}\n\n` +
-          `🔧 *Errors:*\n${errors.slice(0, 3).join('\n')}\n\n` +
-          `💡 *Try:*\n` +
-          `• ${ENV.PREFIX}scrape ${urlStr} (get HTML)\n` +
-          `• ${ENV.PREFIX}fetch ${urlStr} (get source)`
-        )
+            `📝 *Page Title:* ${title.substring(0, 200)}\n\n` +
+            `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
+            `💡 *Try:*\n` +
+            `• ${ENV.PREFIX}scrape ${urlStr} (get HTML)\n` +
+            `• ${ENV.PREFIX}fetch ${urlStr} (get source)`,
+        ),
       });
     } catch (err) {
       // Final fallback
@@ -3692,8 +3796,8 @@ export async function screenshot({ fullArgs, from, sock }) {
         text: formatError(
           "SCREENSHOT FAILED",
           `Could not screenshot:\n${urlStr}\n\n` +
-          `🔧 *Errors:*\n${errors.slice(0, 5).join('\n')}\n\n` +
-          `💡 Try: ${ENV.PREFIX}scrape ${urlStr}`
+            `🔧 *Errors:*\n${errors.slice(0, 5).join("\n")}\n\n` +
+            `💡 Try: ${ENV.PREFIX}scrape ${urlStr}`,
         ),
       });
     }
@@ -3710,7 +3814,7 @@ export async function screenshot({ fullArgs, from, sock }) {
     const headRes = await axios.get(urlStr, {
       timeout: 5000,
       maxContentLength: 100000,
-      headers: { "User-Agent": randomUA() }
+      headers: { "User-Agent": randomUA() },
     });
     const titleMatch = headRes.data.match(/<title>(.*?)<\/title>/i);
     if (titleMatch) pageTitle = titleMatch[1].substring(0, 100);
@@ -3726,7 +3830,7 @@ export async function screenshot({ fullArgs, from, sock }) {
       `📦 *Size:* ${sizeKB} KB\n` +
       `🔧 *Service:* ${usedService}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 
   // If there were some errors but we succeeded, notify quietly
@@ -3735,9 +3839,9 @@ export async function screenshot({ fullArgs, from, sock }) {
       text: formatInfo(
         "SCREENSHOT NOTES",
         `⚠️ Some services failed but we got it working!\n` +
-        `✅ Used: ${usedService}\n` +
-        `📊 Failed attempts: ${errors.length}`
-      )
+          `✅ Used: ${usedService}\n` +
+          `📊 Failed attempts: ${errors.length}`,
+      ),
     });
   }
 }
@@ -3871,19 +3975,19 @@ export async function imgbb({ message, from, sock }) {
 export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) {
     return sock.sendMessage(from, {
-      text: "❌ This command only works in groups."
+      text: "❌ This command only works in groups.",
     });
   }
   if (!isAdmin) {
     return sock.sendMessage(from, {
-      text: "⛔ Only the bot owner can activate the bot in this group."
+      text: "⛔ Only the bot owner can activate the bot in this group.",
     });
   }
 
   activateGroup(sessionId, from);
 
   await sock.sendMessage(from, {
-    text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`
+    text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`,
   });
 }
 
@@ -3893,39 +3997,47 @@ export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
 export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) {
     return sock.sendMessage(from, {
-      text: "❌ This command only works in groups."
+      text: "❌ This command only works in groups.",
     });
   }
   if (!isAdmin) {
     return sock.sendMessage(from, {
-      text: "⛔ Only the bot owner can deactivate the bot in this group."
+      text: "⛔ Only the bot owner can deactivate the bot in this group.",
     });
   }
 
   deactivateGroup(sessionId, from);
 
   await sock.sendMessage(from, {
-    text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`
+    text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`,
   });
 }
 // ════════════════════════════════════════════════════════════════════════════
 //  ANTILINK - ULTIMATE VERSION (Detects, Deletes & Warns)
 //  NO EXTRA FILES NEEDED - Everything in one function
 // ════════════════════════════════════════════════════════════════════════════
-export async function antilink({ args, message, from, sock, isAdmin, isGroup, userJid }) {
+export async function antilink({
+  args,
+  message,
+  from,
+  sock,
+  isAdmin,
+  isGroup,
+  userJid,
+}) {
   // ==========================================================================
   //  PART 1: COMMAND TOGGLE (.antilink on/off)
   // ==========================================================================
   if (args && args.length > 0) {
     if (!isGroup) {
       return sock.sendMessage(from, {
-        text: "❌ This command only works in groups."
+        text: "❌ This command only works in groups.",
       });
     }
 
     if (!isAdmin) {
       return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command."
+        text: "⛔ Only group admins can use this command.",
       });
     }
 
@@ -3948,7 +4060,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
           `• Automatically deleted\n` +
           `• User warned\n` +
           `• Auto-kick after 3 warnings\n\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       });
     }
 
@@ -3962,7 +4074,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
           `• 🗑️ Deleted immediately\n` +
           `• ⚠️ Users warned\n` +
           `• 👢 Auto-kick after 3 warnings\n\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       });
     }
 
@@ -3970,13 +4082,13 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
       currentSetting.antilink = false;
       groupSettings.set(from, currentSetting);
       return sock.sendMessage(from, {
-        text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+        text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       });
     }
 
     const status = currentSetting.antilink ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
-      text: `🔗 *Anti-Link Status:* ${status}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+      text: `🔗 *Anti-Link Status:* ${status}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
   }
 
@@ -3998,7 +4110,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     msgObj.imageMessage?.caption ||
     msgObj.videoMessage?.caption ||
     msgObj.documentMessage?.caption ||
-    '';
+    "";
 
   if (!text) return;
 
@@ -4073,14 +4185,25 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     // Music/Streaming
     /spotify\.com\/track\/[a-zA-Z0-9]+/gi,
     /deezer\.page\.link\/[a-zA-Z0-9]+/gi,
-    /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi
+    /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi,
   ];
 
   // Allowed domains (never delete)
   const ALLOWED_DOMAINS = [
-    'youtube.com', 'youtu.be', 'instagram.com', 'twitter.com', 'x.com',
-    'facebook.com', 'tiktok.com', 'spotify.com', 'deezer.com', 'soundcloud.com',
-    'github.com', 'stackoverflow.com', 'wikipedia.org', 'wa.me'
+    "youtube.com",
+    "youtu.be",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "tiktok.com",
+    "spotify.com",
+    "deezer.com",
+    "soundcloud.com",
+    "github.com",
+    "stackoverflow.com",
+    "wikipedia.org",
+    "wa.me",
   ];
 
   // Function to check if text contains any link
@@ -4096,9 +4219,9 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
   const isAllowedDomain = (url) => {
     try {
       let domain = url.toLowerCase();
-      domain = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+      domain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
       for (const allowed of ALLOWED_DOMAINS) {
-        if (domain === allowed || domain.endsWith('.' + allowed)) return true;
+        if (domain === allowed || domain.endsWith("." + allowed)) return true;
       }
     } catch (e) {}
     return false;
@@ -4109,7 +4232,8 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     try {
       const groupMetadata = await sock.groupMetadata(from);
       return groupMetadata.participants.some(
-        p => p.id === jid && (p.admin === 'admin' || p.admin === 'superadmin')
+        (p) =>
+          p.id === jid && (p.admin === "admin" || p.admin === "superadmin"),
       );
     } catch {
       return false;
@@ -4122,7 +4246,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
   if (!containsLink(text)) return;
 
   const senderJid = message.key?.participant || from;
-  const senderNumber = senderJid.split('@')[0];
+  const senderNumber = senderJid.split("@")[0];
 
   // Skip if sender is admin
   if (await isUserAdmin(senderJid)) {
@@ -4186,7 +4310,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
   if (newWarnings >= MAX_WARNINGS) {
     // Auto-kick after max warnings
     try {
-      await sock.groupParticipantsUpdate(from, [senderJid], 'remove');
+      await sock.groupParticipantsUpdate(from, [senderJid], "remove");
       await sock.sendMessage(from, {
         text:
           `╔══════════════════════════╗\n` +
@@ -4196,9 +4320,11 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
           `━━━━━━━━━━━━━━━━━━━━━\n` +
           `⚠️ Links are strictly prohibited in this group.\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-        mentions: [senderJid]
+        mentions: [senderJid],
       });
-      console.log(`👢 User ${senderNumber} kicked after ${MAX_WARNINGS} warnings`);
+      console.log(
+        `👢 User ${senderNumber} kicked after ${MAX_WARNINGS} warnings`,
+      );
 
       // Reset warnings
       if (global.groupWarnings) {
@@ -4208,7 +4334,6 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
       } else {
         global._antilinkWarnings.delete(warnKey);
       }
-
     } catch (kickError) {
       await sock.sendMessage(from, {
         text:
@@ -4216,7 +4341,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
           `@${senderNumber} No links allowed!\n` +
           `❌ Failed to kick (bot not admin)\n\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-        mentions: [senderJid]
+        mentions: [senderJid],
       });
     }
   } else {
@@ -4228,16 +4353,17 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
         `╚══════════════════════════╝\n\n` +
         `👤 *User:* @${senderNumber}\n` +
         `⚠️ *Warning:* ${newWarnings}/${MAX_WARNINGS}\n` +
-        `💢 *Action:* Message deleted ${deleted ? '✅' : '❌'}\n` +
+        `💢 *Action:* Message deleted ${deleted ? "✅" : "❌"}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
         `⚠️ ${warningsLeft} more warning(s) and you'll be removed.\n\n` +
         `⚡ *AYOBOT Security* | 👑 AYOCODES`,
-      mentions: [senderJid]
+      mentions: [senderJid],
     });
-    console.log(`⚠️ Warning ${newWarnings}/${MAX_WARNINGS} sent to ${senderNumber}`);
+    console.log(
+      `⚠️ Warning ${newWarnings}/${MAX_WARNINGS} sent to ${senderNumber}`,
+    );
   }
 }
-
 
 // ════════════════════════════════════════════════════════════════════════════
 //  DEFAULT EXPORT - ALL COMMANDS (UPDATED WITH NEW COMMANDS)
