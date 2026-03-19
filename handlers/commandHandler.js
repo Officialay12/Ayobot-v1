@@ -435,20 +435,20 @@ export function registerAllCommands() {
         "dnsquery",
       ],
     });
-
-  if (b.url)
-    safeRegister("url", b.url, {
-      category: "web",
-      description: "URL information",
-      aliases: [
-        "urlinfo",
-        "urlcheck",
-        "expandurl",
-        "urldetails",
-        "urldecode",
-        "urlinspect",
-      ],
-    });
+  `
+  if (b.url)`;
+  safeRegister("url", b.url, {
+    category: "web",
+    description: "URL information",
+    aliases: [
+      "urlinfo",
+      "urlcheck",
+      "expandurl",
+      "urldetails",
+      "urldecode",
+      "urlinspect",
+    ],
+  });
 
   if (b.fetch)
     safeRegister("fetch", b.fetch, {
@@ -523,7 +523,7 @@ export function registerAllCommands() {
       aliases: [
         "viewonce",
         "open",
-        "see",
+        "arise",
         "reveal",
         "view",
         "once",
@@ -751,7 +751,7 @@ export function registerAllCommands() {
         "clearchat",
         "resetai",
         "clearai",
-        "aiclr",
+        "ayobotclr",
         "aiclear",
         "reset",
         "clearhistory",
@@ -1123,7 +1123,7 @@ export function registerAllCommands() {
   if (img.sticker)
     safeRegister("sticker", img.sticker, {
       category: "media",
-      description: "Create sticker",
+      description: "Create sticker from image/video",
       aliases: [
         "s",
         "stiker",
@@ -1135,10 +1135,10 @@ export function registerAllCommands() {
       ],
     });
 
-  if (img.toimage)
-    safeRegister("toimage", img.toimage, {
+  if (img.toImage)
+    safeRegister("toimage", img.toImage, {
       category: "media",
-      description: "Sticker to image",
+      description: "Convert sticker to image",
       aliases: [
         "toimg",
         "stickertoimage",
@@ -1149,10 +1149,10 @@ export function registerAllCommands() {
       ],
     });
 
-  if (img.tovideo)
-    safeRegister("tovideo", img.tovideo, {
+  if (img.toVideo)
+    safeRegister("tovideo", img.toVideo, {
       category: "media",
-      description: "Sticker to video",
+      description: "Convert animated sticker to video",
       aliases: [
         "tovid",
         "stickertovideo",
@@ -1162,10 +1162,18 @@ export function registerAllCommands() {
       ],
     });
 
-  if (img.toaudio)
-    safeRegister("toaudio", img.toaudio, {
+  // TOGIF - Convert video to GIF playback
+  if (img.toGif)
+    safeRegister("togif", img.toGif, {
       category: "media",
-      description: "Extract audio",
+      description: "Convert video to GIF",
+      aliases: ["gif", "makegif", "videotogif", "togiphy", "gifmaker"],
+    });
+
+  if (img.toAudio)
+    safeRegister("toaudio", img.toAudio, {
+      category: "media",
+      description: "Extract audio from video",
       aliases: [
         "tomp3",
         "extractaudio",
@@ -1173,13 +1181,14 @@ export function registerAllCommands() {
         "getaudio",
         "audioextract",
         "mp3",
+        "to mp3",
       ],
     });
 
-  if (img.removebg)
-    safeRegister("removebg", img.removebg, {
+  if (img.removeBg)
+    safeRegister("removebg", img.removeBg, {
       category: "media",
-      description: "Remove background",
+      description: "Remove image background",
       aliases: [
         "nobg",
         "rmbg",
@@ -1188,7 +1197,16 @@ export function registerAllCommands() {
         "backgroundremove",
         "removebackground",
         "bgremover",
+        "erasebg",
       ],
+    });
+
+  // MEME - Create memes with top/bottom text
+  if (img.meme)
+    safeRegister("meme", img.meme, {
+      category: "media",
+      description: "Create meme from image",
+      aliases: ["makememe", "memegen", "imagememe", "creatememe", "mememaker"],
     });
 
   // ────────────────────────────────────────────────────────────────────────
