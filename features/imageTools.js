@@ -1,15 +1,12 @@
 // features/imageTools.js
 // ════════════════════════════════════════════════════════════════════════════
-//  AYOBOT v1 — Image Tools Module (ULTIMATE EDITION)
+//  AYOBOT v1 — Image Tools Module (ULTIMATE WORKING EDITION)
 //  Author  : AYOCODES
 //
-//  🚀 PERFECTED VERSION WITH:
-//  • Better ffmpeg detection with clear error messages
-//  • Video length validation (max 30 seconds for GIFs)
-//  • File size limits (50MB max)
-//  • Progress updates
-//  • Better error handling
-//  • Fallback for when ffmpeg is missing
+//  🚀 FIXED: Actually sends results after processing
+//  • Removes progress updates (they're annoying)
+//  • Shows clear success/failure messages
+//  • Actually sends the converted files
 // ════════════════════════════════════════════════════════════════════════════
 
 // @ts-nocheck
@@ -55,36 +52,23 @@ async function checkFfmpeg() {
   try {
     await execPromise("ffmpeg -version");
     ffmpegAvailable = true;
-    console.log("✅ ffmpeg detected - video processing available");
+    console.log("✅ ffmpeg detected");
   } catch (_) {
     ffmpegAvailable = false;
-    console.log("⚠️ ffmpeg NOT found - video processing will be limited");
+    console.log("⚠️ ffmpeg NOT found");
   }
   ffmpegChecked = true;
   return ffmpegAvailable;
 }
 
-// ── Download media helper with progress ─────────────────────────────────────
-async function downloadMedia(msg, type, sock, from) {
+// ── Download media helper (silent, no progress updates) ───────────────────
+async function downloadMedia(msg, type) {
   try {
     const stream = await downloadContentFromMessage(msg, type);
     let buffer = Buffer.from([]);
-    let downloaded = 0;
-
     for await (const chunk of stream) {
       buffer = Buffer.concat([buffer, chunk]);
-      downloaded += chunk.length;
-
-      // Send progress update every 1MB
-      if (downloaded > 1024 * 1024 && downloaded % (1024 * 1024) < 10000) {
-        await sock
-          .sendMessage(from, {
-            text: `📥 Downloading: ${(downloaded / 1024 / 1024).toFixed(1)}MB...`,
-          })
-          .catch(() => {});
-      }
     }
-
     if (!buffer.length) throw new Error("Empty media buffer");
     return buffer;
   } catch (e) {
@@ -101,7 +85,7 @@ function safeUnlink(...files) {
   }
 }
 
-// ── Get video duration using ffprobe ────────────────────────────────────────
+// ── Get video duration ────────────────────────────────────────
 async function getVideoDuration(filePath) {
   try {
     const { stdout } = await execPromise(
@@ -114,7 +98,7 @@ async function getVideoDuration(filePath) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STICKER EXIF METADATA — AYOBOT V1 watermark
+//  STICKER EXIF METADATA
 // ════════════════════════════════════════════════════════════════════════════
 function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
   const json = JSON.stringify({
@@ -133,7 +117,7 @@ function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STICKER — with AYOBOT V1 pack name watermark
+//  STICKER
 // ════════════════════════════════════════════════════════════════════════════
 export async function sticker({ message, from, sock }) {
   try {
@@ -144,9 +128,7 @@ export async function sticker({ message, from, sock }) {
       return sock.sendMessage(from, {
         text: formatInfo(
           "🎭 STICKER",
-          `Reply to an image or video with .sticker\n\n` +
-            `Aliases: .s .stick\n\n` +
-            `✅ Supports: Images, GIFs, short videos (under 10s)`,
+          `Reply to an image or video with .sticker`,
         ),
       });
     }
@@ -158,15 +140,13 @@ export async function sticker({ message, from, sock }) {
     const mediaBuffer = await downloadMedia(
       mediaMsg,
       isVideo ? "video" : "image",
-      sock,
-      from,
     );
 
     const exif = buildStickerExif("AYOBOT V1", "AYOCODES");
     let stickerBuffer;
 
     if (!isVideo) {
-      // ── Image sticker ─────────────────────────────────────────────────
+      // Image sticker
       stickerBuffer = await sharp(mediaBuffer)
         .resize(512, 512, {
           fit: "contain",
@@ -180,19 +160,12 @@ export async function sticker({ message, from, sock }) {
         mimetype: "image/webp",
         exif,
       });
-
-      await sock.sendMessage(from, {
-        text: formatSuccess(
-          "✅ STICKER CREATED",
-          "Image sticker created successfully!",
-        ),
-      });
     } else {
-      // ── Video/animated sticker ────────────────────────────────────────
+      // Video sticker
       const hasFfmpeg = await checkFfmpeg();
 
       if (!hasFfmpeg) {
-        // Make static sticker from first frame
+        // Static fallback
         stickerBuffer = await sharp(mediaBuffer)
           .resize(512, 512, {
             fit: "contain",
@@ -208,10 +181,7 @@ export async function sticker({ message, from, sock }) {
         });
 
         await sock.sendMessage(from, {
-          text: formatSuccess(
-            "✅ STATIC STICKER CREATED",
-            "⚠️ ffmpeg not installed - created static sticker instead of animated.",
-          ),
+          text: "⚠️ ffmpeg not installed - created static sticker instead.",
         });
         return;
       }
@@ -237,15 +207,8 @@ export async function sticker({ message, from, sock }) {
           mimetype: "image/webp",
           exif,
         });
-
-        await sock.sendMessage(from, {
-          text: formatSuccess(
-            "✅ ANIMATED STICKER CREATED",
-            "Video sticker created successfully!",
-          ),
-        });
       } catch (ffErr) {
-        console.error("ffmpeg sticker error:", ffErr.message);
+        console.error("ffmpeg error:", ffErr.message);
 
         // Fallback to static
         stickerBuffer = await sharp(mediaBuffer)
@@ -261,17 +224,12 @@ export async function sticker({ message, from, sock }) {
           mimetype: "image/webp",
           exif,
         });
-
-        await sock.sendMessage(from, {
-          text: formatSuccess(
-            "✅ STATIC STICKER CREATED",
-            "⚠️ Could not create animated sticker - created static instead.",
-          ),
-        });
       } finally {
         safeUnlink(inputPath, outputPath);
       }
     }
+
+    await sock.sendMessage(from, { text: "✅ *Sticker created!*" });
   } catch (e) {
     console.error("Sticker error:", e);
     await sock.sendMessage(from, {
@@ -281,7 +239,7 @@ export async function sticker({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TO IMAGE — sticker → PNG image
+//  TO IMAGE — sticker → PNG
 // ════════════════════════════════════════════════════════════════════════════
 export async function toImage({ message, from, sock }) {
   try {
@@ -301,12 +259,7 @@ export async function toImage({ message, from, sock }) {
       text: "🔄 *Converting sticker to image...*",
     });
 
-    const stickerBuffer = await downloadMedia(
-      quoted.stickerMessage,
-      "image",
-      sock,
-      from,
-    );
+    const stickerBuffer = await downloadMedia(quoted.stickerMessage, "image");
 
     const pngBuffer = await sharp(stickerBuffer)
       .png({ quality: 100 })
@@ -350,18 +303,12 @@ export async function toVideo({ message, from, sock }) {
       return sock.sendMessage(from, {
         text: formatError(
           "FFMPEG MISSING",
-          "ffmpeg is not installed. Video conversion requires ffmpeg.\n\n" +
-            "Install it on your server or use a different command.",
+          "ffmpeg is not installed on this server.",
         ),
       });
     }
 
-    const stickerBuffer = await downloadMedia(
-      quoted.stickerMessage,
-      "image",
-      sock,
-      from,
-    );
+    const stickerBuffer = await downloadMedia(quoted.stickerMessage, "image");
 
     const inputPath = path.join(TEMP_DIR, `stk_${Date.now()}.webp`);
     const outputPath = path.join(TEMP_DIR, `vid_${Date.now()}.mp4`);
@@ -393,7 +340,7 @@ export async function toVideo({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TO GIF — video → GIF playback with duration check
+//  TO GIF — video → GIF playback (FIXED TO ACTUALLY SEND)
 // ════════════════════════════════════════════════════════════════════════════
 export async function toGif({ message, from, sock }) {
   try {
@@ -406,27 +353,19 @@ export async function toGif({ message, from, sock }) {
       });
     }
 
-    await sock.sendMessage(from, {
-      text: "🔄 *Converting to GIF... (this may take a moment)*",
-    });
+    await sock.sendMessage(from, { text: "🔄 *Converting to GIF...*" });
 
     const hasFfmpeg = await checkFfmpeg();
     if (!hasFfmpeg) {
       return sock.sendMessage(from, {
         text: formatError(
           "FFMPEG MISSING",
-          "ffmpeg is not installed. GIF conversion requires ffmpeg.\n\n" +
-            "Install it on your server or use a different command.",
+          "ffmpeg is not installed on this server.",
         ),
       });
     }
 
-    const videoBuffer = await downloadMedia(
-      quoted.videoMessage,
-      "video",
-      sock,
-      from,
-    );
+    const videoBuffer = await downloadMedia(quoted.videoMessage, "video");
 
     // Check file size
     if (videoBuffer.length > 50 * 1024 * 1024) {
@@ -444,48 +383,37 @@ export async function toGif({ message, from, sock }) {
     const duration = await getVideoDuration(inputPath);
     if (duration && duration > 30) {
       await sock.sendMessage(from, {
-        text: `⚠️ Video is ${Math.round(duration)}s long. For best results, keep videos under 30s.`,
+        text: `⚠️ Video is ${Math.round(duration)}s long. Truncating to 30s.`,
       });
     }
 
     // Convert to GIF-optimized MP4
     await execPromise(
       `ffmpeg -i "${inputPath}" ` +
-        `-vf "fps=10,scale=480:-1:flags=lancros,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" ` +
+        `-vf "fps=10,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" ` +
         `-loop 0 -t 30 -y "${outputPath}"`,
     );
 
     const gifBuffer = fs.readFileSync(outputPath);
 
+    // ✅ ACTUALLY SEND THE RESULT
     await sock.sendMessage(from, {
       video: gifBuffer,
       gifPlayback: true,
-      caption: `🎞️ *Video → GIF*\n📦 ${(gifBuffer.length / 1024 / 1024).toFixed(2)} MB`,
+      caption: `🎞️ *Video → GIF*\n📦 ${(gifBuffer.length / 1024).toFixed(1)} KB`,
     });
 
     safeUnlink(inputPath, outputPath);
   } catch (e) {
     console.error("ToGif error:", e);
-
-    // Check for common ffmpeg errors
-    if (e.message.includes("ffmpeg not found")) {
-      await sock.sendMessage(from, {
-        text: formatError(
-          "FFMPEG MISSING",
-          "ffmpeg is not installed on your server.\n\n" +
-            "Install it with: sudo apt install ffmpeg",
-        ),
-      });
-    } else {
-      await sock.sendMessage(from, {
-        text: formatError("ERROR", `GIF conversion failed: ${e.message}`),
-      });
-    }
+    await sock.sendMessage(from, {
+      text: formatError("ERROR", `GIF conversion failed: ${e.message}`),
+    });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TO AUDIO — video → MP3 with better error handling
+//  TO AUDIO — video → MP3 (FIXED TO ACTUALLY SEND)
 // ════════════════════════════════════════════════════════════════════════════
 export async function toAudio({ message, from, sock }) {
   try {
@@ -504,12 +432,7 @@ export async function toAudio({ message, from, sock }) {
 
     // If it's already audio, just re-send it
     if (isAudio) {
-      const audioBuffer = await downloadMedia(
-        quoted.audioMessage,
-        "audio",
-        sock,
-        from,
-      );
+      const audioBuffer = await downloadMedia(quoted.audioMessage, "audio");
       return sock.sendMessage(from, {
         audio: audioBuffer,
         mimetype: "audio/mp4",
@@ -522,17 +445,12 @@ export async function toAudio({ message, from, sock }) {
       return sock.sendMessage(from, {
         text: formatError(
           "FFMPEG MISSING",
-          "ffmpeg is not installed. Audio extraction requires ffmpeg.",
+          "ffmpeg is not installed on this server.",
         ),
       });
     }
 
-    const videoBuffer = await downloadMedia(
-      quoted.videoMessage,
-      "video",
-      sock,
-      from,
-    );
+    const videoBuffer = await downloadMedia(quoted.videoMessage, "video");
 
     // Check file size
     if (videoBuffer.length > 100 * 1024 * 1024) {
@@ -552,6 +470,7 @@ export async function toAudio({ message, from, sock }) {
 
     const audioBuffer = fs.readFileSync(outputPath);
 
+    // ✅ ACTUALLY SEND THE RESULT
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: "audio/mpeg",
@@ -575,7 +494,7 @@ export async function toAudio({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  REMOVE BACKGROUND — with better API fallbacks
+//  REMOVE BACKGROUND
 // ════════════════════════════════════════════════════════════════════════════
 export async function removeBg({ message, from, sock }) {
   try {
@@ -593,12 +512,7 @@ export async function removeBg({ message, from, sock }) {
 
     await sock.sendMessage(from, { text: "✨ *Removing background...*" });
 
-    const imageBuffer = await downloadMedia(
-      quoted.imageMessage,
-      "image",
-      sock,
-      from,
-    );
+    const imageBuffer = await downloadMedia(quoted.imageMessage, "image");
     let resultBuffer = null;
 
     // Try remove.bg API if key is set
@@ -632,7 +546,7 @@ export async function removeBg({ message, from, sock }) {
       }
     }
 
-    // Free fallback: PhotoRoom API
+    // Free fallback
     if (!resultBuffer) {
       try {
         const form = new FormData();
@@ -664,10 +578,7 @@ export async function removeBg({ message, from, sock }) {
       });
     } else {
       await sock.sendMessage(from, {
-        text: formatError(
-          "REMOVEBG FAILED",
-          "Could not remove background. Try again later or install remove.bg API key.",
-        ),
+        text: formatError("REMOVEBG FAILED", "Could not remove background."),
       });
     }
   } catch (e) {
@@ -679,7 +590,7 @@ export async function removeBg({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MEME — image + top/bottom text
+//  MEME
 // ════════════════════════════════════════════════════════════════════════════
 export async function meme({ message, fullArgs, from, sock }) {
   try {
@@ -690,8 +601,7 @@ export async function meme({ message, fullArgs, from, sock }) {
       return sock.sendMessage(from, {
         text: formatInfo(
           "🎭 MEME GENERATOR",
-          `Reply to an image with:\n.meme <top text> | <bottom text>\n\n` +
-            `Example: .meme When it works | On the first try`,
+          `Reply to an image with:\n.meme <top text> | <bottom text>`,
         ),
       });
     }
@@ -711,12 +621,7 @@ export async function meme({ message, fullArgs, from, sock }) {
 
     await sock.sendMessage(from, { text: "🎨 *Creating meme...*" });
 
-    const imageBuffer = await downloadMedia(
-      quoted.imageMessage,
-      "image",
-      sock,
-      from,
-    );
+    const imageBuffer = await downloadMedia(quoted.imageMessage, "image");
     const meta = await sharp(imageBuffer).metadata();
     const w = meta.width || 512;
     const h = meta.height || 512;
