@@ -463,4 +463,30 @@ export async function validateGroupCommand(
         return {
           success: false,
           error:
-            "❌ *Bot No
+            "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first.",
+        };
+      }
+    }
+
+    return {
+      success: true,
+      metadata: await getGroupMetadataCached(groupJid, sock),
+      userIsGlobalAdmin: isGlobalAdmin,
+      userIsGroupAdmin: isGroupAdmin,
+    };
+  } catch (err) {
+    console.error("validateGroupCommand error:", err.message);
+    return {
+      success: false,
+      error: "❌ *Validation Error*\nCould not check permissions. Try again.",
+    };
+  }
+}
+
+// ============================================================================
+//  GET BOT NUMBER
+// ============================================================================
+export function getBotNumber(sock) {
+  if (!sock?.user?.id) return null;
+  return normalizeNum(sock.user.id);
+}
