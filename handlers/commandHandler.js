@@ -5,6 +5,7 @@
 //  Version : 1.0.0 (FINAL)
 //
 //  FIXES INCLUDED:
+//  • Fixed trivia block missing brace
 //  • Added .pin, .unpin, .delete commands
 //  • Fixed admin detection for group owner
 //  • Added antilink detection handler
@@ -17,18 +18,17 @@ import {
   ENV,
   isAdmin,
   isAuthorized,
-  activateGroup,
-  deactivateGroup,
   isGroupActivated,
+  groupActivations,
+  groupSettings,
+  groupWarnings,
 } from "../index.js";
 
 import {
-  formatError,
-  formatGroupError,
-  formatInfo,
-  formatSuccess,
-} from "../utils/formatters.js";
-import { isBotGroupAdminCached } from "../utils/validators.js";
+  isBotGroupAdminCached,
+  normalizeNum,
+  containsLink,
+} from "../utils/validators.js";
 
 // ============================================================================
 //  COLOR LOGGER
@@ -115,7 +115,6 @@ const MODULE_PATHS = {
   groupMod: "../commands/group/moderation.js",
   groupSettings: "../commands/group/settings.js",
   automation: "../commands/group/automation.js",
-  antilink: "../features/antilink.js", // ADDED
 
   // Feature modules
   ai: "../features/ai.js",
@@ -978,6 +977,38 @@ export function registerAllCommands() {
       ],
     });
 
+  // GIF Search - .gif
+  if (dl.gif)
+    safeRegister("gif", dl.gif, {
+      category: "dl",
+      description: "Search for animated GIFs",
+      aliases: ["giphy", "tenor", "gifsearch", "animated"],
+    });
+
+  // Image Search - .img
+  if (dl.image)
+    safeRegister("img", dl.image, {
+      category: "dl",
+      description: "Search for images",
+      aliases: ["image", "imgsearch", "pics", "photos", "picture"],
+    });
+
+  // Pinterest Search - .pin
+  if (dl.pinterest)
+    safeRegister("pin", dl.pinterest, {
+      category: "dl",
+      description: "Search Pinterest images",
+      aliases: ["pinterest", "pins", "pinsearch", "pinterestsearch"],
+    });
+
+  // Universal Downloader - .dl
+  if (dl.download)
+    safeRegister("dl", dl.download, {
+      category: "dl",
+      description: "Universal media downloader",
+      aliases: ["download", "get", "fetch", "dlfile"],
+    });
+
   // ────────────────────────────────────────────────────────────────────────
   //  ENCRYPTION.JS
   // ────────────────────────────────────────────────────────────────────────
@@ -1282,38 +1313,6 @@ export function registerAllCommands() {
         "trend",
         "trendingnow",
       ],
-    });
-
-  // GIF Search - .gif
-  if (dl.gif)
-    safeRegister("gif", dl.gif, {
-      category: "dl",
-      description: "Search for animated GIFs",
-      aliases: ["giphy", "tenor", "gifsearch", "animated"],
-    });
-
-  // Image Search - .img
-  if (dl.image)
-    safeRegister("img", dl.image, {
-      category: "dl",
-      description: "Search for images",
-      aliases: ["image", "imgsearch", "pics", "photos", "picture"],
-    });
-
-  // Pinterest Search - .pin
-  if (dl.pinterest)
-    safeRegister("pin", dl.pinterest, {
-      category: "dl",
-      description: "Search Pinterest images",
-      aliases: ["pinterest", "pins", "pinsearch", "pinterestsearch"],
-    });
-
-  // Universal Downloader - .dl
-  if (dl.download)
-    safeRegister("dl", dl.download, {
-      category: "dl",
-      description: "Universal media downloader",
-      aliases: ["download", "get", "fetch", "dlfile"],
     });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -1622,6 +1621,7 @@ export function registerAllCommands() {
         "allunits",
       ],
     });
+
   // ────────────────────────────────────────────────────────────────────────
   //  GROUP CORE.JS
   // ────────────────────────────────────────────────────────────────────────
@@ -1983,6 +1983,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       adminOnly: true,
+      requireBotAdmin: true,
       description: "Revoke group invite link",
       aliases: ["revokelink", "resetlink", "newlink"],
     });
@@ -1993,6 +1994,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       adminOnly: true,
+      requireBotAdmin: true,
       description: "Pin a message",
       aliases: ["pinmsg", "pinmessage"],
     });
@@ -2003,6 +2005,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       adminOnly: true,
+      requireBotAdmin: true,
       description: "Unpin a message",
       aliases: ["unpinmsg", "unpinmessage"],
     });
@@ -2051,6 +2054,24 @@ export function registerAllCommands() {
       adminOnly: true,
       description: "Debug group information",
       aliases: ["gdebug", "groupdbg"],
+    });
+
+  if (gs.testAdmin)
+    safeRegister("testadmin", gs.testAdmin, {
+      category: "group",
+      groupOnly: true,
+      adminOnly: true,
+      description: "Test admin status",
+      aliases: ["admintest", "checkadmin"],
+    });
+
+  if (gs.refreshAdmin)
+    safeRegister("refreshadmin", gs.refreshAdmin, {
+      category: "group",
+      groupOnly: true,
+      adminOnly: true,
+      description: "Refresh admin cache",
+      aliases: ["refresh", "clearcache"],
     });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -2267,20 +2288,6 @@ export async function handleCommand(message, sock) {
     const isAuthorizedUser =
       isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
-    // handlers/commandHandler.js - AYOBOT v1.0.0
-    // ════════════════════════════════════════════════════════════════════════════
-    //  COMPLETE FIXED VERSION - ALL COMMANDS WORKING
-    //  Author  : AYOCODES
-    //  Version : 1.0.0 (FINAL)
-    //
-    //  FIXES INCLUDED:
-    //  • Fixed trivia block missing brace
-    //  • Fixed command execution flow
-    //  • All commands now properly execute
-    // ════════════════════════════════════════════════════════════════════════════
-
-    // ... (keep all your imports and setup the same until PHASE 4) ...
-
     // ======================================================================
     //  PHASE 4: EXTRACT MESSAGE TEXT
     // ======================================================================
@@ -2295,35 +2302,75 @@ export async function handleCommand(message, sock) {
 
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
+
     // ======================================================================
-    //  PHASE 5: TRIVIA ANSWER HANDLER - FIXED
+    //  PHASE 5: ANTI-LINK DETECTION - RUNS FOR EVERY MESSAGE IN GROUPS
+    // ======================================================================
+    if (isGroup) {
+      try {
+        // Check if antilink is enabled for this group
+        const settings = groupSettings.get(from) || {};
+        if (settings.antilink && containsLink(trimmed)) {
+          // User is not admin
+          if (!isAdminUser) {
+            // Check if user is group admin
+            let isGroupAdmin = false;
+            try {
+              const metadata = await sock.groupMetadata(from);
+              isGroupAdmin = metadata.participants.some(
+                (p) =>
+                  p.id === userJid &&
+                  (p.admin === "admin" || p.admin === "superadmin"),
+              );
+            } catch (e) {}
+
+            if (!isGroupAdmin) {
+              // Delete the message
+              await sock.sendMessage(from, { delete: message.key });
+
+              // Warn the user
+              const warnings = groupWarnings.get(userJid) || 0;
+              const newWarnings = warnings + 1;
+              groupWarnings.set(userJid, newWarnings);
+
+              await sock.sendMessage(from, {
+                text: `🔗 *Link Detected!*\n\n@${cleanPhone} you are not allowed to send links here.\nWarning: ${newWarnings}/${ENV.MAX_WARNINGS || 3}`,
+                mentions: [userJid],
+              });
+
+              // Kick if max warnings reached
+              if (newWarnings >= (ENV.MAX_WARNINGS || 3)) {
+                if (await isBotGroupAdminCached(from, sock, true)) {
+                  await sock.groupParticipantsUpdate(from, [userJid], "remove");
+                  groupWarnings.delete(userJid);
+                }
+              }
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        log.debug(`[${executionId}] Anti-link error: ${err.message}`);
+      }
+    }
+
+    // ======================================================================
+    //  PHASE 6: TRIVIA ANSWER HANDLER - FIXED
     // ======================================================================
     if (!trimmed.startsWith(ENV.PREFIX)) {
       // This is a non-command message
 
       // Check for trivia answers (A, B, C, D)
       if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
-        console.log(
-          `🎯 [CMD] Potential trivia answer: "${trimmed}" in chat ${from}`,
-        );
-        console.log(
-          `📊 [CMD] activeTrivia.has(from)? ${global.activeTrivia?.has(from) || false}`,
-        );
-
         if (global.activeTrivia?.has(from)) {
-          console.log(`✅ [CMD] Active trivia found, processing answer...`);
-
           // Check permissions
           if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
-            console.log(`❌ Permission denied - group not activated`);
             return;
           }
           if (sessionMode === "private" && !isAdminUser) {
-            console.log(`❌ Permission denied - private mode`);
             return;
           }
           if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
-            console.log(`❌ Permission denied - user banned`);
             return;
           }
 
@@ -2331,47 +2378,20 @@ export async function handleCommand(message, sock) {
             const games = MODULES.games;
             if (typeof games?.handleTriviaAnswer === "function") {
               await games.handleTriviaAnswer(message, from, sock);
-              console.log(`✅ Trivia answer processed`);
-              return; // Return after processing trivia
+              return;
             }
           } catch (error) {
-            console.log(`❌ Trivia error: ${error.message}`);
+            log.debug(`[${executionId}] Trivia error: ${error.message}`);
           }
         }
       }
 
       // IMPORTANT: Non-command messages that aren't trivia answers should be ignored
-      // We return here to prevent them from being processed as commands
       return;
-    } // <-- THIS CLOSING BRACE WAS MISSING!
-
-    // ======================================================================
-    //  PHASE 5.5: ANTI-LINK DETECTION - RUNS FOR EVERY MESSAGE IN GROUPS
-    // ======================================================================
-    if (isGroup) {
-      try {
-        const b = MODULES.basic;
-        if (b?.antilink) {
-          // Run in background - don't await
-          b.antilink({
-            args: [],
-            message,
-            from,
-            sock,
-            isAdmin: isAdminUser,
-            isGroup,
-            userJid,
-          }).catch((err) =>
-            log.debug(`[${executionId}] Anti-link error: ${err.message}`),
-          );
-        }
-      } catch (err) {
-        log.debug(`[${executionId}] Anti-link module error: ${err.message}`);
-      }
     }
 
     // ======================================================================
-    //  PHASE 6: PREFIX CHECK
+    //  PHASE 7: PREFIX CHECK
     // ======================================================================
     if (!trimmed.startsWith(ENV.PREFIX)) return;
 
@@ -2386,7 +2406,7 @@ export async function handleCommand(message, sock) {
     if (!commandName) return;
 
     // ======================================================================
-    //  PHASE 7: BANNED USER CHECK
+    //  PHASE 8: BANNED USER CHECK
     // ======================================================================
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
       log.warn(`[${executionId}] Blocked banned user: ${cleanPhone}`);
@@ -2394,7 +2414,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 8: GROUP ACTIVATION CHECK
+    //  PHASE 9: GROUP ACTIVATION CHECK
     // ======================================================================
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
       log.info(
@@ -2404,7 +2424,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 9: PRIVATE MODE CHECK
+    //  PHASE 10: PRIVATE MODE CHECK
     // ======================================================================
     if (sessionMode === "private" && !isAdminUser) {
       log.info(`[${executionId}] Private mode: silently ignored ${cleanPhone}`);
@@ -2412,7 +2432,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 10: COMMAND LOOKUP
+    //  PHASE 11: COMMAND LOOKUP
     // ======================================================================
     log.info(
       `[${executionId}] ${ENV.PREFIX}${commandName} from ${cleanPhone}${isGroup ? " [GROUP]" : ""}`,
@@ -2443,7 +2463,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 11: GET THE ACTUAL HANDLER FUNCTION
+    //  PHASE 12: GET THE ACTUAL HANDLER FUNCTION
     // ======================================================================
     let handlerFunction = commandMeta.handler;
     let primaryName = commandMeta.primaryName || commandName;
@@ -2456,7 +2476,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 12: TRACK USAGE
+    //  PHASE 13: TRACK USAGE
     // ======================================================================
     if (!commandUsage.has(userJid)) {
       commandUsage.set(userJid, {});
@@ -2476,7 +2496,7 @@ export async function handleCommand(message, sock) {
     commandStats.set(primaryName, stats);
 
     // ======================================================================
-    //  PHASE 13: RATE LIMIT CHECK
+    //  PHASE 14: RATE LIMIT CHECK
     // ======================================================================
     if (!isAdminUser && !rateLimiter.isAllowed(userJid)) {
       const seconds = Math.ceil(rateLimiter.remaining(userJid) / 1000);
@@ -2490,7 +2510,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 14: PERMISSION CHECKS
+    //  PHASE 15: PERMISSION CHECKS
     // ======================================================================
 
     // Admin only check
@@ -2557,7 +2577,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ======================================================================
-    //  PHASE 15: EXECUTE COMMAND WITH TIMING
+    //  PHASE 16: EXECUTE COMMAND WITH TIMING
     // ======================================================================
     const handlerStart = Date.now();
     log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
@@ -2640,9 +2660,9 @@ export async function handleCommand(message, sock) {
 // ============================================================================
 function findSimilarCommands(input, limit = 3) {
   const inputLower = input.toLowerCase();
-  const commands = Array.from(primaryCommands.keys());
+  const commandsList = Array.from(primaryCommands.keys());
 
-  const withDistance = commands.map((cmd) => {
+  const withDistance = commandsList.map((cmd) => {
     const distance = levenshteinDistance(inputLower, cmd);
     return { cmd, distance };
   });

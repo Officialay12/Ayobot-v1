@@ -5,19 +5,19 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
-  commandRateLimit,
-  spamTracker,
-  isAdmin,
-  RATE_LIMIT_WINDOW,
-  MAX_COMMANDS_PER_WINDOW,
-  RATE_LIMIT_MESSAGES,
-  SPAM_TIME_WINDOW,
-  MAX_SPAM_MESSAGES,
-  MAX_SIMILAR_MESSAGES,
-  adminCache,
   ADMIN_CACHE_TTL,
-  groupMetadataCache,
+  adminCache,
+  commandRateLimit,
   GROUP_META_TTL,
+  groupMetadataCache,
+  isAdmin,
+  MAX_COMMANDS_PER_WINDOW,
+  MAX_SIMILAR_MESSAGES,
+  MAX_SPAM_MESSAGES,
+  RATE_LIMIT_MESSAGES,
+  RATE_LIMIT_WINDOW,
+  SPAM_TIME_WINDOW,
+  spamTracker,
 } from "../index.js";
 
 // ============================================================================
@@ -187,17 +187,25 @@ export function extractTargetUser(args, message) {
 // ============================================================================
 //  CACHED GROUP ADMIN CHECK - FIXED
 // ============================================================================
-export async function isGroupAdminCached(groupJid, userJid, sock) {
+export async function isGroupAdminCached(
+  groupJid,
+  userJid,
+  sock,
+  forceRefresh = false,
+) {
   if (!groupJid || !userJid) return false;
 
   // Global admin check
   if (isAdmin(userJid)) return true;
 
   const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
-  const cached = adminCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
-    return cached.isAdmin;
+  // Check cache if not forcing refresh
+  if (!forceRefresh) {
+    const cached = adminCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+      return cached.isAdmin;
+    }
   }
 
   try {
@@ -222,31 +230,139 @@ export async function isGroupAdminCached(groupJid, userJid, sock) {
 }
 
 // ============================================================================
-//  CACHED BOT ADMIN CHECK - FIXED
+//  CACHED BOT ADMIN CHECK - ULTRA FIXED (ONLY VERSION)
 // ============================================================================
-export async function isBotGroupAdminCached(groupJid, sock) {
-  if (!groupJid || !sock?.user?.id) return false;
+export async function isBotGroupAdminCached(
+  groupJid,
+  sock,
+  forceRefresh = false,
+) {
+  if (!groupJid || !groupJid.endsWith("@g.us")) return false;
+  if (!sock || !sock.user) return false;
 
-  // Get bot's user ID and normalize
-  const botJid = sock.user.id;
-  const botNumber = normalizeNum(botJid);
+  const cacheKey = `botadmin_${groupJid}`;
+  const now = Date.now();
 
-  // Create the bot's JID properly
-  const botUserJid = `${botNumber}@s.whatsapp.net`;
+  // Check cache if not forcing refresh
+  if (!forceRefresh) {
+    const cached = adminCache.get(cacheKey);
+    if (cached && now - cached.timestamp < 30000) {
+      return cached.isAdmin;
+    }
+  }
 
-  // Check if bot is admin using the normalized number comparison
-  return isGroupAdminCached(groupJid, botUserJid, sock);
+  try {
+    // Get bot's JID in multiple formats
+    const botJid = sock.user.id;
+    console.log("🔍 Raw bot JID:", botJid);
+
+    // Extract just the phone number part (remove : and @ suffixes)
+    const botNumber = botJid
+      .split(":")[0]
+      .split("@")[0]
+      .replace(/[^0-9]/g, "");
+    console.log("🔍 Clean bot number:", botNumber);
+
+    // Get group metadata
+    const metadata = await sock.groupMetadata(groupJid);
+    if (!metadata || !metadata.participants) {
+      adminCache.set(cacheKey, { isAdmin: false, timestamp: now });
+      return false;
+    }
+
+    // Debug: Log all participants to see what we're comparing against
+    console.log("🔍 Group participants:");
+    metadata.participants.forEach((p) => {
+      const pNum = p.id.split("@")[0].replace(/[^0-9]/g, "");
+      console.log(`  - ${p.id} → ${pNum} (${p.admin || "member"})`);
+    });
+
+    // Find bot in participants - COMPARE ONLY THE NUMBERS
+    const botParticipant = metadata.participants.find((p) => {
+      const participantNum = p.id.split("@")[0].replace(/[^0-9]/g, "");
+      return participantNum === botNumber;
+    });
+
+    const isAdmin = !!(
+      botParticipant &&
+      (botParticipant.admin === "admin" ||
+        botParticipant.admin === "superadmin")
+    );
+
+    console.log(`🔍 Bot admin status: ${isAdmin ? "✅ YES" : "❌ NO"}`);
+    if (botParticipant) {
+      console.log(`🔍 Bot role in group: ${botParticipant.admin || "member"}`);
+    }
+
+    adminCache.set(cacheKey, { isAdmin, timestamp: now });
+    return isAdmin;
+  } catch (error) {
+    console.error("❌ Error checking bot admin status:", error.message);
+    return false;
+  }
+}
+
+// ============================================================================
+//  DEBUG BOT ADMIN - Helper function
+// ============================================================================
+export async function debugBotAdmin(groupJid, sock) {
+  if (!groupJid || !sock) return;
+
+  console.log("\n🔍 ===== BOT ADMIN DEBUG =====");
+
+  const botJid = sock.user?.id;
+  console.log("Bot JID:", botJid);
+
+  const botNumber = botJid
+    ?.split(":")[0]
+    .split("@")[0]
+    .replace(/[^0-9]/g, "");
+  console.log("Bot number:", botNumber);
+
+  try {
+    const metadata = await sock.groupMetadata(groupJid);
+    console.log("Group:", metadata.subject);
+    console.log("Total participants:", metadata.participants.length);
+
+    console.log("\nAll participants:");
+    metadata.participants.forEach((p) => {
+      const pNum = p.id.split("@")[0].replace(/[^0-9]/g, "");
+      const match = pNum === botNumber ? " ← BOT" : "";
+      console.log(`  ${p.id} → ${pNum} (${p.admin || "member"})${match}`);
+    });
+
+    const botParticipant = metadata.participants.find((p) => {
+      const pNum = p.id.split("@")[0].replace(/[^0-9]/g, "");
+      return pNum === botNumber;
+    });
+
+    if (botParticipant) {
+      console.log("\n✅ Bot found in group!");
+      console.log(`Role: ${botParticipant.admin || "member"}`);
+    } else {
+      console.log("\n❌ Bot NOT found in group participants!");
+    }
+  } catch (e) {
+    console.error("Error:", e.message);
+  }
+  console.log("=============================\n");
 }
 
 // ============================================================================
 //  CACHED GROUP METADATA
 // ============================================================================
-export async function getGroupMetadataCached(groupJid, sock) {
+export async function getGroupMetadataCached(
+  groupJid,
+  sock,
+  forceRefresh = false,
+) {
   if (!groupJid || !sock) return null;
 
-  const cached = groupMetadataCache.get(groupJid);
-  if (cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
-    return cached.metadata;
+  if (!forceRefresh) {
+    const cached = groupMetadataCache.get(groupJid);
+    if (cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
+      return cached.metadata;
+    }
   }
 
   try {
@@ -256,7 +372,7 @@ export async function getGroupMetadataCached(groupJid, sock) {
     }
     return metadata || null;
   } catch (err) {
-    return cached?.metadata || null;
+    return groupMetadataCache.get(groupJid)?.metadata || null;
   }
 }
 
@@ -274,7 +390,7 @@ export function clearGroupCache(groupJid) {
     groupMetadataCache.delete(groupJid);
     // Also clear related admin cache entries
     for (const key of adminCache.keys()) {
-      if (key.startsWith(groupJid + "_")) {
+      if (key.startsWith(groupJid + "_") || key === `botadmin_${groupJid}`) {
         adminCache.delete(key);
       }
     }
@@ -287,18 +403,11 @@ export function clearGroupCache(groupJid) {
 export async function refreshBotAdminStatus(groupJid, sock) {
   if (!groupJid || !sock) return false;
 
-  // Clear cache for this group and bot
-  const botNumber = normalizeNum(sock.user?.id);
-  if (botNumber) {
-    const cacheKey = `${groupJid}_${botNumber}`;
-    adminCache.delete(cacheKey);
-  }
-
-  // Also clear group metadata cache to force refresh
-  groupMetadataCache.delete(groupJid);
+  // Clear cache for this group
+  clearGroupCache(groupJid);
 
   // Re-check with fresh data
-  return isBotGroupAdminCached(groupJid, sock);
+  return isBotGroupAdminCached(groupJid, sock, true);
 }
 
 // ============================================================================
@@ -349,35 +458,9 @@ export async function validateGroupCommand(
 
     // Check bot admin if required
     if (requiredRole === "botAdmin") {
-      const botIsAdmin = await isBotGroupAdminCached(groupJid, sock);
+      const botIsAdmin = await isBotGroupAdminCached(groupJid, sock, true); // Force refresh
       if (!botIsAdmin) {
         return {
           success: false,
           error:
-            "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first.",
-        };
-      }
-    }
-
-    return {
-      success: true,
-      metadata: await getGroupMetadataCached(groupJid, sock),
-      userIsGlobalAdmin: isGlobalAdmin,
-      userIsGroupAdmin: isGroupAdmin,
-    };
-  } catch (err) {
-    console.error("validateGroupCommand error:", err.message);
-    return {
-      success: false,
-      error: "❌ *Validation Error*\nCould not check permissions. Try again.",
-    };
-  }
-}
-
-// ============================================================================
-//  GET BOT NUMBER
-// ============================================================================
-export function getBotNumber(sock) {
-  if (!sock?.user?.id) return null;
-  return normalizeNum(sock.user.id);
-}
+            "❌ *Bot No
