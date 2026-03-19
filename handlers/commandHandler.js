@@ -16,19 +16,14 @@ import {
   bannedUsers,
   commandUsage,
   ENV,
+  groupSettings,
+  groupWarnings,
   isAdmin,
   isAuthorized,
   isGroupActivated,
-  groupActivations,
-  groupSettings,
-  groupWarnings,
 } from "../index.js";
 
-import {
-  isBotGroupAdminCached,
-  normalizeNum,
-  containsLink,
-} from "../utils/validators.js";
+import { containsLink, isBotGroupAdminCached } from "../utils/validators.js";
 
 // ============================================================================
 //  COLOR LOGGER
@@ -1842,24 +1837,6 @@ export function registerAllCommands() {
         "removewarns",
         "clearallwarns",
       ],
-    });
-  // ADD THESE TWO LINES:
-  if (gs.testAdmin)
-    safeRegister("testadmin", gs.testAdmin, {
-      category: "group",
-      groupOnly: true,
-      adminOnly: true,
-      description: "Test admin status",
-      aliases: ["admintest", "checkadmin"],
-    });
-
-  if (gs.refreshAdmin)
-    safeRegister("refreshadmin", gs.refreshAdmin, {
-      category: "group",
-      groupOnly: true,
-      adminOnly: true,
-      description: "Refresh admin cache",
-      aliases: ["refresh", "clearcache", "refreshcache"],
     });
 
   // ────────────────────────────────────────────────────────────────────────
