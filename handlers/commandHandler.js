@@ -1843,6 +1843,24 @@ export function registerAllCommands() {
         "clearallwarns",
       ],
     });
+  // ADD THESE TWO LINES:
+  if (gs.testAdmin)
+    safeRegister("testadmin", gs.testAdmin, {
+      category: "group",
+      groupOnly: true,
+      adminOnly: true,
+      description: "Test admin status",
+      aliases: ["admintest", "checkadmin"],
+    });
+
+  if (gs.refreshAdmin)
+    safeRegister("refreshadmin", gs.refreshAdmin, {
+      category: "group",
+      groupOnly: true,
+      adminOnly: true,
+      description: "Refresh admin cache",
+      aliases: ["refresh", "clearcache", "refreshcache"],
+    });
 
   // ────────────────────────────────────────────────────────────────────────
   //  GROUP SETTINGS.JS - COMPLETE WITH ALL COMMANDS
