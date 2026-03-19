@@ -1167,7 +1167,7 @@ export function registerAllCommands() {
     safeRegister("togif", img.toGif, {
       category: "media",
       description: "Convert video to GIF",
-      aliases: ["gif", "makegif", "videotogif", "togiphy", "gifmaker"],
+      aliases: ["makegif", "videotogif", "togiphy", "gifmaker"],
     });
 
   if (img.toAudio)
