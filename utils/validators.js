@@ -1,6 +1,6 @@
 // utils/validators.js - AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Validators & Helpers - CLEAN VERSION
+//  Validators & Helpers - FIXED BOT ADMIN DETECTION
 //  Author: AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -17,18 +17,21 @@ import {
   adminCache,
   ADMIN_CACHE_TTL,
   groupMetadataCache,
-  GROUP_META_TTL
-} from '../index.js';
+  GROUP_META_TTL,
+} from "../index.js";
 
 // ============================================================================
 //  NORMALIZE PHONE NUMBER
 // ============================================================================
 export function normalizeNum(jid) {
-  if (!jid) return '';
-  if (typeof jid === 'object') {
+  if (!jid) return "";
+  if (typeof jid === "object") {
     jid = jid.id || jid.jid || String(jid);
   }
-  return String(jid).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+  return String(jid)
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/[^0-9]/g, "");
 }
 
 // ============================================================================
@@ -49,7 +52,7 @@ export function isRateLimited(userJid, isAdminUser) {
   const key = `rate_${normalizeNum(userJid)}`;
   let timestamps = commandRateLimit.get(key) || [];
 
-  timestamps = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
+  timestamps = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW);
 
   if (timestamps.length >= MAX_COMMANDS_PER_WINDOW) {
     return true;
@@ -61,7 +64,9 @@ export function isRateLimited(userJid, isAdminUser) {
 }
 
 export function getRateLimitMessage() {
-  return RATE_LIMIT_MESSAGES[Math.floor(Math.random() * RATE_LIMIT_MESSAGES.length)];
+  return RATE_LIMIT_MESSAGES[
+    Math.floor(Math.random() * RATE_LIMIT_MESSAGES.length)
+  ];
 }
 
 // ============================================================================
@@ -76,11 +81,11 @@ export function isSpam(userJid, messageText) {
     messages: [],
     messageCount: 0,
     firstMessageTime: now,
-    lastMessageTime: now
+    lastMessageTime: now,
   };
 
   // Clean old messages
-  data.messages = data.messages.filter(m => now - m.time < SPAM_TIME_WINDOW);
+  data.messages = data.messages.filter((m) => now - m.time < SPAM_TIME_WINDOW);
 
   // Check message count in time window
   if (data.messages.length >= MAX_SPAM_MESSAGES) {
@@ -88,13 +93,15 @@ export function isSpam(userJid, messageText) {
   }
 
   // Check for similar messages (copy-paste spam)
-  const similarCount = data.messages.filter(m => m.text === messageText).length;
+  const similarCount = data.messages.filter(
+    (m) => m.text === messageText,
+  ).length;
   if (similarCount >= MAX_SIMILAR_MESSAGES) {
     return true;
   }
 
   // Update data
-  data.messages.push({ text: messageText || '', time: now });
+  data.messages.push({ text: messageText || "", time: now });
   data.lastMessageTime = now;
   data.messageCount++;
   spamTracker.set(key, data);
@@ -106,7 +113,7 @@ export function isSpam(userJid, messageText) {
 //  LINK DETECTION - COMPREHENSIVE
 // ============================================================================
 export function containsLink(text) {
-  if (!text || typeof text !== 'string') return false;
+  if (!text || typeof text !== "string") return false;
 
   const patterns = [
     /https?:\/\/[^\s<>"']+/gi,
@@ -115,31 +122,33 @@ export function containsLink(text) {
     /(?:chat\.whatsapp\.com|wa\.me|call\.whatsapp\.com)\/\S+/gi,
     /t\.me\/\S+/gi,
     /discord\.gg\/\S+/gi,
-    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?(?:\/\S*)?\b/gi
+    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?(?:\/\S*)?\b/gi,
   ];
 
   for (const pattern of patterns) {
     if (pattern.test(text)) return true;
   }
 
-  return text.includes('://');
+  return text.includes("://");
 }
 
 // ============================================================================
 //  EXTRACT TEXT FROM MESSAGE
 // ============================================================================
 export function extractText(message) {
-  if (!message?.message) return '';
+  if (!message?.message) return "";
 
   const msg = message.message;
-  return msg.conversation ||
-         msg.extendedTextMessage?.text ||
-         msg.imageMessage?.caption ||
-         msg.videoMessage?.caption ||
-         msg.documentMessage?.caption ||
-         msg.buttonsResponseMessage?.selectedDisplayText ||
-         msg.listResponseMessage?.title ||
-         '';
+  return (
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.videoMessage?.caption ||
+    msg.documentMessage?.caption ||
+    msg.buttonsResponseMessage?.selectedDisplayText ||
+    msg.listResponseMessage?.title ||
+    ""
+  );
 }
 
 // ============================================================================
@@ -147,26 +156,28 @@ export function extractText(message) {
 // ============================================================================
 export function extractTargetUser(args, message) {
   // Check quoted message
-  const quoted = message?.message?.extendedTextMessage?.contextInfo?.participant;
-  if (quoted && quoted.includes('@')) {
+  const quoted =
+    message?.message?.extendedTextMessage?.contextInfo?.participant;
+  if (quoted && quoted.includes("@")) {
     const jid = toJid(quoted);
     if (jid) {
-      return { jid, phone: normalizeNum(jid), method: 'reply' };
+      return { jid, phone: normalizeNum(jid), method: "reply" };
     }
   }
 
   // Check mentioned users
-  const mentions = message?.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+  const mentions =
+    message?.message?.extendedTextMessage?.contextInfo?.mentionedJid;
   if (mentions?.length > 0) {
     const jid = mentions[0];
-    return { jid, phone: normalizeNum(jid), method: 'mention' };
+    return { jid, phone: normalizeNum(jid), method: "mention" };
   }
 
   // Check args for phone number
   if (args?.length > 0) {
-    const phone = args[0].replace(/[^0-9]/g, '');
+    const phone = args[0].replace(/[^0-9]/g, "");
     if (phone.length >= 7) {
-      return { jid: `${phone}@s.whatsapp.net`, phone, method: 'arg' };
+      return { jid: `${phone}@s.whatsapp.net`, phone, method: "arg" };
     }
   }
 
@@ -174,7 +185,7 @@ export function extractTargetUser(args, message) {
 }
 
 // ============================================================================
-//  CACHED GROUP ADMIN CHECK
+//  CACHED GROUP ADMIN CHECK - FIXED
 // ============================================================================
 export async function isGroupAdminCached(groupJid, userJid, sock) {
   if (!groupJid || !userJid) return false;
@@ -185,7 +196,7 @@ export async function isGroupAdminCached(groupJid, userJid, sock) {
   const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
   const cached = adminCache.get(cacheKey);
 
-  if (cached && (Date.now() - cached.timestamp) < ADMIN_CACHE_TTL) {
+  if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
     return cached.isAdmin;
   }
 
@@ -194,23 +205,37 @@ export async function isGroupAdminCached(groupJid, userJid, sock) {
     if (!metadata?.participants) return false;
 
     const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find(p => normalizeNum(p.id) === userNum);
-    const isGroupAdmin = participant?.admin === 'admin' || participant?.admin === 'superadmin';
+    const participant = metadata.participants.find((p) => {
+      const participantNum = normalizeNum(p.id);
+      return participantNum === userNum;
+    });
+
+    const isGroupAdmin =
+      participant?.admin === "admin" || participant?.admin === "superadmin";
 
     adminCache.set(cacheKey, { isAdmin: isGroupAdmin, timestamp: Date.now() });
     return isGroupAdmin;
   } catch (err) {
-    console.error('isGroupAdminCached error:', err.message);
+    console.error("isGroupAdminCached error:", err.message);
     return false;
   }
 }
 
 // ============================================================================
-//  CACHED BOT ADMIN CHECK
+//  CACHED BOT ADMIN CHECK - FIXED
 // ============================================================================
 export async function isBotGroupAdminCached(groupJid, sock) {
-  if (!sock?.user?.id) return false;
-  return isGroupAdminCached(groupJid, normalizeNum(sock.user.id) + '@s.whatsapp.net', sock);
+  if (!groupJid || !sock?.user?.id) return false;
+
+  // Get bot's user ID and normalize
+  const botJid = sock.user.id;
+  const botNumber = normalizeNum(botJid);
+
+  // Create the bot's JID properly
+  const botUserJid = `${botNumber}@s.whatsapp.net`;
+
+  // Check if bot is admin using the normalized number comparison
+  return isGroupAdminCached(groupJid, botUserJid, sock);
 }
 
 // ============================================================================
@@ -220,7 +245,7 @@ export async function getGroupMetadataCached(groupJid, sock) {
   if (!groupJid || !sock) return null;
 
   const cached = groupMetadataCache.get(groupJid);
-  if (cached && (Date.now() - cached.timestamp) < GROUP_META_TTL) {
+  if (cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
     return cached.metadata;
   }
 
@@ -249,7 +274,7 @@ export function clearGroupCache(groupJid) {
     groupMetadataCache.delete(groupJid);
     // Also clear related admin cache entries
     for (const key of adminCache.keys()) {
-      if (key.startsWith(groupJid + '_')) {
+      if (key.startsWith(groupJid + "_")) {
         adminCache.delete(key);
       }
     }
@@ -257,27 +282,58 @@ export function clearGroupCache(groupJid) {
 }
 
 // ============================================================================
-//  VALIDATE GROUP COMMAND
+//  FORCE REFRESH BOT ADMIN STATUS
 // ============================================================================
-export async function validateGroupCommand(groupJid, userJid, sock, requiredRole = 'admin') {
+export async function refreshBotAdminStatus(groupJid, sock) {
+  if (!groupJid || !sock) return false;
+
+  // Clear cache for this group and bot
+  const botNumber = normalizeNum(sock.user?.id);
+  if (botNumber) {
+    const cacheKey = `${groupJid}_${botNumber}`;
+    adminCache.delete(cacheKey);
+  }
+
+  // Also clear group metadata cache to force refresh
+  groupMetadataCache.delete(groupJid);
+
+  // Re-check with fresh data
+  return isBotGroupAdminCached(groupJid, sock);
+}
+
+// ============================================================================
+//  VALIDATE GROUP COMMAND - FIXED
+// ============================================================================
+export async function validateGroupCommand(
+  groupJid,
+  userJid,
+  sock,
+  requiredRole = "admin",
+) {
   try {
-    if (!groupJid?.endsWith('@g.us')) {
-      return { success: false, error: "❌ *Group Only*\nThis command only works in groups." };
+    if (!groupJid?.endsWith("@g.us")) {
+      return {
+        success: false,
+        error: "❌ *Group Only*\nThis command only works in groups.",
+      };
     }
 
     if (!userJid || !sock) {
-      return { success: false, error: "❌ *Internal Error*\nMissing user or socket context." };
+      return {
+        success: false,
+        error: "❌ *Internal Error*\nMissing user or socket context.",
+      };
     }
 
     const isGlobalAdmin = isAdmin(userJid);
 
     // If only member role required
-    if (requiredRole === 'member') {
+    if (requiredRole === "member") {
       return {
         success: true,
         metadata: await getGroupMetadataCached(groupJid, sock),
         userIsGlobalAdmin: isGlobalAdmin,
-        userIsGroupAdmin: false
+        userIsGroupAdmin: false,
       };
     }
 
@@ -285,15 +341,20 @@ export async function validateGroupCommand(groupJid, userJid, sock, requiredRole
     const isGroupAdmin = await isGroupAdminCached(groupJid, userJid, sock);
 
     if (!isGlobalAdmin && !isGroupAdmin) {
-      return { success: false, error: "❌ *Admin Only*\nOnly group admins can use this command." };
+      return {
+        success: false,
+        error: "❌ *Admin Only*\nOnly group admins can use this command.",
+      };
     }
 
     // Check bot admin if required
-    if (requiredRole === 'botAdmin') {
-      if (!(await isBotGroupAdminCached(groupJid, sock))) {
+    if (requiredRole === "botAdmin") {
+      const botIsAdmin = await isBotGroupAdminCached(groupJid, sock);
+      if (!botIsAdmin) {
         return {
           success: false,
-          error: "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first."
+          error:
+            "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first.",
         };
       }
     }
@@ -302,11 +363,21 @@ export async function validateGroupCommand(groupJid, userJid, sock, requiredRole
       success: true,
       metadata: await getGroupMetadataCached(groupJid, sock),
       userIsGlobalAdmin: isGlobalAdmin,
-      userIsGroupAdmin: isGroupAdmin
+      userIsGroupAdmin: isGroupAdmin,
     };
-
   } catch (err) {
-    console.error('validateGroupCommand error:', err.message);
-    return { success: false, error: "❌ *Validation Error*\nCould not check permissions. Try again." };
+    console.error("validateGroupCommand error:", err.message);
+    return {
+      success: false,
+      error: "❌ *Validation Error*\nCould not check permissions. Try again.",
+    };
   }
+}
+
+// ============================================================================
+//  GET BOT NUMBER
+// ============================================================================
+export function getBotNumber(sock) {
+  if (!sock?.user?.id) return null;
+  return normalizeNum(sock.user.id);
 }

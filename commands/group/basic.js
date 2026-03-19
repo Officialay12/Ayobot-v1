@@ -1039,7 +1039,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
 
     // Build the formatted menu text
     let menuText = `╔════════════════════════════════════════════╗\n`;
-    menuText += `║     ⚡ *AYOBOT v1.0.0 COMMAND MENU* ⚡    ║\n`;
+    menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
     menuText += `╚════════════════════════════════════════════╝\n\n`;
     menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
     menuText += `├ 💾 Memory: ${stats.memory}\n`;
