@@ -1,15 +1,16 @@
-// commands/group/admin.js
+// commands/group/admin.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  AYOBOT v1 — Admin Commands (Clean Rewrite)
+//  AYOBOT v1 — Admin Commands
 //  Author  : AYOCODES
 //  Contact : wa.me/2349159180375
 //
-//  FIXES IN THIS VERSION:
-//    - mode(): Now changes PER-SESSION mode via setMode() helper
-//      instead of mutating the global ENV.BOT_MODE which affected everyone.
-//    - addUser/removeUser: Now uses per-session authorizedUsers set
-//      in addition to the global one for backwards compatibility.
-//    - All functions: clean, no obfuscation, proper error messages.
+//  FIXES:
+//    • CRITICAL: saveBannedUsers, saveGroupSettings, saveWarnings were
+//      imported from "../../utils/database.js" which does NOT exist.
+//      They live in "../../index.js". Fixed to correct import — AYOCODES
+//    • mode(): Changes per-session mode via setMode() helper instead of
+//      mutating global ENV.BOT_MODE which affected ALL sessions
+//    • All functions: clean, correct imports, no crashes
 //  — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -20,12 +21,11 @@ import {
   botStartTime,
   commandUsage,
   messageCount,
-} from "../../index.js";
-import {
+  // FIX: These must come from index.js — there is no utils/database.js — AYOCODES
   saveBannedUsers,
   saveGroupSettings,
   saveWarnings,
-} from "../../utils/database.js";
+} from "../../index.js";
 import {
   formatError,
   formatInfo,
@@ -58,7 +58,7 @@ export async function addUser({
 
   const jid = `${phone}@s.whatsapp.net`;
 
-  // Add to global set (backwards compat) + per-session set. — AYOCODES
+  // Add to global set + per-session set — AYOCODES
   authorizedUsers.add(jid);
   authorizedUsers.add(phone);
   if (session?.authorizedUsers) {
@@ -73,7 +73,6 @@ export async function addUser({
     ),
   });
 
-  // Notify the newly authorized user. — AYOCODES
   try {
     await sock.sendMessage(jid, {
       text:
@@ -146,9 +145,9 @@ export async function listUsers({ from, sock, isAdmin }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MODE — THE FIX
-//  Old code: ENV.BOT_MODE = newMode → changed global, affected ALL sessions.
-//  New code: setMode(newMode) → changes only THIS user's session. — AYOCODES
+//  MODE — Changes per-session mode via setMode() helper
+//  FIX: Old code mutated ENV.BOT_MODE (global), affecting ALL sessions.
+//  New code: setMode(newMode) → changes only THIS session. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function mode({
   fullArgs,
@@ -176,22 +175,20 @@ export async function mode({
     });
   }
 
-  // Use the setMode helper injected by commandHandler.js — AYOCODES
-  // This updates session.mode AND persists to MongoDB.
+  // Use injected setMode helper if available — AYOCODES
   if (typeof setMode === "function") {
     await setMode(newMode);
   } else if (session) {
-    // Fallback: directly set on session object if setMode not available. — AYOCODES
+    // Fallback: directly set on session object — AYOCODES
     session.mode = newMode;
-
-    // Also try to persist to MongoDB if available
+    // Try to persist to MongoDB
     try {
       const { sessionMetaCollection } = await import("../../index.js");
       if (sessionMetaCollection) {
         await sessionMetaCollection.updateOne(
           { sessionId: session.id },
           { $set: { mode: newMode } },
-          { upsert: true }
+          { upsert: true },
         );
       }
     } catch (_) {}
@@ -284,7 +281,7 @@ export async function globalBroadcast({
     return sock.sendMessage(from, {
       text: formatInfo(
         "GLOBAL BROADCAST",
-        `Usage: ${ENV.PREFIX}globalbroadcast <message>\nSends to ALL groups the bot is in.`,
+        `Usage: ${ENV.PREFIX}globalbc <message>\nSends to ALL groups the bot is in.`,
       ),
     });
   }
@@ -316,7 +313,7 @@ export async function globalBroadcast({
       try {
         await sock.sendMessage(group.id, { text: msg, mentions: [userJid] });
         sent++;
-        // Progress update every 10 groups. — AYOCODES
+        // Progress update every 10 groups — AYOCODES
         if (sent % 10 === 0) {
           await sock.sendMessage(from, {
             text: `📊 *Progress:* ${sent}/${list.length} groups done...`,
@@ -413,7 +410,7 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
     });
   }
 
-  // Prevent banning self. — AYOCODES
+  // Prevent banning self — AYOCODES
   if (phone === userJid.split("@")[0] || phone === ENV.ADMIN) {
     return sock.sendMessage(from, {
       text: formatError("INVALID ACTION", "You cannot ban the bot owner."),
@@ -438,7 +435,7 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
   });
   saveBannedUsers();
 
-  // Notify the banned user. — AYOCODES
+  // Notify the banned user — AYOCODES
   try {
     await sock.sendMessage(jid, {
       text:
@@ -486,7 +483,7 @@ export async function unban({ fullArgs, from, sock, isAdmin }) {
     removed = true;
   }
 
-  // Also check partial matches. — AYOCODES
+  // Also check partial matches — AYOCODES
   for (const key of bannedUsers.keys()) {
     if (key.includes(phone)) {
       bannedUsers.delete(key);
@@ -541,7 +538,7 @@ export async function listBanned({ from, sock, isAdmin }) {
     `📊 *Total banned:* ${bannedUsers.size}\n` +
     `👑 AYOCODES`;
 
-  // Split long messages. — AYOCODES
+  // Split long messages — AYOCODES
   if (text.length > 4000) {
     const chunks = text.match(/[\s\S]{1,4000}/g) || [];
     for (const chunk of chunks) {
@@ -598,7 +595,7 @@ export async function restart({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  // Save everything before exit. — AYOCODES
+  // Save everything before exit — AYOCODES
   try {
     saveWarnings();
   } catch (_) {}

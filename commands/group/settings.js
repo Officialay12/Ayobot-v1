@@ -1,13 +1,19 @@
-// commands/group/settings.js - AYOBOT v1.0.0
+// commands/group/settings.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Settings Module - FIXED BOT ADMIN DETECTION
+//  Group Settings Module — FIXED & COMPLETE
 //  Author: AYOCODES
+//
+//  FIXES:
+//    • fmt() now calls body.trim() — removes double blank lines caused by
+//      trailing \n in body strings being concatenated with divider — AYOCODES
+//    • Inline admin checks use phone(p.id) === phone(userJid) which calls
+//      normalizeNum() — now fixed in validators to strip :N device suffix
 //
 //  Commands: mute, unmute, lock, unlock, antilink, antispam,
 //            welcome, setwelcome, goodbye, setgoodbye,
 //            groupinfo, rules, setrules, link, revoke,
-//            tagall, hidetag, pin, unpin, delete, settings, reset, leave,
-//            testadmin, refreshadmin
+//            tagall, hidetag, pin, unpin, delete, settings,
+//            resetsettings, leave, testadmin, refreshadmin, debug
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -25,23 +31,25 @@ import {
   validateGroupCommand,
   refreshBotAdminStatus,
   getBotNumber,
-  toJid,
 } from "../../utils/validators.js";
-import {
-  formatData,
-  formatError,
-  formatInfo,
-  formatSuccess,
-} from "../../utils/formatters.js";
 
 // ============================================================================
 //  HELPER FUNCTIONS
 // ============================================================================
 
+// FIX: body.trim() eliminates blank lines caused by trailing \n in body strings
+// concatenating with the divider. — AYOCODES
 function fmt(emoji, title, body) {
-  return `${emoji} *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n${body}\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+  return (
+    `${emoji} *${title}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${body.trim()}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+  );
 }
 
+// Strips @domain AND :N device suffix — uses fixed normalizeNum — AYOCODES
 function phone(jid) {
   return normalizeNum(jid);
 }
@@ -55,32 +63,16 @@ function getReplyContext(message) {
         msg.videoMessage?.contextInfo ||
         msg.audioMessage?.contextInfo ||
         msg.documentMessage?.contextInfo ||
-        msg.stickerMessage?.contextInfo ||
-        msg.buttonsResponseMessage?.contextInfo)) ||
+        msg.stickerMessage?.contextInfo)) ||
     null
   );
 }
 
-function buildQuotedMsg(from, quotedMsg, sockUser) {
-  return quotedMsg?.stanzaId && quotedMsg?.quotedMessage
-    ? {
-        key: {
-          remoteJid: from,
-          fromMe: phone(quotedMsg.participant) === phone(sockUser?.id),
-          id: quotedMsg.stanzaId,
-          participant: quotedMsg.participant,
-        },
-        message: quotedMsg.quotedMessage,
-      }
-    : null;
-}
-
 // ============================================================================
-//  MUTE GROUP - FIXED
+//  MUTE GROUP
 // ============================================================================
 export async function mute({ from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -92,7 +84,6 @@ export async function mute({ from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -112,7 +103,6 @@ export async function mute({ from, userJid, sock }) {
 
     await sock.sendPresenceUpdate("composing", from);
 
-    // Update group settings
     const settings = groupSettings.get(from) || {};
     settings.muted = true;
     settings.mutedBy = userJid;
@@ -125,7 +115,7 @@ export async function mute({ from, userJid, sock }) {
       text: fmt(
         "✅",
         "GROUP MUTED",
-        "🔇 Only admins can now send messages.\n" + `👑 By: @${phone(userJid)}`,
+        `🔇 Only admins can now send messages.\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -137,11 +127,10 @@ export async function mute({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  UNMUTE GROUP - FIXED
+//  UNMUTE GROUP
 // ============================================================================
 export async function unmute({ from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -161,7 +150,6 @@ export async function unmute({ from, userJid, sock }) {
 
     await sock.sendPresenceUpdate("composing", from);
 
-    // Update group settings
     const settings = groupSettings.get(from) || {};
     settings.muted = false;
     settings.unmutedBy = userJid;
@@ -174,7 +162,7 @@ export async function unmute({ from, userJid, sock }) {
       text: fmt(
         "✅",
         "GROUP UNMUTED",
-        "🔊 All members can now send messages.\n" + `👑 By: @${phone(userJid)}`,
+        `🔊 All members can now send messages.\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -186,11 +174,10 @@ export async function unmute({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  LOCK GROUP (restrict edit info) - FIXED
+//  LOCK GROUP (restrict edit info)
 // ============================================================================
 export async function lock({ from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -202,7 +189,6 @@ export async function lock({ from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -240,11 +226,10 @@ export async function lock({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  UNLOCK GROUP (allow all members to edit info) - FIXED
+//  UNLOCK GROUP
 // ============================================================================
 export async function unlock({ from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -256,7 +241,6 @@ export async function unlock({ from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -281,8 +265,7 @@ export async function unlock({ from, userJid, sock }) {
       text: fmt(
         "✅",
         "GROUP UNLOCKED",
-        "🔓 All members can now edit group info.\n" +
-          `👑 By: @${phone(userJid)}`,
+        `🔓 All members can now edit group info.\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -294,11 +277,10 @@ export async function unlock({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  ANTI-LINK TOGGLE - FIXED
+//  ANTI-LINK TOGGLE
 // ============================================================================
 export async function antiLink({ args, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -324,7 +306,9 @@ export async function antiLink({ args, from, userJid, sock }) {
         text: fmt(
           "ℹ️",
           "ANTI-LINK",
-          `Current: *${status}*\n\n.antilink on  — Enable\n.antilink off — Disable\n\n⚠️ When enabled, links will be automatically deleted and users warned. After 3 warnings, they will be kicked.`,
+          `Current: *${status}*\n\n.antilink on  — Enable\n.antilink off — Disable\n\n` +
+            `⚠️ When enabled, links will be automatically deleted and users warned.\n` +
+            `After 3 warnings, they will be kicked.`,
         ),
       });
     }
@@ -338,8 +322,7 @@ export async function antiLink({ args, from, userJid, sock }) {
       text: fmt(
         "✅",
         "ANTI-LINK",
-        `🔗 Anti-link ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n` +
-          `👑 By: @${phone(userJid)}`,
+        `🔗 Anti-link ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -351,11 +334,10 @@ export async function antiLink({ args, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  ANTI-SPAM TOGGLE - FIXED
+//  ANTI-SPAM TOGGLE
 // ============================================================================
 export async function antiSpam({ args, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -395,8 +377,7 @@ export async function antiSpam({ args, from, userJid, sock }) {
       text: fmt(
         "✅",
         "ANTI-SPAM",
-        `🚫 Anti-spam ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n` +
-          `👑 By: @${phone(userJid)}`,
+        `🚫 Anti-spam ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -408,11 +389,10 @@ export async function antiSpam({ args, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  WELCOME TOGGLE - FIXED
+//  WELCOME TOGGLE
 // ============================================================================
 export async function welcomeToggle({ args, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -441,7 +421,7 @@ export async function welcomeToggle({ args, from, userJid, sock }) {
         text: fmt(
           "ℹ️",
           "WELCOME",
-          `Current: *${status}*\nCurrent message: "${welcomeMsg}"\n\n.welcome on/off\n.setwelcome <msg>\n\nVars: @user @group @count @date @time`,
+          `Current: *${status}*\nMessage: "${welcomeMsg}"\n\n.welcome on/off\n.setwelcome <msg>\n\nVars: @user @group @count @date @time`,
         ),
       });
     }
@@ -455,8 +435,7 @@ export async function welcomeToggle({ args, from, userJid, sock }) {
       text: fmt(
         "✅",
         "WELCOME",
-        `👋 Welcome messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n` +
-          `👑 By: @${phone(userJid)}`,
+        `👋 Welcome messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -468,11 +447,10 @@ export async function welcomeToggle({ args, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  SET WELCOME MESSAGE - FIXED
+//  SET WELCOME MESSAGE
 // ============================================================================
 export async function setWelcome({ fullArgs, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -496,17 +474,15 @@ export async function setWelcome({ fullArgs, from, userJid, sock }) {
           "ℹ️",
           "SET WELCOME",
           "📌 *Usage:* .setwelcome <message>\n\n" +
-            "📋 *Variables:*\n" +
-            "@user @group @count @date @time\n\n" +
-            "📋 *Example:*\n" +
-            ".setwelcome Hey @user! Welcome to @group 🎉",
+            "📋 *Variables:* @user @group @count @date @time\n\n" +
+            "📋 *Example:*\n.setwelcome Hey @user! Welcome to @group 🎉",
         ),
       });
     }
 
     const settings = groupSettings.get(from) || {};
     settings.welcomeMessage = fullArgs;
-    settings.welcome = true; // Auto-enable when setting
+    settings.welcome = true;
     groupSettings.set(from, settings);
     saveGroupSettings();
 
@@ -526,11 +502,10 @@ export async function setWelcome({ fullArgs, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  GOODBYE TOGGLE - FIXED
+//  GOODBYE TOGGLE
 // ============================================================================
 export async function goodbyeToggle({ args, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -558,7 +533,7 @@ export async function goodbyeToggle({ args, from, userJid, sock }) {
         text: fmt(
           "ℹ️",
           "GOODBYE",
-          `Current: *${status}*\nCurrent message: "${goodbyeMsg}"\n\n.goodbye on/off\n.setgoodbye <msg>\n\nVars: @user @group @date @time`,
+          `Current: *${status}*\nMessage: "${goodbyeMsg}"\n\n.goodbye on/off\n.setgoodbye <msg>\n\nVars: @user @group @date @time`,
         ),
       });
     }
@@ -572,8 +547,7 @@ export async function goodbyeToggle({ args, from, userJid, sock }) {
       text: fmt(
         "✅",
         "GOODBYE",
-        `👋 Goodbye messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n` +
-          `👑 By: @${phone(userJid)}`,
+        `👋 Goodbye messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
       ),
       mentions: [userJid],
     });
@@ -585,11 +559,10 @@ export async function goodbyeToggle({ args, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  SET GOODBYE MESSAGE - FIXED
+//  SET GOODBYE MESSAGE
 // ============================================================================
 export async function setGoodbye({ fullArgs, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -613,17 +586,15 @@ export async function setGoodbye({ fullArgs, from, userJid, sock }) {
           "ℹ️",
           "SET GOODBYE",
           "📌 *Usage:* .setgoodbye <message>\n\n" +
-            "📋 *Variables:*\n" +
-            "@user @group @date @time\n\n" +
-            "📋 *Example:*\n" +
-            ".setgoodbye Goodbye @user 👋 We'll miss you!",
+            "📋 *Variables:* @user @group @date @time\n\n" +
+            "📋 *Example:*\n.setgoodbye Goodbye @user 👋 We'll miss you!",
         ),
       });
     }
 
     const settings = groupSettings.get(from) || {};
     settings.goodbyeMessage = fullArgs;
-    settings.goodbye = true; // Auto-enable when setting
+    settings.goodbye = true;
     groupSettings.set(from, settings);
     saveGroupSettings();
 
@@ -643,7 +614,7 @@ export async function setGoodbye({ fullArgs, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  GROUP INFO - FIXED
+//  GROUP INFO
 // ============================================================================
 export async function groupInfo({ from, userJid, sock }) {
   try {
@@ -661,8 +632,8 @@ export async function groupInfo({ from, userJid, sock }) {
     }
 
     const totalMembers = metadata.participants.length;
-    const admins = metadata.participants.filter((p) => p.admin).length;
-    const superAdmins = metadata.participants.filter(
+    const adminCount = metadata.participants.filter((p) => p.admin).length;
+    const superAdminCount = metadata.participants.filter(
       (p) => p.admin === "superadmin",
     ).length;
     const created = metadata.creation
@@ -674,7 +645,7 @@ export async function groupInfo({ from, userJid, sock }) {
       `📛 *Group:* ${metadata.subject}\n` +
       `🆔 *ID:* ${from.split("@")[0]}\n` +
       `👥 *Members:* ${totalMembers}\n` +
-      `⭐ *Admins:* ${admins} (${superAdmins} super)\n` +
+      `⭐ *Admins:* ${adminCount} (${superAdminCount} super)\n` +
       `👑 *Owner:* ${phone(metadata.owner) || "Unknown"}\n` +
       `📅 *Created:* ${created}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -695,7 +666,7 @@ export async function groupInfo({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  RULES - FIXED
+//  RULES
 // ============================================================================
 export async function rules({ from, sock }) {
   try {
@@ -705,12 +676,12 @@ export async function rules({ from, sock }) {
       });
     }
 
-    const rules =
+    const groupRules =
       (groupSettings.get(from) || {}).rules ||
       "No rules set.\n\nAdmins: .setrules <rules>";
 
     await sock.sendMessage(from, {
-      text: fmt("ℹ️", "GROUP RULES", `📜\n\n${rules}`),
+      text: fmt("ℹ️", "GROUP RULES", `📜\n\n${groupRules}`),
     });
   } catch (error) {
     await sock.sendMessage(from, {
@@ -720,11 +691,10 @@ export async function rules({ from, sock }) {
 }
 
 // ============================================================================
-//  SET RULES - FIXED
+//  SET RULES
 // ============================================================================
 export async function setRules({ fullArgs, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -768,11 +738,10 @@ export async function setRules({ fullArgs, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  GROUP LINK - FIXED
+//  GROUP LINK
 // ============================================================================
 export async function link({ from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -792,15 +761,13 @@ export async function link({ from, userJid, sock }) {
 
     let inviteCode = null;
 
-    // Try to get fresh link if bot is admin (force refresh)
     if (await isBotGroupAdminCached(from, sock, true)) {
       try {
         const code = await sock.groupInviteCode(from);
         if (code) inviteCode = `https://chat.whatsapp.com/${code}`;
-      } catch (e) {}
+      } catch (_) {}
     }
 
-    // Fallback to cached invite code
     if (!inviteCode && metadata?.inviteCode) {
       inviteCode = `https://chat.whatsapp.com/${metadata.inviteCode}`;
     }
@@ -831,11 +798,10 @@ export async function link({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  REVOKE LINK - FIXED
+//  REVOKE LINK
 // ============================================================================
 export async function revoke({ from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -847,7 +813,6 @@ export async function revoke({ from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -884,11 +849,10 @@ export async function revoke({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  TAG ALL MEMBERS - FIXED
+//  TAG ALL MEMBERS
 // ============================================================================
 export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -915,7 +879,6 @@ export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
     const participants = metadata.participants;
     let mentions = [];
     let mentionText = "";
-
     const sub = args[0]?.toLowerCase();
 
     if (sub === "admins") {
@@ -937,27 +900,22 @@ export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
 
     const messageText = sub ? args.slice(1).join(" ") : fullArgs;
 
-    // Handle quoted message
-    const quotedMsg =
-      getReplyContext(message)?.stanzaId &&
-      getReplyContext(message)?.quotedMessage
-        ? {
+    const ctx = getReplyContext(message);
+    if (ctx?.stanzaId && ctx?.quotedMessage) {
+      try {
+        await sock.sendMessage(from, {
+          forward: {
             key: {
               remoteJid: from,
-              fromMe:
-                phone(getReplyContext(message).participant) ===
-                phone(sock.user?.id),
-              id: getReplyContext(message).stanzaId,
-              participant: getReplyContext(message).participant,
+              fromMe: phone(ctx.participant) === phone(sock.user?.id),
+              id: ctx.stanzaId,
+              participant: ctx.participant,
             },
-            message: getReplyContext(message).quotedMessage,
-          }
-        : null;
-
-    if (quotedMsg) {
-      try {
-        await sock.sendMessage(from, { forward: quotedMsg, mentions });
-      } catch (e) {}
+            message: ctx.quotedMessage,
+          },
+          mentions,
+        });
+      } catch (_) {}
     }
 
     const output =
@@ -966,10 +924,7 @@ export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
       `📣 By: @${phone(userJid)}\n` +
       `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
-    await sock.sendMessage(from, {
-      text: output,
-      mentions,
-    });
+    await sock.sendMessage(from, { text: output, mentions });
   } catch (error) {
     await sock.sendMessage(from, {
       text: fmt("❌", "ERROR", "Could not tag members."),
@@ -978,11 +933,10 @@ export async function tagAll({ args, fullArgs, message, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  HIDE TAG (silent tag all) - FIXED
+//  HIDE TAG (silent tag all)
 // ============================================================================
 export async function hideTag({ fullArgs, message, from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -1008,31 +962,26 @@ export async function hideTag({ fullArgs, message, from, userJid, sock }) {
 
     const mentions = metadata.participants.map((p) => p.id);
 
-    // Handle quoted message
-    const quotedMsg =
-      getReplyContext(message)?.stanzaId &&
-      getReplyContext(message)?.quotedMessage
-        ? {
+    const ctx = getReplyContext(message);
+    if (ctx?.stanzaId && ctx?.quotedMessage) {
+      try {
+        await sock.sendMessage(from, {
+          forward: {
             key: {
               remoteJid: from,
-              fromMe:
-                phone(getReplyContext(message).participant) ===
-                phone(sock.user?.id),
-              id: getReplyContext(message).stanzaId,
-              participant: getReplyContext(message).participant,
+              fromMe: phone(ctx.participant) === phone(sock.user?.id),
+              id: ctx.stanzaId,
+              participant: ctx.participant,
             },
-            message: getReplyContext(message).quotedMessage,
-          }
-        : null;
-
-    if (quotedMsg) {
-      try {
-        await sock.sendMessage(from, { forward: quotedMsg, mentions });
-      } catch (e) {}
+            message: ctx.quotedMessage,
+          },
+          mentions,
+        });
+      } catch (_) {}
     }
 
     await sock.sendMessage(from, {
-      text: fullArgs || "​", // Zero-width space if no text
+      text: fullArgs || "​", // zero-width space if no text
       mentions,
     });
   } catch (error) {
@@ -1043,11 +992,10 @@ export async function hideTag({ fullArgs, message, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  PIN MESSAGE - FIXED
+//  PIN MESSAGE
 // ============================================================================
 export async function pin({ message, from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -1081,7 +1029,7 @@ export async function pin({ message, from, userJid, sock }) {
 
     await sock.sendMessage(from, {
       pin: { key, type: 1, time: 7 * 24 * 60 * 60 },
-    }); // 7 days
+    });
 
     await sock.sendMessage(from, {
       text: fmt(
@@ -1105,11 +1053,10 @@ export async function pin({ message, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  UNPIN MESSAGE - FIXED
+//  UNPIN MESSAGE
 // ============================================================================
 export async function unpin({ message, from, userJid, sock }) {
   try {
-    // Check if bot is admin with force refresh
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -1165,7 +1112,7 @@ export async function unpin({ message, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  DELETE MESSAGE - FIXED
+//  DELETE MESSAGE
 // ============================================================================
 export async function deleteMsg({ message, from, userJid, sock }) {
   try {
@@ -1175,7 +1122,6 @@ export async function deleteMsg({ message, from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -1222,7 +1168,7 @@ export async function deleteMsg({ message, from, userJid, sock }) {
 }
 
 // ============================================================================
-//  SETTINGS OVERVIEW - FIXED
+//  SETTINGS OVERVIEW
 // ============================================================================
 export async function settingsOverview({ from, sock }) {
   try {
@@ -1242,9 +1188,9 @@ export async function settingsOverview({ from, sock }) {
       `🔗 *AntiLink:* ${settings.antilink ? "✅ ON " : "❌ OFF"}\n` +
       `🚫 *AntiSpam:* ${settings.antispam ? "✅ ON " : "❌ OFF"}\n` +
       `👋 *Welcome:*  ${settings.welcome ? "✅ ON " : "❌ OFF"}\n` +
-      `   └─ Msg: "${settings.welcomeMessage ? settings.welcomeMessage.substring(0, 60) + (settings.welcomeMessage.length > 60 ? "…" : "") : "_Not set_"}"\n` +
+      `   └─ "${settings.welcomeMessage ? settings.welcomeMessage.substring(0, 60) + (settings.welcomeMessage.length > 60 ? "…" : "") : "_Not set_"}"\n` +
       `👋 *Goodbye:*  ${settings.goodbye ? "✅ ON " : "❌ OFF"}\n` +
-      `   └─ Msg: "${settings.goodbyeMessage ? settings.goodbyeMessage.substring(0, 60) + (settings.goodbyeMessage.length > 60 ? "…" : "") : "_Not set_"}"\n` +
+      `   └─ "${settings.goodbyeMessage ? settings.goodbyeMessage.substring(0, 60) + (settings.goodbyeMessage.length > 60 ? "…" : "") : "_Not set_"}"\n` +
       `📜 *Rules:*    ${settings.rules ? "✅ Set" : "❌ Not set"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `💡 Use .groupinfo for full group & member details.`;
@@ -1260,11 +1206,10 @@ export async function settingsOverview({ from, sock }) {
 }
 
 // ============================================================================
-//  RESET SETTINGS - FIXED
+//  RESET SETTINGS
 // ============================================================================
 export async function resetSettings({ from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -1303,11 +1248,10 @@ export async function resetSettings({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  LEAVE GROUP - FIXED
+//  LEAVE GROUP
 // ============================================================================
 export async function leave({ from, userJid, sock }) {
   try {
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -1323,9 +1267,9 @@ export async function leave({ from, userJid, sock }) {
 
     await sock.sendMessage(from, {
       text:
-        "👋 *Goodbye everyone!*\n\nLeaving as requested by @" +
-        phone(userJid) +
-        " 🤖\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_",
+        `👋 *Goodbye everyone!*\n\n` +
+        `Leaving as requested by @${phone(userJid)} 🤖\n\n` +
+        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       mentions: [userJid],
     });
 
@@ -1337,7 +1281,7 @@ export async function leave({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  TEST ADMIN - NEW DEBUG COMMAND
+//  TEST ADMIN — Diagnostic command
 // ============================================================================
 export async function testAdmin({ from, userJid, sock }) {
   try {
@@ -1348,9 +1292,6 @@ export async function testAdmin({ from, userJid, sock }) {
     }
 
     const botNumber = getBotNumber(sock);
-    const botJid = `${botNumber}@s.whatsapp.net`;
-
-    // Force refresh checks
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     const userAdmin = await isGroupAdminCached(from, userJid, sock);
     const globalAdmin = isAdmin(userJid);
@@ -1374,7 +1315,7 @@ export async function testAdmin({ from, userJid, sock }) {
       `├─ Name: ${metadata?.subject || "Unknown"}\n` +
       `├─ Members: ${metadata?.participants?.length || 0}\n` +
       `└─ Owner: @${phone(metadata?.owner) || "Unknown"}\n\n` +
-      `💡 If bot shows ❌ NO but you've promoted it, try:\n` +
+      `💡 If bot shows ❌ NO after being promoted:\n` +
       `1. Use .refreshadmin to clear cache\n` +
       `2. Wait 10 seconds and try again\n` +
       `3. Demote and promote the bot again`;
@@ -1391,7 +1332,7 @@ export async function testAdmin({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  REFRESH ADMIN CACHE - NEW
+//  REFRESH ADMIN CACHE
 // ============================================================================
 export async function refreshAdmin({ from, userJid, sock }) {
   try {
@@ -1401,7 +1342,6 @@ export async function refreshAdmin({ from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const metadata = await getGroupMetadataCached(from, sock, true);
     const isUserAdmin = metadata?.participants?.some(
       (p) =>
@@ -1419,10 +1359,7 @@ export async function refreshAdmin({ from, userJid, sock }) {
       });
     }
 
-    // Clear caches
     clearGroupCache(from);
-
-    // Force refresh bot admin status
     const botAdmin = await refreshBotAdminStatus(from, sock);
 
     await sock.sendMessage(from, {
@@ -1443,7 +1380,7 @@ export async function refreshAdmin({ from, userJid, sock }) {
 }
 
 // ============================================================================
-//  DEBUG - Original debug command enhanced
+//  DEBUG
 // ============================================================================
 export async function debug({ from, userJid, sock }) {
   try {

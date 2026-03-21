@@ -13,16 +13,16 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
+  activateGroup,
   autoReplyEnabled,
   botStartTime,
   commandUsage,
+  deactivateGroup,
   delay,
   ENV,
+  groupSettings,
   messageCount,
   waitlistEntries,
-  groupSettings,
-  activateGroup,
-  deactivateGroup,
 } from "../../index.js";
 import {
   formatData,
@@ -73,6 +73,17 @@ function getSafeStartTime() {
   return botStartTime || Date.now();
 }
 
+// ─── JID normalizer (strips @s.whatsapp.net / @c.us / @g.us) ───────────────
+function normalizeJid(jid = "") {
+  return jid.split("@")[0].replace(/[^0-9]/g, "");
+}
+
+// ─── Safe number coercion (avoids .toFixed crash on strings) ──────────────
+function safeFixed(val, digits = 4) {
+  const n = parseFloat(val);
+  return isNaN(n) ? "N/A" : n.toFixed(digits);
+}
+
 // Browser spoofing - realistic user agents
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -110,6 +121,13 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
   };
 }
 
+// ─── Axios instance with sensible defaults ─────────────────────────────────
+const http = axios.create({
+  timeout: 12000,
+  headers: { "User-Agent": randomUA() },
+  validateStatus: (s) => s < 500,
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  TEST COMMAND
 // ════════════════════════════════════════════════════════════════════════════
@@ -138,12 +156,13 @@ export async function test({
       `⚙️ Mode: ${sessionMode || "public"}\n` +
       `👑 Owner: ${ownerPhone || "none"}\n` +
       `⏰ Time: ${new Date().toLocaleString()}\n` +
-      `🌍 Bot Version: v1.5.0\n\n` +
+      `🌍 Bot Version: v1.0.0\n\n` +
       `👑 Created by AYOCODES`,
   });
 
   return { text: "✅ Test completed" };
 }
+
 // ════════════════════════════════════════════════════════════════════════════
 //  MENU - FULLY ENHANCED WITH ALL COMMANDS
 // ════════════════════════════════════════════════════════════════════════════
@@ -1092,17 +1111,12 @@ export async function menu({ from, sock, isAdmin, ENV }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PING - ENHANCED WITH STATS (FIXED ANIMATION)
+//  PING - ENHANCED WITH STATS
 // ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
 
-  // Send initial message
-  await sock.sendMessage(from, {
-    text: `🏓 *Pinging...*`,
-  });
-
-  // Simulate thinking
+  await sock.sendMessage(from, { text: `🏓 *Pinging...*` });
   await delay(500);
 
   const uptime = Date.now() - getSafeStartTime();
@@ -1197,7 +1211,6 @@ export async function creator({ from, sock }) {
       fileName: "AYOCODES.vcf",
       caption: "👑 *AYOCODES - Creator of AYOBOT*\n_Tap to save contact_",
     });
-    console.log(`[creator] ✅ vCard sent to ${from}`);
   } catch (error) {
     try {
       await sock.sendMessage(from, {
@@ -1219,12 +1232,8 @@ export async function creator({ from, sock }) {
 
   await delay(800);
 
-  const channel =
-    ENV.WHATSAPP_CHANNEL ||
-    "https://whatsapp.com/channel/0029Vb78B9VDzgTDPktNpn25";
   const group =
     ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN";
-  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
 
   await sock.sendMessage(from, {
     text:
@@ -1258,7 +1267,7 @@ export async function creatorGit({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  AUTO-REPLY TOGGLE - ENHANCED
+//  AUTO-REPLY TOGGLE
 // ════════════════════════════════════════════════════════════════════════════
 export async function auto({ args, from, userJid, sock }) {
   const sub = args[0]?.toLowerCase();
@@ -1446,14 +1455,14 @@ export async function shorten({ fullArgs, from, sock }) {
         ).data,
     },
     {
-      name: "ulvis.net",
-      fn: async () => {
-        const r = await axios.get(
-          `https://ulvis.net/api.php?url=${encodeURIComponent(longUrl)}&private=1`,
-          { timeout: 8_000 },
-        );
-        return r.data;
-      },
+      name: "clck.ru",
+      fn: async () =>
+        (
+          await axios.get(
+            `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`,
+            { timeout: 8_000 },
+          )
+        ).data,
     },
   ];
 
@@ -1466,7 +1475,8 @@ export async function shorten({ fullArgs, from, sock }) {
             "URL SHORTENED",
             `📎 *Original:*\n${longUrl}\n\n` +
               `🔗 *Shortened:*\n${short}\n\n` +
-              `📊 *Saved:* ${longUrl.length - short.length} characters`,
+              `📊 *Service:* ${svc.name}\n` +
+              `💡 *Saved:* ${longUrl.length - short.length} characters`,
           ),
         });
       }
@@ -1481,7 +1491,7 @@ export async function shorten({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  VIEW ONCE - VIEW DISAPPEARING MESSAGES
+//  VIEW ONCE
 // ════════════════════════════════════════════════════════════════════════════
 export async function viewOnce({ message, from, sock }) {
   try {
@@ -1555,8 +1565,9 @@ export async function viewOnce({ message, from, sock }) {
     });
   }
 }
+
 // ════════════════════════════════════════════════════════════════════════════
-//  WAITLIST / JOIN TREND - FIXED (pushname error resolved)
+//  WAITLIST / JOIN TREND
 // ════════════════════════════════════════════════════════════════════════════
 export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const email = fullArgs?.trim() || "";
@@ -1574,34 +1585,23 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const phone = userJid.split("@")[0];
   const timestamp = new Date().toLocaleString();
 
-  // FIX: Get pushname from message or use fallback
   let pushname = "Unknown";
   try {
-    // Try to get sender's name from the message
-    if (message?.pushName) {
-      pushname = message.pushName;
-    } else if (message?.verifiedBizName) {
-      pushname = message.verifiedBizName;
-    } else if (message?.notify) {
-      pushname = message.notify;
-    }
-  } catch (e) {
-    // Ignore errors
-  }
+    if (message?.pushName) pushname = message.pushName;
+    else if (message?.verifiedBizName) pushname = message.verifiedBizName;
+    else if (message?.notify) pushname = message.notify;
+  } catch (_) {}
 
   const userInfo = {
     email,
     phone,
     timestamp,
     userJid,
-    name: pushname || "Unknown",
+    name: pushname,
     platform: "WhatsApp",
   };
-
-  // Store in waitlist
   waitlistEntries.set(phone, userInfo);
 
-  // Send confirmation to user
   await sock.sendMessage(from, {
     text: formatSuccess(
       "✅ WAITLIST JOINED",
@@ -1612,11 +1612,8 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     ),
   });
 
-  // ======================================================================
-  //  SEND DETAILS TO ADMIN (YOUR NUMBER 2349159180375)
-  // ======================================================================
   try {
-    const adminNumber = "2349159180375"; // Your number
+    const adminNumber = "2349159180375";
     const adminJid = `${adminNumber}@s.whatsapp.net`;
 
     const adminMessage =
@@ -1629,7 +1626,6 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
       `🆔 *JID:* ${userJid}\n` +
       `⏰ *Time:* ${timestamp}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👤 *User:* @${phone}\n` +
       `📊 *Total Waitlist:* ${waitlistEntries.size}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `⚡ *AYOBOT v1* | 👑 AYOCODES`;
@@ -1638,24 +1634,14 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
       text: adminMessage,
       mentions: [userJid],
     });
-
-    console.log(`✅ Waitlist entry sent to admin: ${email} (${phone})`);
   } catch (adminErr) {
     console.error("❌ Failed to send waitlist to admin:", adminErr.message);
-
-    // Try alternative method - send as a contact
     try {
-      const adminNumber = "2349159180375";
-      const adminJid = `${adminNumber}@s.whatsapp.net`;
-
+      const adminJid = `2349159180375@s.whatsapp.net`;
       const vcard =
-        `BEGIN:VCARD\n` +
-        `VERSION:3.0\n` +
-        `FN:${pushname || phone}\n` +
+        `BEGIN:VCARD\nVERSION:3.0\nFN:${pushname || phone}\n` +
         `TEL;type=CELL;type=VOICE;waid=${phone}:+${phone}\n` +
-        `EMAIL:${email}\n` +
-        `NOTE:Joined waitlist at ${timestamp}\n` +
-        `END:VCARD`;
+        `EMAIL:${email}\nNOTE:Joined waitlist at ${timestamp}\nEND:VCARD`;
 
       await sock.sendMessage(adminJid, {
         document: Buffer.from(vcard, "utf-8"),
@@ -1663,14 +1649,9 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
         fileName: `waitlist_${phone}.vcf`,
         caption: `📋 *New Waitlist Entry*\n👤 ${pushname || phone}\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`,
       });
-
-      console.log(`✅ Waitlist vCard sent to admin`);
-    } catch (vcardErr) {
-      console.error("❌ Failed to send vCard:", vcardErr.message);
-    }
+    } catch (_) {}
   }
 
-  // Also try to send to ENV.ADMIN if set (backward compatibility)
   if (ENV.ADMIN && ENV.ADMIN !== "2349159180375") {
     try {
       const adminJid = `${ENV.ADMIN.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
@@ -1689,7 +1670,7 @@ export async function scrape({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "WEB SCRAPER",
-        `Advanced website scraping with Cloudflare bypass\n\n` +
+        `Advanced website scraping\n\n` +
           `Usage: ${ENV.PREFIX}scrape <url>\n\n` +
           `Example: ${ENV.PREFIX}scrape https://example.com\n\n` +
           `📦 Returns:\n` +
@@ -1754,7 +1735,7 @@ export async function scrape({ fullArgs, from, sock }) {
           await sock.sendMessage(from, {
             text: formatError(
               "CLOUDFLARE PROTECTED",
-              `This site uses Cloudflare bot protection.\n\nTry: ${ENV.PREFIX}scrape https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`,
+              `This site uses Cloudflare bot protection.\n\nTry: ${ENV.PREFIX}screenshot ${url}`,
             ),
           });
           return;
@@ -1812,12 +1793,11 @@ export async function scrape({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatError(
         "SCRAPE FAILED",
-        `Could not retrieve this page after trying 7 methods.\n\n` +
+        `Could not retrieve this page after trying multiple methods.\n\n` +
           `*Possible reasons:*\n` +
           `• Heavy JavaScript rendering (React/Vue/Angular)\n` +
           `• Aggressive bot detection\n` +
-          `• Requires login\n` +
-          `• Network blocked\n\n` +
+          `• Requires login\n\n` +
           `Try: ${ENV.PREFIX}screenshot ${url}`,
       ),
     });
@@ -1936,7 +1916,7 @@ export async function scrape({ fullArgs, from, sock }) {
     const linkCount = $("a[href]").length;
     const totalImgs = $("img").length;
 
-    const stamp = `\n<!-- ═══════════════════════════════════════════\n     Scraped by AYOBOT v1.5.0 | AYOCODES\n     Source: ${url}\n     Fetched via: ${fetchMethod}\n     Date: ${new Date().toISOString()}\n═══════════════════════════════════════════ -->\n`;
+    const stamp = `\n<!-- ═══════════════════════════════════════════\n     Scraped by AYOBOT v1.0.0 | AYOCODES\n     Source: ${url}\n     Fetched via: ${fetchMethod}\n     Date: ${new Date().toISOString()}\n═══════════════════════════════════════════ -->\n`;
 
     const finalHtml = stamp + $.html();
     const domain2 = domain.replace(/[^a-z0-9]/gi, "_");
@@ -2022,7 +2002,7 @@ export async function scrape({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CONNECT INFO - ENHANCED
+//  CONNECT INFO
 // ════════════════════════════════════════════════════════════════════════════
 export async function connectInfo({ from, sock }) {
   await sock.sendMessage(from, {
@@ -2036,13 +2016,13 @@ export async function connectInfo({ from, sock }) {
       `📢 *Community Channels:*\n` +
       `🔗 Channel: ${ENV.WHATSAPP_CHANNEL || "https://whatsapp.com/channel/"}\n` +
       `👥 Group: ${ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/"}\n\n` +
-      `⚡ *AYOBOT v1.5.0*\n` +
+      `⚡ *AYOBOT v1.0.0*\n` +
       `🤖 *Full-Featured WhatsApp Bot*`,
   });
 }
+
 // ════════════════════════════════════════════════════════════════════════════
-//  WORLD TIME - COMPLETELY FIXED & ACCURATE
-//  Uses multiple APIs with fallbacks for 100% reliability
+//  WORLD TIME - FIXED & ACCURATE WITH MULTIPLE API FALLBACKS
 // ════════════════════════════════════════════════════════════════════════════
 export async function time({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -2071,15 +2051,12 @@ export async function time({ fullArgs, from, sock }) {
   let errorMessages = [];
   const query = fullArgs.trim();
 
-  // ======================================================================
-  //  API 1: WorldTimeAPI (primary)
-  // ======================================================================
+  // API 1: WorldTimeAPI
   try {
     const tz = query.replace(/ /g, "_");
     const res = await axios.get(`https://worldtimeapi.org/api/timezone/${tz}`, {
       timeout: 5000,
     });
-
     if (res.data) {
       timeData = {
         timezone: res.data.timezone,
@@ -2095,18 +2072,13 @@ export async function time({ fullArgs, from, sock }) {
     errorMessages.push(`WorldTimeAPI: ${err.message}`);
   }
 
-  // ======================================================================
-  //  API 2: TimeAPI (fallback - works with city names)
-  // ======================================================================
+  // API 2: TimeAPI.io
   if (!timeData) {
     try {
       const res = await axios.get(
         `https://www.timeapi.io/api/Time/current/zone?timeZone=${encodeURIComponent(query)}`,
-        {
-          timeout: 5000,
-        },
+        { timeout: 5000 },
       );
-
       if (res.data) {
         const dateTime = new Date(res.data.dateTime);
         timeData = {
@@ -2116,7 +2088,7 @@ export async function time({ fullArgs, from, sock }) {
           day_of_week: dateTime.getDay(),
           week_number: Math.ceil(dateTime.getDate() / 7),
           dst: false,
-          source: "TimeAPI",
+          source: "TimeAPI.io",
         };
       }
     } catch (err) {
@@ -2124,18 +2096,13 @@ export async function time({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  API 3: TimeZoneDB (via rapidapi - needs key but has free tier)
-  // ======================================================================
+  // API 3: TimeZoneDB (optional key)
   if (!timeData && ENV.TIMEZONEDB_KEY) {
     try {
       const res = await axios.get(
         `http://api.timezonedb.com/v2.1/get-time-zone?key=${ENV.TIMEZONEDB_KEY}&format=json&by=zone&zone=${encodeURIComponent(query)}`,
-        {
-          timeout: 5000,
-        },
+        { timeout: 5000 },
       );
-
       if (res.data && res.data.status === "OK") {
         const dateTime = new Date(res.data.timestamp * 1000);
         timeData = {
@@ -2153,30 +2120,19 @@ export async function time({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  API 4: Geocoding + Timezone (for city names)
-  // ======================================================================
+  // API 4: Geocoding + TimeAPI (city names)
   if (!timeData) {
     try {
-      // First get coordinates from city name
       const geoRes = await axios.get(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1`,
-        {
-          timeout: 5000,
-        },
+        { timeout: 5000 },
       );
-
       if (geoRes.data?.results?.[0]) {
         const { latitude, longitude, name, country } = geoRes.data.results[0];
-
-        // Then get time from coordinates
         const timeRes = await axios.get(
           `https://timeapi.io/api/Time/current/coordinate?latitude=${latitude}&longitude=${longitude}`,
-          {
-            timeout: 5000,
-          },
+          { timeout: 5000 },
         );
-
         if (timeRes.data) {
           const dateTime = new Date(timeRes.data.dateTime);
           timeData = {
@@ -2195,18 +2151,13 @@ export async function time({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  API 5: AbstractAPI Timezone (if key available)
-  // ======================================================================
+  // API 5: AbstractAPI Timezone (optional key)
   if (!timeData && ENV.ABSTRACTAPI_KEY) {
     try {
       const res = await axios.get(
         `https://timezone.abstractapi.com/v1/current_time/?api_key=${ENV.ABSTRACTAPI_KEY}&location=${encodeURIComponent(query)}`,
-        {
-          timeout: 5000,
-        },
+        { timeout: 5000 },
       );
-
       if (res.data) {
         const dateTime = new Date(res.data.datetime);
         timeData = {
@@ -2224,12 +2175,9 @@ export async function time({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  API 6: Fallback to JavaScript Intl (last resort)
-  // ======================================================================
+  // API 6: JS Intl fallback (last resort)
   if (!timeData) {
     try {
-      // Try to create a timezone using Intl
       const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: query,
         hour12: true,
@@ -2242,11 +2190,8 @@ export async function time({ fullArgs, from, sock }) {
         weekday: "long",
         timeZoneName: "long",
       });
-
       const now = new Date();
       const parts = formatter.formatToParts(now);
-
-      // Parse the formatted parts
       let dateStr = "",
         timeStr = "",
         tzName = query;
@@ -2255,17 +2200,11 @@ export async function time({ fullArgs, from, sock }) {
         else if (part.type === "month") dateStr += part.value + " ";
         else if (part.type === "day") dateStr += part.value + ", ";
         else if (part.type === "year") dateStr += part.value;
-        else if (
-          ["hour", "minute", "second", "dayPeriod"].includes(part.type)
-        ) {
+        else if (["hour", "minute", "second", "dayPeriod"].includes(part.type))
           timeStr += part.value + " ";
-        } else if (part.type === "timeZoneName") {
-          tzName = part.value;
-        }
+        else if (part.type === "timeZoneName") tzName = part.value;
       });
-
       const utcOffset = -now.getTimezoneOffset() / 60;
-
       timeData = {
         timezone: tzName,
         datetime: now.toISOString(),
@@ -2282,9 +2221,6 @@ export async function time({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  If all APIs failed, show error with suggestions
-  // ======================================================================
   if (!timeData) {
     const commonTimezones = [
       "Africa/Lagos",
@@ -2302,37 +2238,24 @@ export async function time({ fullArgs, from, sock }) {
       "Australia/Sydney",
       "Pacific/Auckland",
     ];
-
     const suggestions = commonTimezones
       .filter((tz) => tz.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 3);
-
     let suggestionText = "";
     if (suggestions.length > 0) {
       suggestionText = `\n\n💡 *Did you mean:*\n${suggestions.map((tz) => `• ${tz}`).join("\n")}`;
     }
-
     return sock.sendMessage(from, {
       text: formatError(
         "TIME LOOKUP FAILED",
         `Could not find time for "${query}".${suggestionText}\n\n` +
-          `📋 *Try one of these:*\n` +
-          `• Africa/Lagos\n` +
-          `• America/New_York\n` +
-          `• Europe/London\n` +
-          `• Asia/Tokyo\n\n` +
-          `🔧 *Last errors:*\n${errorMessages.slice(0, 2).join("\n")}`,
+          `📋 *Try one of these:*\n• Africa/Lagos\n• America/New_York\n• Europe/London\n• Asia/Tokyo`,
       ),
     });
   }
 
-  // ======================================================================
-  //  Format and send the time data
-  // ======================================================================
   try {
     const d = new Date(timeData.datetime);
-
-    // Calculate day progress bar
     const hours = d.getHours();
     const minutes = d.getMinutes();
     const totalMinutes = hours * 60 + minutes;
@@ -2340,16 +2263,12 @@ export async function time({ fullArgs, from, sock }) {
     const dayBars = Math.round(dayPct / 10);
     const dayBar = "█".repeat(dayBars) + "░".repeat(10 - dayBars);
 
-    // Format UTC offset
     let utcOffset = timeData.utc_offset;
     if (typeof utcOffset === "number") {
       utcOffset = utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`;
     }
 
-    // Get timezone name
     const timezoneName = timeData.timezone || query;
-
-    // Format date nicely
     const formattedDate =
       timeData.customDate ||
       d.toLocaleDateString("en-US", {
@@ -2358,8 +2277,6 @@ export async function time({ fullArgs, from, sock }) {
         month: "long",
         day: "numeric",
       });
-
-    // Format time nicely
     const formattedTime =
       timeData.customTime ||
       d.toLocaleTimeString("en-US", {
@@ -2369,7 +2286,6 @@ export async function time({ fullArgs, from, sock }) {
         second: "2-digit",
       });
 
-    // Get day of week name
     const days = [
       "Sunday",
       "Monday",
@@ -2397,7 +2313,6 @@ export async function time({ fullArgs, from, sock }) {
         `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
   } catch (formatErr) {
-    // Fallback raw output if formatting fails
     await sock.sendMessage(from, {
       text: formatData("⏱️ WORLD TIME", {
         "🌍 Timezone": timeData.timezone || query,
@@ -2410,7 +2325,7 @@ export async function time({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PDF GENERATOR - ENHANCED WITH STYLING
+//  PDF GENERATOR
 // ════════════════════════════════════════════════════════════════════════════
 export async function pdf({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -2455,7 +2370,7 @@ export async function pdf({ fullArgs, from, sock }) {
         .fillColor("#ffffff")
         .font("Helvetica-Bold")
         .fontSize(14)
-        .text("AYOBOT v1.5.0 — Document Generator", 60, 18, { align: "left" });
+        .text("AYOBOT v1.0.0 — Document Generator", 60, 18, { align: "left" });
       doc
         .fillColor("#aaaaaa")
         .font("Helvetica")
@@ -2498,7 +2413,7 @@ export async function pdf({ fullArgs, from, sock }) {
         .font("Helvetica")
         .fontSize(9)
         .text(
-          `Generated by AYOBOT v1.5.0 • AYOCODES • ${new Date().toLocaleString()}`,
+          `Generated by AYOBOT v1.0.0 • AYOCODES • ${new Date().toLocaleString()}`,
           60,
           footerY + 10,
           { align: "center" },
@@ -2519,8 +2434,9 @@ export async function pdf({ fullArgs, from, sock }) {
     });
   }
 }
+
 // ════════════════════════════════════════════════════════════════════════════
-//  IP LOOKUP - COMPLETELY FIXED WITH 5 APIs
+//  IP LOOKUP - ENHANCED WITH 6 REAL-TIME APIs + SAFE TYPE HANDLING
 // ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -2539,9 +2455,8 @@ export async function getip({ fullArgs, from, sock }) {
 
   const cleanIP = fullArgs.trim();
 
-  // Validate IP format
   const ipRegex =
-    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/;
+    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^([0-9a-fA-F]{1,4}:){1,7}:$/;
 
   if (!ipRegex.test(cleanIP)) {
     return sock.sendMessage(from, {
@@ -2557,16 +2472,39 @@ export async function getip({ fullArgs, from, sock }) {
   let data = null;
   let errors = [];
 
-  // API 1: ip-api.com (fastest, free)
+  // ── API 1: ip-api.com (HTTPS endpoint, most reliable free tier) ──────────
   try {
     const res = await axios.get(
-      `http://ip-api.com/json/${cleanIP}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,mobile,proxy,hosting`,
-      {
-        timeout: 5000,
-      },
+      `https://pro.ip-api.com/json/${cleanIP}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,mobile,proxy,hosting&key=${ENV.IPAPI_KEY || ""}`,
+      { timeout: 8000 },
     );
-
-    if (res.data.status === "success") {
+    // Fallback to free endpoint if no key or key error
+    if (!res.data || res.data.status !== "success") {
+      const free = await axios.get(
+        `http://ip-api.com/json/${cleanIP}?fields=66846719`,
+        { timeout: 8000 },
+      );
+      if (free.data?.status === "success") {
+        data = {
+          query: free.data.query,
+          country: free.data.country,
+          countryCode: free.data.countryCode,
+          region: free.data.regionName || free.data.region,
+          city: free.data.city,
+          zip: free.data.zip,
+          lat: free.data.lat,
+          lon: free.data.lon,
+          timezone: free.data.timezone,
+          isp: free.data.isp,
+          org: free.data.org,
+          as: free.data.as,
+          mobile: free.data.mobile || false,
+          proxy: free.data.proxy || false,
+          hosting: free.data.hosting || false,
+          source: "ip-api.com",
+        };
+      }
+    } else {
       data = {
         query: res.data.query,
         country: res.data.country,
@@ -2583,21 +2521,51 @@ export async function getip({ fullArgs, from, sock }) {
         mobile: res.data.mobile || false,
         proxy: res.data.proxy || false,
         hosting: res.data.hosting || false,
-        source: "ip-api.com",
+        source: "ip-api.com (pro)",
       };
     }
   } catch (err) {
     errors.push(`ip-api: ${err.message}`);
   }
 
-  // API 2: ipapi.co (alternative)
+  // ── API 2: ipwho.is (free, no key required, HTTPS) ───────────────────────
+  if (!data) {
+    try {
+      const res = await axios.get(`https://ipwho.is/${cleanIP}`, {
+        timeout: 8000,
+      });
+      if (res.data?.success) {
+        data = {
+          query: cleanIP,
+          country: res.data.country,
+          countryCode: res.data.country_code,
+          region: res.data.region,
+          city: res.data.city,
+          zip: res.data.postal,
+          lat: res.data.latitude,
+          lon: res.data.longitude,
+          timezone: res.data.timezone?.id,
+          isp: res.data.connection?.isp || res.data.connection?.org,
+          org: res.data.connection?.org,
+          as: res.data.connection?.asn ? `AS${res.data.connection.asn}` : null,
+          mobile: false,
+          proxy: res.data.security?.proxy || false,
+          hosting: res.data.security?.hosting || false,
+          source: "ipwho.is",
+        };
+      }
+    } catch (err) {
+      errors.push(`ipwho.is: ${err.message}`);
+    }
+  }
+
+  // ── API 3: ipapi.co (free 1000/day) ─────────────────────────────────────
   if (!data) {
     try {
       const res = await axios.get(`https://ipapi.co/${cleanIP}/json/`, {
-        timeout: 5000,
+        timeout: 8000,
         headers: { "User-Agent": "Mozilla/5.0" },
       });
-
       if (!res.data.error) {
         data = {
           query: cleanIP,
@@ -2613,8 +2581,8 @@ export async function getip({ fullArgs, from, sock }) {
           org: res.data.org,
           as: res.data.asn,
           mobile: false,
-          proxy: res.data.security?.is_proxy || false,
-          hosting: res.data.security?.is_crawler || false,
+          proxy: false,
+          hosting: false,
           source: "ipapi.co",
         };
       }
@@ -2623,17 +2591,46 @@ export async function getip({ fullArgs, from, sock }) {
     }
   }
 
-  // API 3: ipinfo.io (needs token but has free tier)
-  if (!data && ENV.IPINFO_TOKEN) {
+  // ── API 4: freeipapi.com (free, no key, HTTPS) ───────────────────────────
+  if (!data) {
     try {
-      const res = await axios.get(
-        `https://ipinfo.io/${cleanIP}/json?token=${ENV.IPINFO_TOKEN}`,
-        {
-          timeout: 5000,
-        },
-      );
+      const res = await axios.get(`https://freeipapi.com/api/json/${cleanIP}`, {
+        timeout: 8000,
+      });
+      if (res.data?.ipVersion) {
+        data = {
+          query: cleanIP,
+          country: res.data.countryName,
+          countryCode: res.data.countryCode,
+          region: res.data.regionName,
+          city: res.data.cityName,
+          zip: res.data.zipCode,
+          lat: res.data.latitude,
+          lon: res.data.longitude,
+          timezone: res.data.timeZone,
+          isp: res.data.isp || "Unknown",
+          org: res.data.isp,
+          as: null,
+          mobile: false,
+          proxy: false,
+          hosting: false,
+          source: "freeipapi.com",
+        };
+      }
+    } catch (err) {
+      errors.push(`freeipapi: ${err.message}`);
+    }
+  }
 
-      if (res.data) {
+  // ── API 5: ipinfo.io (free 50k/month, optional token) ───────────────────
+  if (!data) {
+    try {
+      const tokenParam = ENV.IPINFO_TOKEN ? `?token=${ENV.IPINFO_TOKEN}` : "";
+      const res = await axios.get(
+        `https://ipinfo.io/${cleanIP}/json${tokenParam}`,
+        { timeout: 8000 },
+      );
+      if (res.data && !res.data.error) {
         const loc = res.data.loc ? res.data.loc.split(",") : [null, null];
         data = {
           query: res.data.ip,
@@ -2647,7 +2644,7 @@ export async function getip({ fullArgs, from, sock }) {
           timezone: res.data.timezone,
           isp: res.data.org,
           org: res.data.org,
-          as: res.data.asn,
+          as: null,
           mobile: false,
           proxy: false,
           hosting: false,
@@ -2659,75 +2656,35 @@ export async function getip({ fullArgs, from, sock }) {
     }
   }
 
-  // API 4: abstractapi.com (if key available)
-  if (!data && ENV.ABSTRACTAPI_IP_KEY) {
+  // ── API 6: ip-address.de (European free API) ─────────────────────────────
+  if (!data) {
     try {
       const res = await axios.get(
-        `https://ipgeolocation.abstractapi.com/v1/?api_key=${ENV.ABSTRACTAPI_IP_KEY}&ip_address=${cleanIP}`,
-        {
-          timeout: 5000,
-        },
+        `https://api.ip-address.de/api/v1/ip/${cleanIP}`,
+        { timeout: 8000, headers: { Accept: "application/json" } },
       );
-
-      if (res.data) {
+      if (res.data && res.data.country) {
         data = {
           query: cleanIP,
           country: res.data.country,
-          countryCode: res.data.country_code,
+          countryCode: res.data.countryCode,
           region: res.data.region,
           city: res.data.city,
-          zip: res.data.postal_code,
+          zip: res.data.postalCode,
           lat: res.data.latitude,
           lon: res.data.longitude,
-          timezone: res.data.timezone.name,
-          isp: res.data.connection?.isp,
-          org: res.data.connection?.organization,
-          as: res.data.connection?.autonomous_system_number
-            ? `AS${res.data.connection.autonomous_system_number}`
-            : null,
+          timezone: res.data.timezone,
+          isp: res.data.isp,
+          org: res.data.org,
+          as: res.data.asn ? `AS${res.data.asn}` : null,
           mobile: false,
-          proxy: res.data.security?.is_proxy || false,
-          hosting: res.data.security?.is_crawler || false,
-          source: "abstractapi.com",
+          proxy: false,
+          hosting: false,
+          source: "ip-address.de",
         };
       }
     } catch (err) {
-      errors.push(`abstractapi: ${err.message}`);
-    }
-  }
-
-  // API 5: ipdata.co (if key available)
-  if (!data && ENV.IPDATA_KEY) {
-    try {
-      const res = await axios.get(
-        `https://api.ipdata.co/${cleanIP}?api-key=${ENV.IPDATA_KEY}`,
-        {
-          timeout: 5000,
-        },
-      );
-
-      if (res.data) {
-        data = {
-          query: cleanIP,
-          country: res.data.country_name,
-          countryCode: res.data.country_code,
-          region: res.data.region,
-          city: res.data.city,
-          zip: res.data.postal,
-          lat: res.data.latitude,
-          lon: res.data.longitude,
-          timezone: res.data.time_zone.name,
-          isp: res.data.asn?.name || res.data.organisation,
-          org: res.data.organisation,
-          as: res.data.asn?.asn ? `AS${res.data.asn.asn}` : null,
-          mobile: res.data.threat?.is_mobile || false,
-          proxy: res.data.threat?.is_proxy || false,
-          hosting: res.data.threat?.is_datacenter || false,
-          source: "ipdata.co",
-        };
-      }
-    } catch (err) {
-      errors.push(`ipdata: ${err.message}`);
+      errors.push(`ip-address.de: ${err.message}`);
     }
   }
 
@@ -2737,19 +2694,24 @@ export async function getip({ fullArgs, from, sock }) {
         "LOOKUP FAILED",
         `Could not fetch information for IP: ${cleanIP}\n\n` +
           `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
-          `💡 Try again later or check if IP is valid.`,
+          `💡 Try again later or verify the IP is public (not a private/localhost IP).`,
       ),
     });
   }
+
+  // ── Safe coordinate display ──────────────────────────────────────────────
+  const coordStr =
+    data.lat && data.lon
+      ? `${safeFixed(data.lat)}, ${safeFixed(data.lon)}`
+      : "N/A";
 
   const mapUrl =
     data.lat && data.lon
       ? `https://www.google.com/maps?q=${data.lat},${data.lon}`
       : null;
 
-  // Format ASN properly
   let asn = data.as || "N/A";
-  if (asn && !asn.startsWith("AS") && asn.match(/^\d+$/)) {
+  if (asn && asn !== "N/A" && !asn.startsWith("AS") && /^\d+$/.test(asn)) {
     asn = `AS${asn}`;
   }
 
@@ -2763,7 +2725,7 @@ export async function getip({ fullArgs, from, sock }) {
       `🏙️ *City:* ${data.city || "Unknown"}\n` +
       `🗺️ *Region:* ${data.region || "Unknown"}\n` +
       `📮 *Postal:* ${data.zip || "N/A"}\n` +
-      `🧭 *Coordinates:* ${data.lat && data.lon ? `${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}` : "N/A"}\n` +
+      `🧭 *Coordinates:* ${coordStr}\n` +
       `⏰ *Timezone:* ${data.timezone || "N/A"}\n` +
       `📡 *ISP:* ${data.isp || "Unknown"}\n` +
       `🏢 *Organization:* ${data.org || "N/A"}\n` +
@@ -2784,8 +2746,9 @@ export async function getip({ fullArgs, from, sock }) {
 }
 
 export const ip = getip;
+
 // ════════════════════════════════════════════════════════════════════════════
-//  MY IP - FIXED WITH EXPLANATION
+//  MY IP - ENHANCED WITH MULTIPLE SERVICES
 // ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock }) {
   await sock.sendMessage(from, {
@@ -2795,19 +2758,34 @@ export async function myip({ from, sock }) {
   let ipData = null;
   let errors = [];
 
-  // Try multiple IP detection services
   const ipServices = [
-    { url: "https://api.ipify.org?format=json", parser: (d) => d.ip },
+    {
+      url: "https://api.ipify.org?format=json",
+      parser: (d) => (typeof d === "object" ? d.ip : d.trim()),
+    },
+    { url: "https://api4.my-ip.io/ip.json", parser: (d) => d.ip },
     { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
-    { url: "https://api.ip.sb/ip", parser: (d) => d.trim() },
-    { url: "https://icanhazip.com/", parser: (d) => d.trim() },
+    {
+      url: "https://ipecho.net/plain",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
+    {
+      url: "https://checkip.amazonaws.com/",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
   ];
 
   for (const service of ipServices) {
     try {
-      const res = await axios.get(service.url, { timeout: 5000 });
-      ipData = service.parser(res.data);
-      if (ipData) break;
+      const res = await axios.get(service.url, {
+        timeout: 6000,
+        headers: { Accept: "application/json,text/plain,*/*" },
+      });
+      const ip = service.parser(res.data);
+      if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+        ipData = ip;
+        break;
+      }
     } catch (err) {
       errors.push(err.message);
     }
@@ -2822,22 +2800,39 @@ export async function myip({ from, sock }) {
     });
   }
 
-  // Get location info for the IP
+  // Get location for the server IP
   let locationInfo = null;
   try {
-    const infoRes = await axios.get(
-      `http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`,
-      {
-        timeout: 5000,
-      },
-    );
-
-    if (infoRes.data.status === "success") {
-      locationInfo = infoRes.data;
+    const infoRes = await axios.get(`https://ipwho.is/${ipData}`, {
+      timeout: 8000,
+    });
+    if (infoRes.data?.success) {
+      locationInfo = {
+        country: infoRes.data.country,
+        countryCode: infoRes.data.country_code,
+        city: infoRes.data.city,
+        regionName: infoRes.data.region,
+        isp: infoRes.data.connection?.isp || infoRes.data.connection?.org,
+        org: infoRes.data.connection?.org,
+        as: infoRes.data.connection?.asn
+          ? `AS${infoRes.data.connection.asn}`
+          : "N/A",
+        timezone: infoRes.data.timezone?.id,
+        lat: infoRes.data.latitude,
+        lon: infoRes.data.longitude,
+      };
     }
-  } catch (_) {}
+  } catch (_) {
+    // Fallback to ip-api.com
+    try {
+      const infoRes = await axios.get(
+        `http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`,
+        { timeout: 8000 },
+      );
+      if (infoRes.data?.status === "success") locationInfo = infoRes.data;
+    } catch (_) {}
+  }
 
-  // Build response message
   let response =
     `╔══════════════════════════╗\n` +
     `║     🌐 *YOUR PUBLIC IP*   ║\n` +
@@ -2849,7 +2844,7 @@ export async function myip({ from, sock }) {
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `🌍 *Location Info:*\n` +
       `• Country: ${locationInfo.country} (${locationInfo.countryCode})\n` +
-      `• City: ${locationInfo.city || "Unknown"}\n` +
+      `• City: ${locationInfo.city || locationInfo.cityName || "Unknown"}\n` +
       `• Region: ${locationInfo.regionName || "Unknown"}\n` +
       `• ISP: ${locationInfo.isp || "Unknown"}\n` +
       `• Organization: ${locationInfo.org || "N/A"}\n` +
@@ -2858,7 +2853,7 @@ export async function myip({ from, sock }) {
 
     if (locationInfo.lat && locationInfo.lon) {
       response +=
-        `• Coordinates: ${locationInfo.lat.toFixed(4)}, ${locationInfo.lon.toFixed(4)}\n` +
+        `• Coordinates: ${safeFixed(locationInfo.lat)}, ${safeFixed(locationInfo.lon)}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
         `🗺️ https://www.google.com/maps?q=${locationInfo.lat},${locationInfo.lon}\n`;
     }
@@ -2866,15 +2861,15 @@ export async function myip({ from, sock }) {
 
   response +=
     `━━━━━━━━━━━━━━━━━━━━━\n` +
-    `⚠️ *Note:* This shows your SERVER's location, not your actual location.\n` +
-    `📱 Your bot runs on a cloud server, so the IP is from the server's datacenter.\n\n` +
+    `⚠️ *Note:* This shows your SERVER's IP, not your personal location.\n` +
+    `📱 Bot runs on a cloud server — the IP belongs to the datacenter.\n\n` +
     `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
   await sock.sendMessage(from, { text: response });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WHOIS - COMPLETELY FIXED WITH 4 APIs
+//  WHOIS - ENHANCED WITH MULTIPLE RELIABLE APIS
 // ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -2901,7 +2896,6 @@ export async function whois({ fullArgs, from, sock }) {
     .replace(/^www\./, "")
     .replace(/\/.*/, "");
 
-  // Validate domain format
   const domainRegex =
     /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
@@ -2916,27 +2910,27 @@ export async function whois({ fullArgs, from, sock }) {
   let whoisData = null;
   let errors = [];
 
-  // API 1: RDAP (most reliable for gTLDs)
+  // ── API 1: RDAP (IANA registry — most authoritative) ─────────────────────
   try {
     const res = await axios.get(`https://rdap.org/domain/${domain}`, {
-      timeout: 8000,
+      timeout: 10000,
     });
-
     if (res.data) {
       const d = res.data;
-      const ns = d.nameservers?.map((n) => n.ldhName).join(", ") || "Unknown";
+      const ns =
+        d.nameservers
+          ?.map((n) => n.ldhName?.toLowerCase())
+          .filter(Boolean)
+          .join(", ") || "Unknown";
       const status = d.status?.join(", ") || "Unknown";
-
       const evtMap = {};
       (d.events || []).forEach((e) => {
         evtMap[e.eventAction] = e.eventDate?.split("T")[0];
       });
-
       const registrar =
         d.entities
           ?.find((e) => e.roles?.includes("registrar"))
           ?.vcardArray?.[1]?.find((v) => v[0] === "fn")?.[3] || "Unknown";
-
       whoisData = {
         domain: d.ldhName || domain,
         registrar,
@@ -2945,39 +2939,64 @@ export async function whois({ fullArgs, from, sock }) {
         created: evtMap["registration"] || evtMap["created"] || "Unknown",
         updated: evtMap["last changed"] || evtMap["changed"] || "Unknown",
         expires: evtMap["expiration"] || "Unknown",
-        source: "RDAP",
+        source: "RDAP (IANA)",
       };
     }
   } catch (err) {
     errors.push(`RDAP: ${err.message}`);
   }
 
-  // API 2: whoisjson.com (free tier)
+  // ── API 2: who-dat.as93.net (free scrape-based WHOIS) ────────────────────
+  if (!whoisData) {
+    try {
+      const res = await axios.get(`https://who-dat.as93.net/${domain}`, {
+        timeout: 10000,
+        headers: { Accept: "application/json" },
+      });
+      if (res.data?.domain) {
+        const d = res.data.domain;
+        const r = res.data.registrar;
+        whoisData = {
+          domain: d.id || domain,
+          registrar: r?.name || "Unknown",
+          status: Array.isArray(d.status)
+            ? d.status.join(", ")
+            : d.status || "Unknown",
+          nameservers: Array.isArray(d.name_servers)
+            ? d.name_servers.join(", ")
+            : "Unknown",
+          created: d.created_date?.split("T")[0] || "Unknown",
+          updated: d.updated_date?.split("T")[0] || "Unknown",
+          expires: d.expiration_date?.split("T")[0] || "Unknown",
+          source: "who-dat.as93.net",
+        };
+      }
+    } catch (err) {
+      errors.push(`who-dat: ${err.message}`);
+    }
+  }
+
+  // ── API 3: whoisjson.com ─────────────────────────────────────────────────
   if (!whoisData) {
     try {
       const res = await axios.get(
         `https://whoisjson.com/api/v1/whois?domain=${domain}`,
         {
-          timeout: 8000,
+          timeout: 10000,
           headers: { Accept: "application/json" },
         },
       );
-
-      if (res.data && res.data.data) {
+      if (res.data?.data) {
         const d = res.data.data;
         whoisData = {
           domain: d.domain_name || domain,
           registrar: d.registrar || "Unknown",
-          status: d.status
-            ? Array.isArray(d.status)
-              ? d.status.join(", ")
-              : d.status
-            : "Unknown",
-          nameservers: d.name_servers
-            ? Array.isArray(d.name_servers)
-              ? d.name_servers.join(", ")
-              : d.name_servers
-            : "Unknown",
+          status: Array.isArray(d.status)
+            ? d.status.join(", ")
+            : d.status || "Unknown",
+          nameservers: Array.isArray(d.name_servers)
+            ? d.name_servers.join(", ")
+            : d.name_servers || "Unknown",
           created: d.creation_date ? d.creation_date.split("T")[0] : "Unknown",
           updated: d.updated_date ? d.updated_date.split("T")[0] : "Unknown",
           expires: d.expiration_date
@@ -2991,25 +3010,20 @@ export async function whois({ fullArgs, from, sock }) {
     }
   }
 
-  // API 3: whoisapi.com (if key available)
+  // ── API 4: whoisxmlapi.com (optional key) ─────────────────────────────────
   if (!whoisData && ENV.WHOISXML_API_KEY) {
     try {
       const res = await axios.get(
         `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${ENV.WHOISXML_API_KEY}&domainName=${domain}&outputFormat=JSON`,
-        {
-          timeout: 8000,
-        },
+        { timeout: 10000 },
       );
-
-      if (res.data && res.data.WhoisRecord) {
+      if (res.data?.WhoisRecord) {
         const d = res.data.WhoisRecord;
         whoisData = {
           domain: d.domainName || domain,
           registrar: d.registrarName || "Unknown",
           status: d.status || "Unknown",
-          nameservers: d.nameServers
-            ? d.nameServers.hostNames?.join(", ") || "Unknown"
-            : "Unknown",
+          nameservers: d.nameServers?.hostNames?.join(", ") || "Unknown",
           created: d.createdDate ? d.createdDate.split("T")[0] : "Unknown",
           updated: d.updatedDate ? d.updatedDate.split("T")[0] : "Unknown",
           expires: d.expiresDate ? d.expiresDate.split("T")[0] : "Unknown",
@@ -3021,40 +3035,13 @@ export async function whois({ fullArgs, from, sock }) {
     }
   }
 
-  // API 4: whoapi.com (if key available)
-  if (!whoisData && ENV.WHOAPI_KEY) {
-    try {
-      const res = await axios.get(
-        `http://api.whoapi.com/?apikey=${ENV.WHOAPI_KEY}&r=whois&domain=${domain}`,
-        {
-          timeout: 8000,
-        },
-      );
-
-      if (res.data && res.data.status === "0") {
-        whoisData = {
-          domain: res.data.domain_name || domain,
-          registrar: res.data.registrar || "Unknown",
-          status: "Active",
-          nameservers: res.data.nserver || "Unknown",
-          created: res.data.created || "Unknown",
-          updated: res.data.updated || "Unknown",
-          expires: res.data.expires || "Unknown",
-          source: "whoapi.com",
-        };
-      }
-    } catch (err) {
-      errors.push(`whoapi: ${err.message}`);
-    }
-  }
-
   if (!whoisData) {
     return sock.sendMessage(from, {
       text: formatError(
         "WHOIS FAILED",
         `Could not fetch WHOIS information for "${domain}".\n\n` +
           `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
-          `💡 The domain might be invalid or the registry may be down.`,
+          `💡 Domain may be invalid or registry is temporarily down.`,
       ),
     });
   }
@@ -3078,7 +3065,7 @@ export async function whois({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DNS LOOKUP - COMPLETELY FIXED WITH 4 APIs
+//  DNS LOOKUP - ENHANCED WITH RELIABLE APIs
 // ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -3092,9 +3079,7 @@ export async function dns({ fullArgs, from, sock }) {
     });
   }
 
-  await sock.sendMessage(from, {
-    text: `🌐 *DNS lookup for ${fullArgs}...*`,
-  });
+  await sock.sendMessage(from, { text: `🌐 *DNS lookup for ${fullArgs}...*` });
 
   const domain = fullArgs
     .trim()
@@ -3103,7 +3088,6 @@ export async function dns({ fullArgs, from, sock }) {
     .replace(/^www\./, "")
     .replace(/\/.*/, "");
 
-  // Validate domain format
   const domainRegex =
     /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
@@ -3115,106 +3099,109 @@ export async function dns({ fullArgs, from, sock }) {
     });
   }
 
-  let records = {
-    A: [],
-    AAAA: [],
-    MX: [],
-    NS: [],
-    TXT: [],
-    CNAME: [],
-  };
-
+  let records = { A: [], AAAA: [], MX: [], NS: [], TXT: [], CNAME: [] };
   let errors = [];
+  let usedSource = "";
 
-  // API 1: Google DNS over HTTPS (most reliable)
+  // ── Primary: Google DNS-over-HTTPS ────────────────────────────────────────
   const recordTypes = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"];
+  let googleSuccess = false;
 
   for (const type of recordTypes) {
     try {
       const res = await axios.get(
         `https://dns.google/resolve?name=${domain}&type=${type}`,
-        {
-          timeout: 5000,
-        },
+        { timeout: 6000, headers: { Accept: "application/dns-json" } },
       );
-
-      if (res.data && res.data.Answer) {
-        records[type] = res.data.Answer.filter((ans) => ans.type === type).map(
-          (ans) => ans.data,
-        );
+      if (res.data?.Answer) {
+        // Map DNS type numbers back to record types
+        const typeMap = {
+          1: "A",
+          28: "AAAA",
+          15: "MX",
+          2: "NS",
+          16: "TXT",
+          5: "CNAME",
+        };
+        const typeNum = { A: 1, AAAA: 28, MX: 15, NS: 2, TXT: 16, CNAME: 5 }[
+          type
+        ];
+        records[type] = res.data.Answer.filter(
+          (ans) => ans.type === typeNum,
+        ).map((ans) => {
+          // Strip trailing dot from NS/CNAME/MX records
+          let val = ans.data || "";
+          if (["NS", "CNAME", "MX"].includes(type))
+            val = val.replace(/\.$/, "");
+          return val;
+        });
+        if (records[type].length > 0) googleSuccess = true;
       }
     } catch (err) {
       errors.push(`Google DNS (${type}): ${err.message}`);
     }
   }
+  if (googleSuccess) usedSource = "Google DNS-over-HTTPS";
 
-  // If Google DNS failed, try Cloudflare DNS
-  if (records.A.length === 0 && records.MX.length === 0) {
+  // ── Fallback: Cloudflare DNS-over-HTTPS ──────────────────────────────────
+  if (!googleSuccess || records.A.length === 0) {
     try {
       const res = await axios.get(
         `https://cloudflare-dns.com/dns-query?name=${domain}&type=A`,
-        {
-          timeout: 5000,
-          headers: { Accept: "application/dns-json" },
-        },
+        { timeout: 6000, headers: { Accept: "application/dns-json" } },
       );
-
-      if (res.data && res.data.Answer) {
-        records.A = res.data.Answer.filter((ans) => ans.type === 1).map(
-          (ans) => ans.data,
+      if (res.data?.Answer) {
+        const cfA = res.data.Answer.filter((a) => a.type === 1).map(
+          (a) => a.data,
         );
+        if (cfA.length > 0 && records.A.length === 0) {
+          records.A = cfA;
+          usedSource = usedSource || "Cloudflare DoH";
+        }
       }
     } catch (err) {
       errors.push(`Cloudflare DNS: ${err.message}`);
     }
   }
 
-  // Try Quad9 DNS for additional records
-  try {
-    const res = await axios.get(
-      `https://dns.quad9.net:5053/dns-query?name=${domain}&type=MX`,
-      {
-        timeout: 5000,
-        headers: { Accept: "application/dns-json" },
-      },
-    );
-
-    if (res.data && res.data.Answer && records.MX.length === 0) {
-      records.MX = res.data.Answer.filter((ans) => ans.type === 15).map(
-        (ans) => ans.data,
-      );
-    }
-  } catch (err) {
-    errors.push(`Quad9 DNS: ${err.message}`);
-  }
-
-  // Try dig.js API (fallback)
-  if (records.A.length === 0) {
+  // ── Fallback: DoH public resolver (dns.cloudflare.com) for MX ────────────
+  if (records.MX.length === 0) {
     try {
       const res = await axios.get(
-        `https://dig.jsondig.com/api/v1/dig/${domain}/A`,
-        {
-          timeout: 5000,
-        },
+        `https://cloudflare-dns.com/dns-query?name=${domain}&type=MX`,
+        { timeout: 6000, headers: { Accept: "application/dns-json" } },
       );
+      if (res.data?.Answer) {
+        records.MX = res.data.Answer.filter((a) => a.type === 15).map((a) =>
+          a.data.replace(/\.$/, ""),
+        );
+      }
+    } catch (_) {}
+  }
 
-      if (res.data && res.data.answer) {
-        records.A = res.data.answer
-          .filter((ans) => ans.type === "A")
-          .map((ans) => ans.rdata);
+  // ── Fallback: doh.pub (Chinese public resolver — global) ─────────────────
+  if (records.A.length === 0 && records.NS.length === 0) {
+    try {
+      const res = await axios.get(
+        `https://doh.pub/dns-query?name=${domain}&type=A`,
+        { timeout: 6000, headers: { Accept: "application/dns-json" } },
+      );
+      if (res.data?.Answer) {
+        records.A = res.data.Answer.filter((a) => a.type === 1).map(
+          (a) => a.data,
+        );
+        usedSource = usedSource || "doh.pub";
       }
     } catch (err) {
-      errors.push(`dig.js: ${err.message}`);
+      errors.push(`doh.pub: ${err.message}`);
     }
   }
 
-  // Format records for display
   const formatRecords = (type, limit = 5) => {
-    if (!records[type] || records[type].length === 0) return "No records";
+    if (!records[type] || records[type].length === 0) return "_(none)_";
     const list = records[type].slice(0, limit);
-    if (records[type].length > limit) {
-      list.push(`... and ${records[type].length - limit} more`);
-    }
+    if (records[type].length > limit)
+      list.push(`...+${records[type].length - limit} more`);
     return list.join("\n");
   };
 
@@ -3225,30 +3212,22 @@ export async function dns({ fullArgs, from, sock }) {
       `╚══════════════════════════╝\n\n` +
       `🌐 *Domain:* ${domain}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *A Records:*\n${formatRecords("A")}\n` +
+      `📋 *A Records (IPv4):*\n${formatRecords("A")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *AAAA Records:*\n${formatRecords("AAAA") || "No records"}\n` +
+      `📋 *AAAA Records (IPv6):*\n${formatRecords("AAAA")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *MX Records:*\n${formatRecords("MX")}\n` +
+      `📋 *MX Records (Mail):*\n${formatRecords("MX")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *NS Records:*\n${formatRecords("NS")}\n` +
+      `📋 *NS Records (Nameservers):*\n${formatRecords("NS")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `📋 *TXT Records:*\n${formatRecords("TXT", 3)}\n` +
       (records.CNAME.length > 0
         ? `━━━━━━━━━━━━━━━━━━━━━\n📋 *CNAME:*\n${formatRecords("CNAME")}\n`
         : "") +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔧 *Source:* ${usedSource || "Multiple DoH resolvers"}\n` +
       `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
-
-  if (errors.length > 0) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "DNS NOTES",
-        `⚠️ Some queries had issues:\n${errors.slice(0, 2).join("\n")}`,
-      ),
-    });
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3396,7 +3375,7 @@ export async function jarvis({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  URL INFO - GET URL DETAILS
+//  URL INFO
 // ════════════════════════════════════════════════════════════════════════════
 export async function url({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -3409,8 +3388,8 @@ export async function url({ fullArgs, from, sock }) {
   await sock.sendMessage(from, { text: `🌍 *Analyzing ${urlStr}...*` });
   try {
     const response = await axios.head(urlStr, {
-      timeout: 8_000,
-      maxRedirects: 5,
+      timeout: 10_000,
+      maxRedirects: 10,
       headers: { "User-Agent": randomUA() },
       validateStatus: () => true,
     });
@@ -3427,6 +3406,8 @@ export async function url({ fullArgs, from, sock }) {
           : "Unknown",
         "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
         "🔄 Cache-Control": h["cache-control"] || "Not set",
+        "🛡️ X-Frame-Options": h["x-frame-options"] || "Not set",
+        "⚡ X-Powered-By": h["x-powered-by"] || "Hidden",
       }),
     });
   } catch (error) {
@@ -3435,7 +3416,7 @@ export async function url({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FETCH - FETCH AND DISPLAY WEB CONTENT
+//  FETCH
 // ════════════════════════════════════════════════════════════════════════════
 export async function fetch({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -3482,11 +3463,24 @@ export async function qencode({ fullArgs, from, sock }) {
   }
   await sock.sendMessage(from, { text: "📱 *Generating QR code...*" });
   try {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff`;
-    await sock.sendMessage(from, {
-      image: { url: qrUrl },
-      caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
+    // Primary: qrserver.com (free, reliable, no key)
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff&format=png`;
+    const res = await axios.get(qrUrl, {
+      responseType: "arraybuffer",
+      timeout: 10000,
     });
+    if (res.data && res.data.byteLength > 100) {
+      await sock.sendMessage(from, {
+        image: Buffer.from(res.data),
+        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
+      });
+    } else {
+      // Fallback: send as URL
+      await sock.sendMessage(from, {
+        image: { url: qrUrl },
+        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
+      });
+    }
   } catch (err) {
     await sock.sendMessage(from, {
       text: formatError("ERROR", `Could not generate QR code: ${err.message}`),
@@ -3524,7 +3518,7 @@ export async function take({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCREENSHOT - COMPLETELY FIXED WITH 8 WORKING APIs
+//  SCREENSHOT - ENHANCED WITH WORKING FREE SERVICES
 // ════════════════════════════════════════════════════════════════════════════
 export async function screenshot({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -3535,30 +3529,24 @@ export async function screenshot({ fullArgs, from, sock }) {
           `📌 *Usage:* ${ENV.PREFIX}screenshot <url>\n\n` +
           `📋 *Examples:*\n` +
           `${ENV.PREFIX}screenshot https://google.com\n` +
-          `${ENV.PREFIX}screenshot github.com\n\n` +
-          `💡 *Note:* Some sites block screenshots.`,
+          `${ENV.PREFIX}screenshot github.com`,
       ),
     });
   }
 
   let urlStr = fullArgs.trim();
+  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
 
-  // Add protocol if missing
-  if (!urlStr.startsWith("http")) {
-    urlStr = "https://" + urlStr;
-  }
-
-  // Validate URL
   try {
     new URL(urlStr);
-  } catch (err) {
+  } catch (_) {
     return sock.sendMessage(from, {
       text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`),
     });
   }
 
   await sock.sendMessage(from, {
-    text: `📷 *Taking screenshot of*\n${urlStr}\n\n⏳ This may take 10-15 seconds...`,
+    text: `📷 *Taking screenshot of*\n${urlStr}\n\n⏳ _This may take 10-20 seconds..._`,
   });
 
   const urlEncoded = encodeURIComponent(urlStr);
@@ -3566,23 +3554,70 @@ export async function screenshot({ fullArgs, from, sock }) {
   let usedService = "";
   let errors = [];
 
-  // ======================================================================
-  //  SERVICE 1: screenshotlayer.com (free tier - 100/month)
-  // ======================================================================
+  // ── SERVICE 1: Thum.io (free, no key, most reliable) ─────────────────────
+  try {
+    const res = await axios.get(
+      `https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`,
+      {
+        responseType: "arraybuffer",
+        timeout: 20000,
+        headers: { "User-Agent": randomUA() },
+      },
+    );
+    if (res.data && res.data.byteLength > 5000 && res.status === 200) {
+      screenshotBuffer = Buffer.from(res.data);
+      usedService = "Thum.io";
+    }
+  } catch (err) {
+    errors.push(`Thum.io: ${err.message}`);
+  }
+
+  // ── SERVICE 2: Microlink.io (free tier, no key) ───────────────────────────
+  if (!screenshotBuffer) {
+    try {
+      const res = await axios.get(
+        `https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false&waitFor=2000`,
+        { timeout: 20000 },
+      );
+      if (res.data?.data?.screenshot?.url) {
+        const imgRes = await axios.get(res.data.data.screenshot.url, {
+          responseType: "arraybuffer",
+          timeout: 15000,
+        });
+        if (imgRes.data?.byteLength > 5000) {
+          screenshotBuffer = Buffer.from(imgRes.data);
+          usedService = "Microlink.io";
+        }
+      }
+    } catch (err) {
+      errors.push(`Microlink: ${err.message}`);
+    }
+  }
+
+  // ── SERVICE 3: s-shot.ru (free, European) ────────────────────────────────
+  if (!screenshotBuffer) {
+    try {
+      const res = await axios.get(
+        `https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?${urlStr}`,
+        { responseType: "arraybuffer", timeout: 20000 },
+      );
+      if (res.data?.byteLength > 5000) {
+        screenshotBuffer = Buffer.from(res.data);
+        usedService = "s-shot.ru";
+      }
+    } catch (err) {
+      errors.push(`s-shot: ${err.message}`);
+    }
+  }
+
+  // ── SERVICE 4: ScreenshotLayer (if key available) ─────────────────────────
   if (!screenshotBuffer && ENV.SCREENSHOTLAYER_KEY) {
     try {
       const res = await axios.get(
         `http://api.screenshotlayer.com/api/capture?access_key=${ENV.SCREENSHOTLAYER_KEY}&url=${urlEncoded}&viewport=1280x800&width=1280`,
-        {
-          responseType: "arraybuffer",
-          timeout: 20000,
-        },
+        { responseType: "arraybuffer", timeout: 20000 },
       );
-      if (
-        res.data &&
-        res.data.byteLength > 5000 &&
-        !res.data.toString().includes("error")
-      ) {
+      if (res.data?.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
         usedService = "ScreenshotLayer";
       }
@@ -3591,89 +3626,14 @@ export async function screenshot({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  SERVICE 2: screenshotapi.net (free tier)
-  // ======================================================================
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(
-        `https://screenshotapi.net/api/v1/screenshot?url=${urlEncoded}&width=1280&height=800&output=image`,
-        {
-          responseType: "arraybuffer",
-          timeout: 15000,
-          headers: { "User-Agent": randomUA() },
-        },
-      );
-      if (res.data && res.data.byteLength > 5000) {
-        screenshotBuffer = Buffer.from(res.data);
-        usedService = "ScreenshotAPI.net";
-      }
-    } catch (err) {
-      errors.push(`ScreenshotAPI: ${err.message}`);
-    }
-  }
-
-  // ======================================================================
-  //  SERVICE 3: screenly.io (free tier)
-  // ======================================================================
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.post(
-        `https://api.screenly.io/v1/screenshots`,
-        { url: urlStr, width: 1280, height: 800 },
-        {
-          responseType: "arraybuffer",
-          timeout: 15000,
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": randomUA(),
-          },
-        },
-      );
-      if (res.data && res.data.byteLength > 5000) {
-        screenshotBuffer = Buffer.from(res.data);
-        usedService = "Screenly";
-      }
-    } catch (err) {
-      errors.push(`Screenly: ${err.message}`);
-    }
-  }
-
-  // ======================================================================
-  //  SERVICE 4: Thum.io (reliable)
-  // ======================================================================
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(
-        `https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`,
-        {
-          responseType: "arraybuffer",
-          timeout: 15000,
-          headers: { "User-Agent": randomUA() },
-        },
-      );
-      if (res.data && res.data.byteLength > 5000) {
-        screenshotBuffer = Buffer.from(res.data);
-        usedService = "Thum.io";
-      }
-    } catch (err) {
-      errors.push(`Thum.io: ${err.message}`);
-    }
-  }
-
-  // ======================================================================
-  //  SERVICE 5: ScreenshotMachine (free tier)
-  // ======================================================================
+  // ── SERVICE 5: ScreenshotMachine (if key available) ───────────────────────
   if (!screenshotBuffer && ENV.SCREENSHOTMACHINE_KEY) {
     try {
       const res = await axios.get(
         `http://api.screenshotmachine.com/?key=${ENV.SCREENSHOTMACHINE_KEY}&url=${urlEncoded}&dimension=1280x800&format=jpg`,
-        {
-          responseType: "arraybuffer",
-          timeout: 15000,
-        },
+        { responseType: "arraybuffer", timeout: 20000 },
       );
-      if (res.data && res.data.byteLength > 5000) {
+      if (res.data?.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
         usedService = "ScreenshotMachine";
       }
@@ -3682,143 +3642,66 @@ export async function screenshot({ fullArgs, from, sock }) {
     }
   }
 
-  // ======================================================================
-  //  SERVICE 6: URL2PNG (free tier)
-  // ======================================================================
-  if (!screenshotBuffer && ENV.URL2PNG_KEY) {
+  // ── SERVICE 6: urlbox.io (if key available) ────────────────────────────────
+  if (!screenshotBuffer && ENV.URLBOX_KEY) {
     try {
       const res = await axios.get(
-        `https://api.url2png.com/v6/${ENV.URL2PNG_KEY}/P3A6F27963FC88/ffac9854cac169b9f513ce0d3829b73b/png/?url=${urlEncoded}&viewport=1280x800&fullpage=false`,
-        {
-          responseType: "arraybuffer",
-          timeout: 15000,
-        },
+        `https://api.urlbox.io/v1/${ENV.URLBOX_KEY}/png?url=${urlEncoded}&width=1280&height=800&full_page=false`,
+        { responseType: "arraybuffer", timeout: 20000 },
       );
-      if (res.data && res.data.byteLength > 5000) {
+      if (res.data?.byteLength > 5000) {
         screenshotBuffer = Buffer.from(res.data);
-        usedService = "URL2PNG";
+        usedService = "urlbox.io";
       }
     } catch (err) {
-      errors.push(`URL2PNG: ${err.message}`);
+      errors.push(`urlbox: ${err.message}`);
     }
   }
 
-  // ======================================================================
-  //  SERVICE 7: PageSpeed Insights (Google - free)
-  // ======================================================================
+  // ── Final fallback: fetch page title and return info ──────────────────────
   if (!screenshotBuffer) {
+    let pageTitle = urlStr;
     try {
-      const res = await axios.get(
-        `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${urlEncoded}&screenshot=true`,
-        {
-          timeout: 15000,
-        },
-      );
-
-      if (
-        res.data &&
-        res.data.lighthouseResult &&
-        res.data.lighthouseResult.audits["final-screenshot"]
-      ) {
-        const screenshotData =
-          res.data.lighthouseResult.audits["final-screenshot"].details.data;
-        if (screenshotData) {
-          // Remove data:image/jpeg;base64, prefix
-          const base64Data = screenshotData.split(",")[1] || screenshotData;
-          screenshotBuffer = Buffer.from(base64Data, "base64");
-          usedService = "Google PageSpeed";
-        }
-      }
-    } catch (err) {
-      errors.push(`PageSpeed: ${err.message}`);
-    }
-  }
-
-  // ======================================================================
-  //  SERVICE 8: Microlink.io (free)
-  // ======================================================================
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(
-        `https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false`,
-        {
-          timeout: 15000,
-        },
-      );
-
-      if (
-        res.data &&
-        res.data.data &&
-        res.data.data.screenshot &&
-        res.data.data.screenshot.url
-      ) {
-        const imgRes = await axios.get(res.data.data.screenshot.url, {
-          responseType: "arraybuffer",
-          timeout: 10000,
-        });
-        if (imgRes.data && imgRes.data.byteLength > 5000) {
-          screenshotBuffer = Buffer.from(imgRes.data);
-          usedService = "Microlink";
-        }
-      }
-    } catch (err) {
-      errors.push(`Microlink: ${err.message}`);
-    }
-  }
-
-  // ======================================================================
-  //  If all services failed, try a direct HTML scrape fallback
-  // ======================================================================
-  if (!screenshotBuffer) {
-    try {
-      // Try to fetch page title at least
       const htmlRes = await axios.get(urlStr, {
         timeout: 10000,
         headers: { "User-Agent": randomUA() },
+        maxContentLength: 200000,
       });
+      const titleMatch = htmlRes.data?.match(/<title[^>]*>(.*?)<\/title>/is);
+      if (titleMatch)
+        pageTitle = titleMatch[1]
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .trim();
+    } catch (_) {}
 
-      const title = htmlRes.data.match(/<title>(.*?)<\/title>/i)?.[1] || urlStr;
-
-      return sock.sendMessage(from, {
-        text: formatInfo(
-          "SCREENSHOT UNAVAILABLE",
-          `Could not take screenshot of:\n${urlStr}\n\n` +
-            `📝 *Page Title:* ${title.substring(0, 200)}\n\n` +
-            `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
-            `💡 *Try:*\n` +
-            `• ${ENV.PREFIX}scrape ${urlStr} (get HTML)\n` +
-            `• ${ENV.PREFIX}fetch ${urlStr} (get source)`,
-        ),
-      });
-    } catch (err) {
-      // Final fallback
-      return sock.sendMessage(from, {
-        text: formatError(
-          "SCREENSHOT FAILED",
-          `Could not screenshot:\n${urlStr}\n\n` +
-            `🔧 *Errors:*\n${errors.slice(0, 5).join("\n")}\n\n` +
-            `💡 Try: ${ENV.PREFIX}scrape ${urlStr}`,
-        ),
-      });
-    }
+    return sock.sendMessage(from, {
+      text: formatInfo(
+        "SCREENSHOT UNAVAILABLE",
+        `Could not take screenshot of:\n${urlStr}\n\n` +
+          `📝 *Page Title:* ${pageTitle.substring(0, 200)}\n\n` +
+          `🔧 *Errors:* ${errors.slice(0, 2).join(" | ")}\n\n` +
+          `💡 *Try instead:*\n` +
+          `• ${ENV.PREFIX}scrape ${urlStr} — get full HTML\n` +
+          `• ${ENV.PREFIX}fetch ${urlStr} — get source`,
+      ),
+    });
   }
 
-  // ======================================================================
-  //  Send the screenshot
-  // ======================================================================
-  const sizeKB = (screenshotBuffer.byteLength / 1024).toFixed(1);
-
-  // Try to get page title for better caption
+  // ── Get page title for caption ────────────────────────────────────────────
   let pageTitle = urlStr;
   try {
     const headRes = await axios.get(urlStr, {
-      timeout: 5000,
+      timeout: 6000,
       maxContentLength: 100000,
       headers: { "User-Agent": randomUA() },
     });
-    const titleMatch = headRes.data.match(/<title>(.*?)<\/title>/i);
-    if (titleMatch) pageTitle = titleMatch[1].substring(0, 100);
+    const titleMatch = headRes.data?.match(/<title[^>]*>(.*?)<\/title>/is);
+    if (titleMatch) pageTitle = titleMatch[1].trim().substring(0, 100);
   } catch (_) {}
+
+  const sizeKB = (screenshotBuffer.byteLength / 1024).toFixed(1);
 
   await sock.sendMessage(from, {
     image: screenshotBuffer,
@@ -3832,22 +3715,10 @@ export async function screenshot({ fullArgs, from, sock }) {
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
-
-  // If there were some errors but we succeeded, notify quietly
-  if (errors.length > 0) {
-    await sock.sendMessage(from, {
-      text: formatInfo(
-        "SCREENSHOT NOTES",
-        `⚠️ Some services failed but we got it working!\n` +
-          `✅ Used: ${usedService}\n` +
-          `📊 Failed attempts: ${errors.length}`,
-      ),
-    });
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INSPECT PAGE - ANALYZE WEBSITE
+//  INSPECT PAGE
 // ════════════════════════════════════════════════════════════════════════════
 export async function inspect({ fullArgs, from, sock }) {
   if (!fullArgs) {
@@ -3862,18 +3733,29 @@ export async function inspect({ fullArgs, from, sock }) {
     const response = await axios.get(urlStr, {
       headers: browserHeaders(randomUA()),
       timeout: 15_000,
-      validateStatus: (s) => s < 400,
+      maxContentLength: 5 * 1024 * 1024,
+      validateStatus: (s) => s < 500,
     });
     const $ = cheerio.load(response.data);
     const techs = [];
-    if (response.data.includes("react")) techs.push("React");
-    if (response.data.includes("vue.js") || response.data.includes("__vue"))
-      techs.push("Vue.js");
-    if (response.data.includes("angular")) techs.push("Angular");
-    if (response.data.includes("wp-content")) techs.push("WordPress");
-    if (response.data.includes("shopify")) techs.push("Shopify");
+    const body = response.data.toLowerCase();
+    if (body.includes("react")) techs.push("React");
+    if (body.includes("vue.js") || body.includes("__vue")) techs.push("Vue.js");
+    if (body.includes("angular")) techs.push("Angular");
+    if (body.includes("wp-content")) techs.push("WordPress");
+    if (body.includes("shopify")) techs.push("Shopify");
+    if (body.includes("next.js") || body.includes("__next"))
+      techs.push("Next.js");
+    if (body.includes("nuxt")) techs.push("Nuxt.js");
+    if (body.includes("jquery")) techs.push("jQuery");
     if (response.headers["x-powered-by"])
       techs.push(response.headers["x-powered-by"]);
+    if (response.headers["x-generator"])
+      techs.push(response.headers["x-generator"]);
+
+    const robotsMeta = $('meta[name="robots"]').attr("content") || "Not set";
+    const ogTitle = $('meta[property="og:title"]').attr("content") || "None";
+    const canonical = $('link[rel="canonical"]').attr("href") || "None";
 
     await sock.sendMessage(from, {
       text: formatData("🔍 PAGE INSPECTION", {
@@ -3881,13 +3763,17 @@ export async function inspect({ fullArgs, from, sock }) {
         "📋 Description": (
           $('meta[name="description"]').attr("content") || "None"
         ).substring(0, 100),
-        "📊 Status": `${response.status}`,
+        "📊 Status": `${response.status} ${response.statusText || ""}`,
         "📎 Links": `${$("a[href]").length}`,
         "🖼️ Images": `${$("img").length}`,
         "📜 Scripts": `${$("script").length}`,
         "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
+        "🤖 Robots": robotsMeta,
+        "🔗 Canonical": canonical.substring(0, 80),
+        "📣 OG Title": ogTitle.substring(0, 80),
         "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
         "🌐 Server": response.headers["server"] || "Unknown",
+        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
       }),
     });
   } catch (error) {
@@ -3952,7 +3838,7 @@ export async function imgbb({ message, from, sock }) {
 
     if (result) {
       await sock.sendMessage(from, {
-        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}`,
+        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}\n🛠️ *Service:* ${result.service}`,
       });
     } else {
       await sock.sendMessage(from, {
@@ -3970,7 +3856,7 @@ export async function imgbb({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ACTIVATE GROUP - NEW (FIXES ISSUE #3)
+//  ACTIVATE GROUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) {
@@ -3983,16 +3869,14 @@ export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
       text: "⛔ Only the bot owner can activate the bot in this group.",
     });
   }
-
   activateGroup(sessionId, from);
-
   await sock.sendMessage(from, {
     text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DEACTIVATE GROUP - NEW (FIXES ISSUE #3)
+//  DEACTIVATE GROUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) {
@@ -4005,16 +3889,15 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
       text: "⛔ Only the bot owner can deactivate the bot in this group.",
     });
   }
-
   deactivateGroup(sessionId, from);
-
   await sock.sendMessage(from, {
     text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`,
   });
 }
+
 // ════════════════════════════════════════════════════════════════════════════
-//  ANTILINK - ULTIMATE VERSION (Detects, Deletes & Warns)
-//  NO EXTRA FILES NEEDED - Everything in one function
+//  ANTILINK - DETECT, DELETE & WARN
+//  FIXED: JID normalization so admin check never fails on format mismatch
 // ════════════════════════════════════════════════════════════════════════════
 export async function antilink({
   args,
@@ -4025,16 +3908,13 @@ export async function antilink({
   isGroup,
   userJid,
 }) {
-  // ==========================================================================
-  //  PART 1: COMMAND TOGGLE (.antilink on/off)
-  // ==========================================================================
+  // ── PART 1: COMMAND TOGGLE (.antilink on/off/status) ────────────────────
   if (args && args.length > 0) {
     if (!isGroup) {
       return sock.sendMessage(from, {
         text: "❌ This command only works in groups.",
       });
     }
-
     if (!isAdmin) {
       return sock.sendMessage(from, {
         text: "⛔ Only group admins can use this command.",
@@ -4092,17 +3972,12 @@ export async function antilink({
     });
   }
 
-  // ==========================================================================
-  //  PART 2: LINK DETECTION & ACTION (Runs automatically for ALL messages)
-  // ==========================================================================
-
-  // Only process in groups when antilink is enabled
+  // ── PART 2: LINK DETECTION (runs on every group message) ─────────────────
   if (!isGroup) return;
 
   const settings = groupSettings.get(from) || {};
   if (!settings.antilink) return;
 
-  // Extract message text from all possible sources
   const msgObj = message?.message || {};
   const text =
     msgObj.conversation ||
@@ -4114,99 +3989,30 @@ export async function antilink({
 
   if (!text) return;
 
-  // ==========================================================================
-  //  COMPREHENSIVE LINK DETECTION PATTERNS
-  //  Catches EVERY possible link format
-  // ==========================================================================
+  // ── Comprehensive link detection patterns ─────────────────────────────────
   const LINK_PATTERNS = [
-    // Standard URLs
     /https?:\/\/[^\s<>"']+/gi,
     /www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(:[0-9]+)?(\/[^\s<>"']*)?/gi,
-
-    // URL shorteners
     /bit\.ly\/[a-zA-Z0-9_-]+/gi,
     /tinyurl\.com\/[a-zA-Z0-9_-]+/gi,
     /ow\.ly\/[a-zA-Z0-9_-]+/gi,
     /is\.gd\/[a-zA-Z0-9_-]+/gi,
     /buff\.ly\/[a-zA-Z0-9_-]+/gi,
-    /adf\.ly\/[a-zA-Z0-9_-]+/gi,
-    /shorte\.st\/[a-zA-Z0-9_-]+/gi,
-    /goo\.gl\/[a-zA-Z0-9_-]+/gi,
-    /tiny\.cc\/[a-zA-Z0-9_-]+/gi,
-    /cli\.gs\/[a-zA-Z0-9_-]+/gi,
-    /ur1\.ca\/[a-zA-Z0-9_-]+/gi,
-    /cur\.lv\/[a-zA-Z0-9_-]+/gi,
-    /qr\.ae\/[a-zA-Z0-9_-]+/gi,
-    /v\.gd\/[a-zA-Z0-9_-]+/gi,
     /t\.co\/[a-zA-Z0-9_-]+/gi,
     /lnkd\.in\/[a-zA-Z0-9_-]+/gi,
-    /db\.tt\/[a-zA-Z0-9_-]+/gi,
     /cutt\.ly\/[a-zA-Z0-9_-]+/gi,
     /rebrand\.ly\/[a-zA-Z0-9_-]+/gi,
-    /short\.link\/[a-zA-Z0-9_-]+/gi,
-    /s\.id\/[a-zA-Z0-9_-]+/gi,
-    /rb\.gy\/[a-zA-Z0-9_-]+/gi,
-    /shorturl\.at\/[a-zA-Z0-9_-]+/gi,
-    /aka\.ms\/[a-zA-Z0-9_-]+/gi,
-
-    // Social media
     /youtu\.be\/[a-zA-Z0-9_-]+/gi,
-    /youtube\.com\/watch\?v=[a-zA-Z0-9_-]+/gi,
-    /youtube\.com\/shorts\/[a-zA-Z0-9_-]+/gi,
-    /instagram\.com\/p\/[a-zA-Z0-9_-]+\/?/gi,
-    /instagram\.com\/reel\/[a-zA-Z0-9_-]+\/?/gi,
-    /twitter\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
-    /x\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+/gi,
-    /tiktok\.com\/@[a-zA-Z0-9_.-]+\/video\/[0-9]+/gi,
-    /facebook\.com\/[a-zA-Z0-9_.-]+\/posts\/[0-9]+/gi,
-    /fb\.watch\/[a-zA-Z0-9_-]+/gi,
-
-    // Messaging apps
     /wa\.me\/[0-9]+/gi,
     /chat\.whatsapp\.com\/[a-zA-Z0-9_]+/gi,
     /t\.me\/[a-zA-Z0-9_]+/gi,
-    /telegram\.me\/[a-zA-Z0-9_]+/gi,
     /discord\.gg\/[a-zA-Z0-9_]+/gi,
-
-    // IP addresses as links
-    /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b(:\d+)?(\/[^\s<>"']*)?/gi,
-
-    // Domains without protocol (catch-all)
-    /\b[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+\b(\/[^\s<>"']*)?/gi,
-
-    // File sharing
     /drive\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
     /docs\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
-    /1drv\.ms\/[a-zA-Z0-9_]+/gi,
-    /dropbox\.com\/s\/[a-zA-Z0-9_-]+/gi,
     /mega\.nz\/[#!][a-zA-Z0-9_-]+/gi,
-    /mediafire\.com\/file\/[a-zA-Z0-9_-]+/gi,
-
-    // Music/Streaming
-    /spotify\.com\/track\/[a-zA-Z0-9]+/gi,
-    /deezer\.page\.link\/[a-zA-Z0-9]+/gi,
-    /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi,
+    /fb\.watch\/[a-zA-Z0-9_-]+/gi,
   ];
 
-  // Allowed domains (never delete)
-  const ALLOWED_DOMAINS = [
-    "youtube.com",
-    "youtu.be",
-    "instagram.com",
-    "twitter.com",
-    "x.com",
-    "facebook.com",
-    "tiktok.com",
-    "spotify.com",
-    "deezer.com",
-    "soundcloud.com",
-    "github.com",
-    "stackoverflow.com",
-    "wikipedia.org",
-    "wa.me",
-  ];
-
-  // Function to check if text contains any link
   const containsLink = (txt) => {
     for (const pattern of LINK_PATTERNS) {
       pattern.lastIndex = 0;
@@ -4215,54 +4021,32 @@ export async function antilink({
     return false;
   };
 
-  // Function to check if domain is allowed
-  const isAllowedDomain = (url) => {
-    try {
-      let domain = url.toLowerCase();
-      domain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
-      for (const allowed of ALLOWED_DOMAINS) {
-        if (domain === allowed || domain.endsWith("." + allowed)) return true;
-      }
-    } catch (e) {}
-    return false;
-  };
+  if (!containsLink(text)) return;
 
-  // Function to check if user is admin
+  const senderJid = message.key?.participant || from;
+  const senderNumber = normalizeJid(senderJid);
+
+  // ── FIX: Normalize JIDs before comparing so @s.whatsapp.net vs @c.us never mismatches ──
   const isUserAdmin = async (jid) => {
     try {
       const groupMetadata = await sock.groupMetadata(from);
+      const normalized = normalizeJid(jid);
       return groupMetadata.participants.some(
         (p) =>
-          p.id === jid && (p.admin === "admin" || p.admin === "superadmin"),
+          normalizeJid(p.id) === normalized &&
+          (p.admin === "admin" || p.admin === "superadmin"),
       );
     } catch {
       return false;
     }
   };
 
-  // ==========================================================================
-  //  Check for links
-  // ==========================================================================
-  if (!containsLink(text)) return;
-
-  const senderJid = message.key?.participant || from;
-  const senderNumber = senderJid.split("@")[0];
-
   // Skip if sender is admin
   if (await isUserAdmin(senderJid)) {
-    console.log(`👑 Admin ${senderNumber} posted link - allowed`);
+    console.log(`👑 Admin ${senderNumber} posted link — allowed`);
     return;
   }
 
-  // Skip if domain is allowed
-  if (isAllowedDomain(text)) {
-    console.log(`✅ Allowed domain from ${senderNumber}`);
-    return;
-  }
-
-  // ==========================================================================
-  //  LINK DETECTED - TAKE ACTION
-  // ==========================================================================
   console.log(`🚫 Link detected from ${senderNumber}`);
 
   // Delete the message
@@ -4270,47 +4054,28 @@ export async function antilink({
   try {
     await sock.sendMessage(from, { delete: message.key });
     deleted = true;
-    console.log(`✅ Message deleted`);
   } catch (deleteError) {
     console.log(`⚠️ Could not delete: ${deleteError.message}`);
   }
 
-  // Track warnings (using groupWarnings from index.js)
+  // Warning tracking
   const warnKey = `${from}:${senderJid}`;
   const MAX_WARNINGS = 3;
 
-  // Get current warnings
-  let userWarnings = 0;
-  if (global.groupWarnings) {
-    userWarnings = global.groupWarnings.get(warnKey) || 0;
-  } else if (global.groupWarningsMap) {
-    userWarnings = global.groupWarningsMap.get(warnKey) || 0;
-  } else {
-    // Fallback to a local Map if not available
-    if (!global._antilinkWarnings) global._antilinkWarnings = new Map();
-    userWarnings = global._antilinkWarnings.get(warnKey) || 0;
-  }
+  if (!global._antilinkWarnings) global._antilinkWarnings = new Map();
+  const warningsMap =
+    global.groupWarnings || global.groupWarningsMap || global._antilinkWarnings;
 
+  const userWarnings = warningsMap.get(warnKey) || 0;
   const newWarnings = userWarnings + 1;
-
-  // Save warnings
-  if (global.groupWarnings) {
-    global.groupWarnings.set(warnKey, newWarnings);
-  } else if (global.groupWarningsMap) {
-    global.groupWarningsMap.set(warnKey, newWarnings);
-  } else {
-    global._antilinkWarnings.set(warnKey, newWarnings);
-  }
+  warningsMap.set(warnKey, newWarnings);
 
   const warningsLeft = MAX_WARNINGS - newWarnings;
 
-  // ==========================================================================
-  //  Send warning message
-  // ==========================================================================
   if (newWarnings >= MAX_WARNINGS) {
-    // Auto-kick after max warnings
     try {
       await sock.groupParticipantsUpdate(from, [senderJid], "remove");
+      warningsMap.delete(warnKey);
       await sock.sendMessage(from, {
         text:
           `╔══════════════════════════╗\n` +
@@ -4322,30 +4087,17 @@ export async function antilink({
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
         mentions: [senderJid],
       });
-      console.log(
-        `👢 User ${senderNumber} kicked after ${MAX_WARNINGS} warnings`,
-      );
-
-      // Reset warnings
-      if (global.groupWarnings) {
-        global.groupWarnings.delete(warnKey);
-      } else if (global.groupWarningsMap) {
-        global.groupWarningsMap.delete(warnKey);
-      } else {
-        global._antilinkWarnings.delete(warnKey);
-      }
     } catch (kickError) {
       await sock.sendMessage(from, {
         text:
           `⚠️ *WARNING ${newWarnings}/${MAX_WARNINGS}*\n\n` +
           `@${senderNumber} No links allowed!\n` +
-          `❌ Failed to kick (bot not admin)\n\n` +
+          `❌ Could not auto-kick (ensure bot is admin)\n\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
         mentions: [senderJid],
       });
     }
   } else {
-    // Send warning
     await sock.sendMessage(from, {
       text:
         `╔══════════════════════════╗\n` +
@@ -4355,18 +4107,15 @@ export async function antilink({
         `⚠️ *Warning:* ${newWarnings}/${MAX_WARNINGS}\n` +
         `💢 *Action:* Message deleted ${deleted ? "✅" : "❌"}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚠️ ${warningsLeft} more warning(s) and you'll be removed.\n\n` +
+        `⚠️ ${warningsLeft} more warning(s) before auto-removal.\n\n` +
         `⚡ *AYOBOT Security* | 👑 AYOCODES`,
       mentions: [senderJid],
     });
-    console.log(
-      `⚠️ Warning ${newWarnings}/${MAX_WARNINGS} sent to ${senderNumber}`,
-    );
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT - ALL COMMANDS (UPDATED WITH NEW COMMANDS)
+//  DEFAULT EXPORT - ALL COMMANDS
 // ════════════════════════════════════════════════════════════════════════════
 export default {
   menu,

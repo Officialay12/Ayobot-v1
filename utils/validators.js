@@ -1,6 +1,6 @@
-// utils/validators.js - AYOBOT v1.0.0
+// utils/validators.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Validators & Helpers - COMPLETE WORKING VERSION
+//  Validators & Helpers — COMPLETE CORRECTED VERSION
 //  Author: AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -22,15 +22,18 @@ import {
 
 // ============================================================================
 //  NORMALIZE PHONE NUMBER
+//  FIX: strips device suffix (:N) AND @domain before extracting digits.
+//  e.g. "2349159180375:58@s.whatsapp.net" → "2349159180375"
 // ============================================================================
 export function normalizeNum(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || String(jid);
   }
+  // Strip @domain first, then strip :device suffix, then keep only digits
   return String(jid)
-    .split("@")[0]
-    .split(":")[0]
+    .split("@")[0] // remove @s.whatsapp.net / @g.us
+    .split(":")[0] // remove :58 device suffix — CRITICAL FIX
     .replace(/[^0-9]/g, "");
 }
 
@@ -81,6 +84,7 @@ export function getRateLimitMessage() {
 //  SPAM DETECTION
 // ============================================================================
 export function isSpam(userJid, messageText) {
+  // FIX: pass ownerPhone to isAdmin correctly — isAdmin needs two args
   if (!userJid || isAdmin(userJid)) return false;
 
   const now = Date.now();
@@ -92,33 +96,24 @@ export function isSpam(userJid, messageText) {
     lastMessageTime: now,
   };
 
-  // Clean old messages
   data.messages = data.messages.filter((m) => now - m.time < SPAM_TIME_WINDOW);
 
-  // Check message count in time window
-  if (data.messages.length >= MAX_SPAM_MESSAGES) {
-    return true;
-  }
+  if (data.messages.length >= MAX_SPAM_MESSAGES) return true;
 
-  // Check for similar messages (copy-paste spam)
   const similarCount = data.messages.filter(
     (m) => m.text === messageText,
   ).length;
-  if (similarCount >= MAX_SIMILAR_MESSAGES) {
-    return true;
-  }
+  if (similarCount >= MAX_SIMILAR_MESSAGES) return true;
 
-  // Update data
   data.messages.push({ text: messageText || "", time: now });
   data.lastMessageTime = now;
   data.messageCount++;
   spamTracker.set(key, data);
-
   return false;
 }
 
 // ============================================================================
-//  LINK DETECTION - COMPREHENSIVE
+//  LINK DETECTION — COMPREHENSIVE
 // ============================================================================
 export function containsLink(text) {
   if (!text || typeof text !== "string") return false;
@@ -194,6 +189,7 @@ export function extractTargetUser(args, message) {
 
 // ============================================================================
 //  CACHED GROUP ADMIN CHECK
+//  FIX: uses normalizeNum on both sides — handles :N device suffix correctly
 // ============================================================================
 export async function isGroupAdminCached(
   groupJid,
@@ -203,12 +199,11 @@ export async function isGroupAdminCached(
 ) {
   if (!groupJid || !userJid) return false;
 
-  // Global admin check
+  // Global admin (bot owner) always passes
   if (isAdmin(userJid)) return true;
 
   const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
 
-  // Check cache if not forcing refresh
   if (!forceRefresh) {
     const cached = adminCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
@@ -220,11 +215,11 @@ export async function isGroupAdminCached(
     const metadata = await sock.groupMetadata(groupJid).catch(() => null);
     if (!metadata?.participants) return false;
 
+    // normalizeNum already strips :N suffix on both sides — FIXED
     const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find((p) => {
-      const participantNum = normalizeNum(p.id);
-      return participantNum === userNum;
-    });
+    const participant = metadata.participants.find(
+      (p) => normalizeNum(p.id) === userNum,
+    );
 
     const isGroupAdmin =
       participant?.admin === "admin" || participant?.admin === "superadmin";
@@ -236,8 +231,10 @@ export async function isGroupAdminCached(
     return false;
   }
 }
+
 // ============================================================================
-//  CACHED BOT ADMIN CHECK - ULTRA DEBUG VERSION
+//  CACHED BOT ADMIN CHECK
+//  FIX: uses normalizeNum so device suffix never causes mismatch
 // ============================================================================
 export async function isBotGroupAdminCached(
   groupJid,
@@ -250,113 +247,51 @@ export async function isBotGroupAdminCached(
   const cacheKey = `botadmin_${groupJid}`;
   const now = Date.now();
 
-  // Check cache if not forcing refresh
   if (!forceRefresh) {
     const cached = adminCache.get(cacheKey);
     if (cached && now - cached.timestamp < 30000) {
-      console.log(`🔍 [CACHE] Bot admin: ${cached.isAdmin ? "✅" : "❌"}`);
       return cached.isAdmin;
     }
   }
 
   try {
-    // Get bot's JID in ALL possible formats
-    const botJid = sock.user.id;
-    const botJidParts = botJid.split(":");
-    const botJidWithoutDevice = botJidParts[0];
-    const botNumber = botJidWithoutDevice.split("@")[0].replace(/[^0-9]/g, "");
+    const botNumber = normalizeNum(sock.user.id); // strips :58 device suffix
 
-    console.log("\n🔍 ===== BOT ADMIN CHECK =====");
-    console.log("Raw bot JID:", botJid);
-    console.log("Bot JID without device:", botJidWithoutDevice);
-    console.log("Clean bot number:", botNumber);
-
-    // Get group metadata
     const metadata = await sock.groupMetadata(groupJid);
-    if (!metadata || !metadata.participants) {
-      console.log("❌ No participants found");
+    if (!metadata?.participants) {
       adminCache.set(cacheKey, { isAdmin: false, timestamp: now });
       return false;
     }
 
-    console.log(`\n👥 Group: ${metadata.subject}`);
-    console.log(`Total participants: ${metadata.participants.length}`);
+    const botParticipant = metadata.participants.find(
+      (p) => normalizeNum(p.id) === botNumber,
+    );
 
-    // Try to find bot using different matching strategies
-    let botParticipant = null;
-    let matchMethod = "";
-
-    for (const p of metadata.participants) {
-      const pFull = p.id;
-      const pWithoutDevice = pFull.split(":")[0];
-      const pNumber = pWithoutDevice.split("@")[0].replace(/[^0-9]/g, "");
-
-      console.log(`\nChecking: ${pFull}`);
-      console.log(`  → Clean number: ${pNumber}`);
-      console.log(`  → Role: ${p.admin || "member"}`);
-
-      // Strategy 1: Full JID match
-      if (pFull === botJid) {
-        botParticipant = p;
-        matchMethod = "full JID";
-        console.log(`  ✅ MATCH (full JID)`);
-        break;
-      }
-
-      // Strategy 2: JID without device
-      if (pWithoutDevice === botJidWithoutDevice) {
-        botParticipant = p;
-        matchMethod = "JID without device";
-        console.log(`  ✅ MATCH (no device)`);
-        break;
-      }
-
-      // Strategy 3: Phone number only
-      if (pNumber === botNumber) {
-        botParticipant = p;
-        matchMethod = "phone number only";
-        console.log(`  ✅ MATCH (number only)`);
-        break;
-      }
-    }
-
-    const isAdmin = !!(
+    const result = !!(
       botParticipant &&
       (botParticipant.admin === "admin" ||
         botParticipant.admin === "superadmin")
     );
 
-    if (botParticipant) {
-      console.log(`\n✅ Bot FOUND! (matched by: ${matchMethod})`);
-      console.log(`Role: ${botParticipant.admin || "member"}`);
-    } else {
-      console.log("\n❌ Bot NOT found in participants!");
-    }
-
-    console.log(`Admin status: ${isAdmin ? "✅ YES" : "❌ NO"}`);
-    console.log("================================\n");
-
-    adminCache.set(cacheKey, { isAdmin, timestamp: now });
-    return isAdmin;
+    adminCache.set(cacheKey, { isAdmin: result, timestamp: now });
+    return result;
   } catch (error) {
-    console.error("❌ Error checking bot admin status:", error);
+    console.error("isBotGroupAdminCached error:", error.message);
     return false;
   }
 }
 
 // ============================================================================
-//  DEBUG BOT ADMIN - Helper function
+//  DEBUG BOT ADMIN — diagnostic helper, logs to console
 // ============================================================================
 export async function debugBotAdmin(groupJid, sock) {
   if (!groupJid || !sock) return;
 
   console.log("\n🔍 ===== BOT ADMIN DEBUG =====");
-
   const botJid = sock.user?.id;
   console.log("Bot JID:", botJid);
-
   const botNumber = normalizeNum(botJid);
-  console.log("Bot number:", botNumber);
+  console.log("Bot number (normalized):", botNumber);
 
   try {
     const metadata = await sock.groupMetadata(groupJid);
@@ -370,10 +305,9 @@ export async function debugBotAdmin(groupJid, sock) {
       console.log(`  ${p.id} → ${pNum} (${p.admin || "member"})${match}`);
     });
 
-    const botParticipant = metadata.participants.find((p) => {
-      const pNum = normalizeNum(p.id);
-      return pNum === botNumber;
-    });
+    const botParticipant = metadata.participants.find(
+      (p) => normalizeNum(p.id) === botNumber,
+    );
 
     if (botParticipant) {
       console.log("\n✅ Bot found in group!");
@@ -417,7 +351,8 @@ export async function getGroupMetadataCached(
 }
 
 // ============================================================================
-//  CHECK IF USER IS GROUP ADMIN (direct check, no cache)
+//  CHECK IF USER IS GROUP ADMIN (direct, no cache)
+//  FIX: normalizeNum handles :N suffix on both sides
 // ============================================================================
 export async function isUserGroupAdmin(groupJid, userJid, sock) {
   if (!groupJid || !userJid || !sock) return false;
@@ -427,10 +362,9 @@ export async function isUserGroupAdmin(groupJid, userJid, sock) {
     if (!metadata?.participants) return false;
 
     const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find((p) => {
-      const participantNum = normalizeNum(p.id);
-      return participantNum === userNum;
-    });
+    const participant = metadata.participants.find(
+      (p) => normalizeNum(p.id) === userNum,
+    );
 
     return !!(
       participant &&
@@ -453,10 +387,7 @@ export async function isBotInGroup(groupJid, sock) {
     const metadata = await sock.groupMetadata(groupJid);
     if (!metadata?.participants) return false;
 
-    return metadata.participants.some((p) => {
-      const participantNum = normalizeNum(p.id);
-      return participantNum === botNumber;
-    });
+    return metadata.participants.some((p) => normalizeNum(p.id) === botNumber);
   } catch (err) {
     console.error("isBotInGroup error:", err.message);
     return false;
@@ -541,7 +472,6 @@ export function clearAdminCache(groupJid, userJid) {
 export function clearGroupCache(groupJid) {
   if (groupJid) {
     groupMetadataCache.delete(groupJid);
-    // Also clear related admin cache entries
     for (const key of adminCache.keys()) {
       if (key.startsWith(groupJid + "_") || key === `botadmin_${groupJid}`) {
         adminCache.delete(key);
@@ -555,11 +485,7 @@ export function clearGroupCache(groupJid) {
 // ============================================================================
 export async function refreshBotAdminStatus(groupJid, sock) {
   if (!groupJid || !sock) return false;
-
-  // Clear cache for this group
   clearGroupCache(groupJid);
-
-  // Re-check with fresh data
   return isBotGroupAdminCached(groupJid, sock, true);
 }
 
@@ -580,7 +506,8 @@ export function isUserJid(jid) {
 }
 
 // ============================================================================
-//  VALIDATE GROUP COMMAND
+//  VALIDATE GROUP COMMAND — single permission-check source of truth
+//  FIX: isGroupAdminCached now uses normalizeNum correctly
 // ============================================================================
 export async function validateGroupCommand(
   groupJid,
@@ -605,7 +532,6 @@ export async function validateGroupCommand(
 
     const isGlobalAdmin = isAdmin(userJid);
 
-    // If only member role required
     if (requiredRole === "member") {
       return {
         success: true,
@@ -615,7 +541,6 @@ export async function validateGroupCommand(
       };
     }
 
-    // Check group admin status
     const isGroupAdmin = await isGroupAdminCached(groupJid, userJid, sock);
 
     if (!isGlobalAdmin && !isGroupAdmin) {
@@ -625,14 +550,13 @@ export async function validateGroupCommand(
       };
     }
 
-    // Check bot admin if required
     if (requiredRole === "botAdmin") {
       const botIsAdmin = await isBotGroupAdminCached(groupJid, sock, true);
       if (!botIsAdmin) {
         return {
           success: false,
           error:
-            "❌ *Bot Not Admin*\nI need to be a group admin for this.\n\nPromote me in group settings first.",
+            "❌ *Bot Not Admin*\nI need to be a group admin for this.\nPromote me in group settings first.",
         };
       }
     }

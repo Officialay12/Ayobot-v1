@@ -1,15 +1,19 @@
-// handlers/commandHandler.js - AYOBOT v1.0.0
+// handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE FIXED VERSION - ALL COMMANDS WORKING
+//  Command Handler — COMPLETE FIXED VERSION
 //  Author  : AYOCODES
-//  Version : 1.0.0 (FINAL)
+//  Version : 1.0.0
 //
-//  FIXES INCLUDED:
-//  • Fixed trivia block missing brace
-//  • Added .pin, .unpin, .delete commands
-//  • Fixed admin detection for group owner
-//  • Added antilink detection handler
-//  • All group commands now properly registered
+//  FIXES:
+//  • Removed adminOnly from group commands (group admins can now use them)
+//  • Fixed Phase 15 JID comparison (strips :N device suffix)
+//  • Fixed adm.eval → adm.adminEval
+//  • Fixed url command registration syntax error
+//  • Added setMode to command context
+//  • Added missing admin commands (superban, listbanned, clearbans, botstatus)
+//  • Pinterest renamed to avoid conflict with .pin message command
+//  • link registered only once
+//  — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -81,11 +85,8 @@ class RateLimiter {
     const now = Date.now();
     for (const [key, times] of this.map.entries()) {
       const filtered = times.filter((t) => now - t < this.window);
-      if (filtered.length === 0) {
-        this.map.delete(key);
-      } else {
-        this.map.set(key, filtered);
-      }
+      if (!filtered.length) this.map.delete(key);
+      else this.map.set(key, filtered);
     }
   }
 }
@@ -103,15 +104,12 @@ global.activeTrivia = global.activeTrivia || new Map();
 log.title("📦 LOADING COMMAND MODULES");
 
 const MODULE_PATHS = {
-  // Core modules
   basic: "../commands/group/basic.js",
   admin: "../commands/group/admin.js",
   groupCore: "../commands/group/core.js",
   groupMod: "../commands/group/moderation.js",
   groupSettings: "../commands/group/settings.js",
   automation: "../commands/group/automation.js",
-
-  // Feature modules
   ai: "../features/ai.js",
   calculator: "../features/calculator.js",
   crypto: "../features/crypto.js",
@@ -155,16 +153,13 @@ async function safeImport(moduleName, modulePath) {
 async function loadAllModules() {
   log.div();
   let loaded = 0;
-
   for (const [name, path] of Object.entries(MODULE_PATHS)) {
     MODULES[name] = await safeImport(name, path);
     if (Object.keys(MODULES[name]).length > 0) loaded++;
   }
-
   log.div();
   log.success(`Loaded ${loaded}/${Object.keys(MODULE_PATHS).length} modules`);
   console.log();
-
   return MODULES;
 }
 
@@ -200,12 +195,10 @@ export function registerCommand(primaryName, handler, options = {}) {
 
   const name = primaryName.toLowerCase();
   const aliases = (options.aliases || []).map((a) => a.toLowerCase());
+  const meta = new CommandMeta(name, handler, options);
 
-  const primaryMeta = new CommandMeta(name, handler, options);
-
-  primaryCommands.set(name, primaryMeta);
-  commands.set(name, primaryMeta);
-
+  primaryCommands.set(name, meta);
+  commands.set(name, meta);
   commandStats.set(name, {
     uses: 0,
     errors: 0,
@@ -220,15 +213,13 @@ export function registerCommand(primaryName, handler, options = {}) {
 
   for (const alias of aliases) {
     if (alias === name) continue;
-
     const aliasMeta = {
-      ...primaryMeta,
+      ...meta,
       isAlias: true,
       aliasName: alias,
       primaryName: name,
-      handler: handler,
+      handler,
     };
-
     commands.set(alias, aliasMeta);
     aliasMap.set(alias, name);
     log.debug(`  Alias: ${alias} → ${name}`);
@@ -247,18 +238,15 @@ export function safeRegister(primaryName, handler, options = {}) {
 }
 
 // ============================================================================
-//  COMPLETE COMMAND REGISTRATION - FIXED
+//  COMMAND REGISTRATION
 // ============================================================================
 export function registerAllCommands() {
   log.title("📝 REGISTERING ALL COMMANDS");
   log.div();
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  BASIC.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── BASIC.JS ─────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
-  // Core Commands
   if (b.menu)
     safeRegister("menu", b.menu, {
       category: "core",
@@ -328,15 +316,7 @@ export function registerAllCommands() {
     safeRegister("connect", b.connectInfo, {
       category: "core",
       description: "Community links",
-      aliases: [
-        "community",
-        "links",
-        "group",
-        "channel",
-        "social",
-        "join",
-        "connectinfo",
-      ],
+      aliases: ["community", "links", "social", "join", "connectinfo"],
     });
 
   if (b.prefixinfo)
@@ -417,7 +397,6 @@ export function registerAllCommands() {
         "domaininfo",
         "domainlookup",
         "whoislookup",
-        "who",
         "domainwhois",
       ],
     });
@@ -435,20 +414,20 @@ export function registerAllCommands() {
         "dnsquery",
       ],
     });
-  `
-  if (b.url)`;
-  safeRegister("url", b.url, {
-    category: "web",
-    description: "URL information",
-    aliases: [
-      "urlinfo",
-      "urlcheck",
-      "expandurl",
-      "urldetails",
-      "urldecode",
-      "urlinspect",
-    ],
-  });
+
+  if (b.url)
+    safeRegister("url", b.url, {
+      category: "web",
+      description: "URL information",
+      aliases: [
+        "urlinfo",
+        "urlcheck",
+        "expandurl",
+        "urldetails",
+        "urldecode",
+        "urlinspect",
+      ],
+    });
 
   if (b.fetch)
     safeRegister("fetch", b.fetch, {
@@ -515,7 +494,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // Media Commands
+  // Media
   if (b.viewOnce)
     safeRegister("vv", b.viewOnce, {
       category: "media",
@@ -528,7 +507,6 @@ export function registerAllCommands() {
         "view",
         "once",
         "viewoncemsg",
-        "viewmsg",
       ],
     });
 
@@ -561,20 +539,11 @@ export function registerAllCommands() {
       ],
     });
 
-  // Tools
   if (b.qencode)
     safeRegister("qr", b.qencode, {
       category: "tools",
       description: "Generate QR code",
-      aliases: [
-        "qrcode",
-        "qencode",
-        "makeqr",
-        "createqr",
-        "qrgen",
-        "qrcreate",
-        "qrmake",
-      ],
+      aliases: ["qrcode", "qencode", "makeqr", "createqr", "qrgen", "qrcreate"],
     });
 
   if (b.pdf)
@@ -588,11 +557,9 @@ export function registerAllCommands() {
         "document",
         "pdfcreate",
         "pdfgen",
-        "makepdf",
       ],
     });
 
-  // Profile Commands
   if (b.getpp)
     safeRegister("getpp", b.getpp, {
       category: "profile",
@@ -613,6 +580,7 @@ export function registerAllCommands() {
     safeRegister("getgpp", b.getgpp, {
       category: "profile",
       description: "Get group picture",
+      groupOnly: true,
       aliases: [
         "gpp",
         "grouppic",
@@ -621,10 +589,8 @@ export function registerAllCommands() {
         "grouppicture",
         "groupprofile",
       ],
-      groupOnly: true,
     });
 
-  // AI Commands
   if (b.jarvis)
     safeRegister("jarvis", b.jarvis, {
       category: "ai",
@@ -641,7 +607,6 @@ export function registerAllCommands() {
       ],
     });
 
-  // Voice AI - with fallback
   if (b.jarvisVoice && typeof b.jarvisVoice === "function") {
     safeRegister("jarvisv", b.jarvisVoice, {
       category: "ai",
@@ -656,11 +621,10 @@ export function registerAllCommands() {
       ],
     });
   } else {
-    const voiceFallback = async ({ from, sock }) => {
-      await sock.sendMessage(from, {
-        text: "🔊 Voice response feature is coming soon! Use `.jarvis` for text responses.",
+    const voiceFallback = async ({ from, sock }) =>
+      sock.sendMessage(from, {
+        text: "🔊 Voice response coming soon! Use `.jarvis` for now.",
       });
-    };
     safeRegister("jarvisv", voiceFallback, {
       category: "ai",
       description: "Jarvis voice (coming soon)",
@@ -668,7 +632,6 @@ export function registerAllCommands() {
     });
   }
 
-  // Waitlist
   if (b.joinWaitlist)
     safeRegister("waitlist", b.joinWaitlist, {
       category: "misc",
@@ -683,13 +646,12 @@ export function registerAllCommands() {
       ],
     });
 
-  // Group commands from basic.js
   if (b.activate)
     safeRegister("activate", b.activate, {
       category: "group",
       groupOnly: true,
       adminOnly: true,
-      description: "Activate bot for all group members",
+      description: "Activate bot in group (bot owner only)",
       aliases: [
         "groupactivate",
         "activatebot",
@@ -704,7 +666,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       adminOnly: true,
-      description: "Restrict bot to owner-only",
+      description: "Restrict bot to owner-only (bot owner only)",
       aliases: [
         "groupdeactivate",
         "deactivatebot",
@@ -718,7 +680,6 @@ export function registerAllCommands() {
     safeRegister("antilink", b.antilink, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Toggle anti-link protection",
       aliases: [
         "nolink",
@@ -726,21 +687,17 @@ export function registerAllCommands() {
         "toggleantilink",
         "antilinks",
         "protectlink",
-        "antilinkon",
-        "antilinkoff",
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  AI.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── AI.JS ─────────────────────────────────────────────────────────────────
   const a = MODULES.ai;
 
   if (a.ai)
     safeRegister("ayobot", a.ai, {
       category: "ai",
       description: "Chat with AI",
-      aliases: ["ai", "chat", "bot", "gpt", "askai", "aichat", "talk", "aibot"],
+      aliases: ["chat", "bot", "gpt", "askai", "aichat", "talk", "aibot"],
     });
 
   if (a.aiClear)
@@ -752,7 +709,6 @@ export function registerAllCommands() {
         "resetai",
         "clearai",
         "ayobotclr",
-        "aiclear",
         "reset",
         "clearhistory",
       ],
@@ -762,15 +718,7 @@ export function registerAllCommands() {
     safeRegister("summarize", a.summarize, {
       category: "ai",
       description: "Summarize text",
-      aliases: [
-        "summary",
-        "tldr",
-        "sum",
-        "summarise",
-        "shorten",
-        "summarize",
-        "summarizetext",
-      ],
+      aliases: ["summary", "tldr", "sum", "summarise", "summarizetext"],
     });
 
   if (a.grammar)
@@ -788,9 +736,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  CALCULATOR.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── CALCULATOR.JS ─────────────────────────────────────────────────────────
   const calc = MODULES.calculator;
 
   if (calc.calculate)
@@ -808,9 +754,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  CRYPTO.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── CRYPTO.JS ─────────────────────────────────────────────────────────────
   const cr = MODULES.crypto;
 
   if (cr.crypto)
@@ -824,7 +768,6 @@ export function registerAllCommands() {
         "cryptoprice",
         "cryptocurrency",
         "cryptoinfo",
-        "crypto price",
       ],
     });
 
@@ -832,19 +775,10 @@ export function registerAllCommands() {
     safeRegister("cryptotop", cr.cryptoTop, {
       category: "info",
       description: "Top cryptocurrencies",
-      aliases: [
-        "top10",
-        "topcrypto",
-        "cryptolist",
-        "cointop",
-        "cryptotop",
-        "topcoins",
-      ],
+      aliases: ["top10", "topcrypto", "cryptolist", "cointop", "topcoins"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  DICTIONARY.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── DICTIONARY.JS ─────────────────────────────────────────────────────────
   const dict = MODULES.dictionary;
 
   if (dict.dict)
@@ -862,9 +796,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  DOWNLOADER.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
   const dl = MODULES.downloader;
 
   if (dl.youtube)
@@ -887,15 +819,7 @@ export function registerAllCommands() {
     safeRegister("tiktok", dl.tiktok, {
       category: "dl",
       description: "Download TikTok",
-      aliases: [
-        "tt",
-        "tok",
-        "tiktokdl",
-        "ttvideo",
-        "tiktokdown",
-        "tiktokaudio",
-        "ttdl",
-      ],
+      aliases: ["tt", "tok", "tiktokdl", "ttvideo", "tiktokdown", "ttdl"],
     });
 
   if (dl.spotify)
@@ -960,7 +884,7 @@ export function registerAllCommands() {
   if (dl.twitter)
     safeRegister("twitter", dl.twitter, {
       category: "dl",
-      description: "Download Twitter",
+      description: "Download Twitter/X",
       aliases: [
         "x",
         "tweet",
@@ -972,15 +896,13 @@ export function registerAllCommands() {
       ],
     });
 
-  // GIF Search - .gif
   if (dl.gif)
     safeRegister("gif", dl.gif, {
       category: "dl",
-      description: "Search for animated GIFs",
+      description: "Search animated GIFs",
       aliases: ["giphy", "tenor", "gifsearch", "animated"],
     });
 
-  // Image Search - .img
   if (dl.image)
     safeRegister("img", dl.image, {
       category: "dl",
@@ -988,25 +910,22 @@ export function registerAllCommands() {
       aliases: ["image", "imgsearch", "pics", "photos", "picture"],
     });
 
-  // Pinterest Search - .pin
+  // Pinterest: PRIMARY name is "pinterest" to avoid conflict with .pin (message pin)
   if (dl.pinterest)
-    safeRegister("pin", dl.pinterest, {
+    safeRegister("pinterest", dl.pinterest, {
       category: "dl",
       description: "Search Pinterest images",
-      aliases: ["pinterest", "pins", "pinsearch", "pinterestsearch"],
+      aliases: ["pins", "pinsearch", "pinterestsearch"],
     });
 
-  // Universal Downloader - .dl
   if (dl.download)
     safeRegister("dl", dl.download, {
       category: "dl",
       description: "Universal media downloader",
-      aliases: ["download", "get", "fetch", "dlfile"],
+      aliases: ["download", "get", "dlfile"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  ENCRYPTION.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── ENCRYPTION.JS ─────────────────────────────────────────────────────────
   const enc = MODULES.encryption;
 
   if (enc.encrypt)
@@ -1060,9 +979,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  GAMES.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── GAMES.JS ──────────────────────────────────────────────────────────────
   const games = MODULES.games;
 
   if (games.rps)
@@ -1115,9 +1032,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  IMAGETOOLS.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── IMAGETOOLS.JS ─────────────────────────────────────────────────────────
   const img = MODULES.imageTools;
 
   if (img.sticker)
@@ -1162,7 +1077,6 @@ export function registerAllCommands() {
       ],
     });
 
-  // TOGIF - Convert video to GIF playback
   if (img.toGif)
     safeRegister("togif", img.toGif, {
       category: "media",
@@ -1180,8 +1094,6 @@ export function registerAllCommands() {
         "video2audio",
         "getaudio",
         "audioextract",
-        "mp3",
-        "to mp3",
       ],
     });
 
@@ -1201,7 +1113,6 @@ export function registerAllCommands() {
       ],
     });
 
-  // MEME - Create memes with top/bottom text
   if (img.meme)
     safeRegister("meme", img.meme, {
       category: "media",
@@ -1209,9 +1120,7 @@ export function registerAllCommands() {
       aliases: ["makememe", "memegen", "imagememe", "creatememe", "mememaker"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  JOKES.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── JOKES.JS ──────────────────────────────────────────────────────────────
   const jokes = MODULES.jokes;
 
   if (jokes.joke)
@@ -1248,19 +1157,10 @@ export function registerAllCommands() {
     safeRegister("pickup", jokes.pickupLine, {
       category: "fun",
       description: "Pickup line",
-      aliases: [
-        "flirt",
-        "pickupline",
-        "rizz",
-        "pickup",
-        "pickupline",
-        "pickuplines",
-      ],
+      aliases: ["flirt", "pickupline", "rizz", "pickuplines"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  MOVIES.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── MOVIES.JS ─────────────────────────────────────────────────────────────
   const movies = MODULES.movies;
 
   if (movies.movie)
@@ -1293,9 +1193,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  MUSIC.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── MUSIC.JS ──────────────────────────────────────────────────────────────
   const music = MODULES.music;
 
   if (music.lyrics)
@@ -1309,7 +1207,6 @@ export function registerAllCommands() {
         "getlyrics",
         "lyricsearch",
         "lyricsfind",
-        "lyricsofsong",
       ],
     });
 
@@ -1328,9 +1225,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  NEWS.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── NEWS.JS ───────────────────────────────────────────────────────────────
   const news = MODULES.news;
 
   if (news.news)
@@ -1348,9 +1243,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  NOTES.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── NOTES.JS ──────────────────────────────────────────────────────────────
   const notes = MODULES.notes;
 
   if (notes.note)
@@ -1372,14 +1265,7 @@ export function registerAllCommands() {
     safeRegister("getnote", notes.getnote, {
       category: "storage",
       description: "Get note",
-      aliases: [
-        "recall",
-        "readnote",
-        "shownote",
-        "getnote",
-        "shownote",
-        "retrievenote",
-      ],
+      aliases: ["recall", "readnote", "shownote", "retrievenote"],
     });
 
   if (notes.notes)
@@ -1400,20 +1286,10 @@ export function registerAllCommands() {
     safeRegister("delnote", notes.deleteKey, {
       category: "storage",
       description: "Delete note",
-      aliases: [
-        "forget",
-        "deletenote",
-        "removenote",
-        "rmnote",
-        "del",
-        "deletenote",
-        "removenote",
-      ],
+      aliases: ["forget", "deletenote", "removenote", "rmnote", "removenote"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  QUOTES.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── QUOTES.JS ─────────────────────────────────────────────────────────────
   const quotes = MODULES.quotes;
 
   if (quotes.quote)
@@ -1431,9 +1307,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  REMINDER.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── REMINDER.JS ───────────────────────────────────────────────────────────
   const reminder = MODULES.reminder;
 
   if (reminder.reminder)
@@ -1446,7 +1320,6 @@ export function registerAllCommands() {
         "setreminder",
         "setalarm",
         "remindme",
-        "remind",
         "alarm",
       ],
     });
@@ -1461,7 +1334,6 @@ export function registerAllCommands() {
         "showreminders",
         "reminderlist",
         "allreminders",
-        "reminderslist",
       ],
     });
 
@@ -1488,14 +1360,11 @@ export function registerAllCommands() {
         "delayrm",
         "snoozealarm",
         "snoozer",
-        "snoozealarm",
         "remindersnooze",
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  SECURITY.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── SECURITY.JS ───────────────────────────────────────────────────────────
   const sec = MODULES.security;
 
   if (sec.scan)
@@ -1513,9 +1382,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  STOCKS.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── STOCKS.JS ─────────────────────────────────────────────────────────────
   const stocks = MODULES.stocks;
 
   if (stocks.stock)
@@ -1533,24 +1400,14 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  TRANSLATION.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── TRANSLATION.JS ────────────────────────────────────────────────────────
   const trans = MODULES.translation;
 
   if (trans.translate)
     safeRegister("translate", trans.translate, {
       category: "tools",
       description: "Translate text",
-      aliases: [
-        "tr",
-        "tl",
-        "lang",
-        "trans",
-        "translation",
-        "translate",
-        "translator",
-      ],
+      aliases: ["tr", "tl", "lang", "trans", "translation", "translator"],
     });
 
   if (trans.detect)
@@ -1577,13 +1434,10 @@ export function registerAllCommands() {
         "supportedlangs",
         "alllangs",
         "languagelist",
-        "languagesupported",
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  TTS.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── TTS.JS ────────────────────────────────────────────────────────────────
   const tts = MODULES.tts;
 
   if (tts.tts)
@@ -1601,9 +1455,7 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  UNITCONVERTER.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── UNITCONVERTER.JS ──────────────────────────────────────────────────────
   const uc = MODULES.unitConverter;
 
   if (uc.convert)
@@ -1635,16 +1487,14 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  GROUP CORE.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── GROUP CORE.JS ─────────────────────────────────────────────────────────
+  // NOTE: adminOnly removed — group admin checks are done inside each function
   const gc = MODULES.groupCore;
 
   if (gc.kick)
     safeRegister("kick", gc.kick, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Kick member",
       aliases: [
@@ -1661,7 +1511,7 @@ export function registerAllCommands() {
     safeRegister("add", gc.add, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
+      requireBotAdmin: true,
       description: "Add member",
       aliases: [
         "invite",
@@ -1677,7 +1527,6 @@ export function registerAllCommands() {
     safeRegister("promote", gc.promote, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Promote to admin",
       aliases: [
@@ -1694,7 +1543,6 @@ export function registerAllCommands() {
     safeRegister("demote", gc.demote, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Demote admin",
       aliases: [
@@ -1726,7 +1574,6 @@ export function registerAllCommands() {
     safeRegister("tagall", gc.tagall, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Tag all members",
       aliases: [
         "everyone",
@@ -1743,7 +1590,6 @@ export function registerAllCommands() {
     safeRegister("hidetag", gc.hidetag, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Silent tag all",
       aliases: [
         "htag",
@@ -1756,34 +1602,15 @@ export function registerAllCommands() {
       ],
     });
 
-  if (gc.link)
-    safeRegister("link", gc.link, {
-      category: "group",
-      groupOnly: true,
-      adminOnly: true,
-      description: "Group link",
-      aliases: [
-        "grouplink",
-        "invitelink",
-        "getlink",
-        "grouplink",
-        "linkgroup",
-        "grouplink",
-      ],
-    });
-
-  // ────────────────────────────────────────────────────────────────────────
-  //  GROUP MODERATION.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── GROUP MODERATION.JS ───────────────────────────────────────────────────
   const gm = MODULES.groupMod;
 
   if (gm.ban)
     safeRegister("ban", gm.ban, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
-      description: "Ban user",
+      description: "Ban user from group",
       aliases: [
         "block",
         "banuser",
@@ -1798,8 +1625,7 @@ export function registerAllCommands() {
     safeRegister("unban", gm.unban, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
-      description: "Unban user",
+      description: "Unban user from group",
       aliases: [
         "unblock",
         "unbanuser",
@@ -1814,7 +1640,6 @@ export function registerAllCommands() {
     safeRegister("warn", gm.warn, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Warn user",
       aliases: [
         "warning",
@@ -1845,7 +1670,6 @@ export function registerAllCommands() {
     safeRegister("clearwarns", gm.clearWarns, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Clear warnings",
       aliases: [
         "resetwarns",
@@ -1857,17 +1681,15 @@ export function registerAllCommands() {
       ],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  GROUP SETTINGS.JS - COMPLETE WITH ALL COMMANDS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── GROUP SETTINGS.JS ─────────────────────────────────────────────────────
   const gs = MODULES.groupSettings;
 
   if (gs.mute)
     safeRegister("mute", gs.mute, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
-      description: "Mute group (restrict sending)",
+      requireBotAdmin: true,
+      description: "Mute group",
       aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"],
     });
 
@@ -1875,8 +1697,8 @@ export function registerAllCommands() {
     safeRegister("unmute", gs.unmute, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
-      description: "Unmute group (allow all to send)",
+      requireBotAdmin: true,
+      description: "Unmute group",
       aliases: [
         "unlockgroup",
         "groupunlock",
@@ -1890,42 +1712,32 @@ export function registerAllCommands() {
     safeRegister("lock", gs.lock, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
+      requireBotAdmin: true,
       description: "Lock group (restrict editing info)",
-      aliases: ["lockinfo", "restrict", "lockgroup"],
+      aliases: ["lockinfo", "restrict"],
     });
 
   if (gs.unlock)
     safeRegister("unlock", gs.unlock, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
+      requireBotAdmin: true,
       description: "Unlock group (allow all to edit info)",
-      aliases: ["unlockinfo", "unrestrict", "unlockgroup"],
+      aliases: ["unlockinfo", "unrestrict"],
     });
 
   if (gs.antiSpam)
     safeRegister("antispam", gs.antiSpam, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Toggle anti-spam protection",
-      aliases: [
-        "nospam",
-        "blockspam",
-        "toggleantispam",
-        "antispam",
-        "stopspam",
-        "antispamon",
-        "antispamoff",
-      ],
+      aliases: ["nospam", "blockspam", "toggleantispam", "stopspam"],
     });
 
   if (gs.welcomeToggle)
     safeRegister("welcome", gs.welcomeToggle, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Toggle welcome messages",
       aliases: ["togglewelcome", "welcomeon", "welcomeoff", "welcomemsg"],
     });
@@ -1934,7 +1746,6 @@ export function registerAllCommands() {
     safeRegister("setwelcome", gs.setWelcome, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Set welcome message",
       aliases: ["setwelcomemsg", "welcometext"],
     });
@@ -1943,7 +1754,6 @@ export function registerAllCommands() {
     safeRegister("goodbye", gs.goodbyeToggle, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Toggle goodbye messages",
       aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff", "goodbyemsg"],
     });
@@ -1952,7 +1762,6 @@ export function registerAllCommands() {
     safeRegister("setgoodbye", gs.setGoodbye, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Set goodbye message",
       aliases: ["setgoodbyemsg", "goodbyetext"],
     });
@@ -1977,16 +1786,15 @@ export function registerAllCommands() {
     safeRegister("setrules", gs.setRules, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Set group rules",
       aliases: ["setgrules", "addrules"],
     });
 
+  // link registered ONCE from settings (most complete version)
   if (gs.link)
     safeRegister("link", gs.link, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Get group invite link",
       aliases: ["grouplink", "invite", "invitelink"],
     });
@@ -1995,49 +1803,41 @@ export function registerAllCommands() {
     safeRegister("revoke", gs.revoke, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Revoke group invite link",
       aliases: ["revokelink", "resetlink", "newlink"],
     });
 
-  // PIN COMMAND - ADDED
   if (gs.pin)
     safeRegister("pin", gs.pin, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Pin a message",
       aliases: ["pinmsg", "pinmessage"],
     });
 
-  // UNPIN COMMAND - ADDED
   if (gs.unpin)
     safeRegister("unpin", gs.unpin, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       requireBotAdmin: true,
       description: "Unpin a message",
       aliases: ["unpinmsg", "unpinmessage"],
     });
 
-  // DELETE COMMAND - ADDED
   if (gs.deleteMsg)
     safeRegister("delete", gs.deleteMsg, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Delete a message",
-      aliases: ["del", "remove", "rm", "delete"],
+      aliases: ["delmsg", "deletemessage", "rmmsg"],
     });
 
   if (gs.settingsOverview)
     safeRegister("settings", gs.settingsOverview, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "View group settings",
       aliases: ["groupsettings", "gsettings", "settingspanel"],
     });
@@ -2046,7 +1846,6 @@ export function registerAllCommands() {
     safeRegister("resetsettings", gs.resetSettings, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Reset all group settings",
       aliases: ["resetgroupsettings", "clearsettings", "resetall"],
     });
@@ -2055,7 +1854,6 @@ export function registerAllCommands() {
     safeRegister("leave", gs.leave, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Make bot leave the group",
       aliases: ["botleave", "leavegroup", "exit"],
     });
@@ -2064,7 +1862,6 @@ export function registerAllCommands() {
     safeRegister("groupdebug", gs.debug, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Debug group information",
       aliases: ["gdebug", "groupdbg"],
     });
@@ -2073,7 +1870,6 @@ export function registerAllCommands() {
     safeRegister("testadmin", gs.testAdmin, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Test admin status",
       aliases: ["admintest", "checkadmin"],
     });
@@ -2082,14 +1878,11 @@ export function registerAllCommands() {
     safeRegister("refreshadmin", gs.refreshAdmin, {
       category: "group",
       groupOnly: true,
-      adminOnly: true,
       description: "Refresh admin cache",
       aliases: ["refresh", "clearcache"],
     });
 
-  // ────────────────────────────────────────────────────────────────────────
-  //  ADMIN.JS
-  // ────────────────────────────────────────────────────────────────────────
+  // ── ADMIN.JS — BOT OWNER ONLY ─────────────────────────────────────────────
   const adm = MODULES.admin;
 
   if (adm.addUser)
@@ -2097,14 +1890,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Add authorized user",
-      aliases: [
-        "auth",
-        "allow",
-        "authorize",
-        "whitelist",
-        "addauth",
-        "authorizeuser",
-      ],
+      aliases: ["auth", "allow", "authorize", "addauth", "authorizeuser"],
     });
 
   if (adm.removeUser)
@@ -2116,7 +1902,6 @@ export function registerAllCommands() {
         "deauth",
         "disallow",
         "unauthorize",
-        "unwhitelist",
         "removeauth",
         "deauthorize",
       ],
@@ -2129,7 +1914,6 @@ export function registerAllCommands() {
       description: "List authorized users",
       aliases: [
         "users",
-        "whitelist",
         "showusers",
         "authlist",
         "listauth",
@@ -2177,7 +1961,6 @@ export function registerAllCommands() {
         "globalbroadcast",
         "globalannounce",
         "massbc",
-        "globalbc",
         "globalmessage",
       ],
     });
@@ -2187,14 +1970,47 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Bot statistics",
-      aliases: [
-        "botstats",
-        "botinfo",
-        "usage",
-        "analytics",
-        "statistics",
-        "botstatus",
-      ],
+      aliases: ["botstats", "usage", "analytics", "statistics"],
+    });
+
+  if (adm.botStatus)
+    safeRegister("botstatus", adm.botStatus, {
+      category: "admin",
+      adminOnly: true,
+      description: "Detailed bot status",
+      aliases: ["botinfo", "fullstatus", "statusinfo"],
+    });
+
+  if (adm.superBan)
+    safeRegister("superban", adm.superBan, {
+      category: "admin",
+      adminOnly: true,
+      description: "Permanently ban user globally",
+      aliases: ["globalban", "permban", "hardban"],
+    });
+
+  if (adm.unban)
+    safeRegister("superunban", adm.unban, {
+      category: "admin",
+      adminOnly: true,
+      description: "Remove global ban",
+      aliases: ["globalunban", "permunban", "hardunban"],
+    });
+
+  if (adm.listBanned)
+    safeRegister("listbanned", adm.listBanned, {
+      category: "admin",
+      adminOnly: true,
+      description: "List globally banned users",
+      aliases: ["bannedlist", "getbanned", "showbanned", "bannedusers"],
+    });
+
+  if (adm.clearBans)
+    safeRegister("clearbans", adm.clearBans, {
+      category: "admin",
+      adminOnly: true,
+      description: "Clear all global bans",
+      aliases: ["resetbans", "removeallbans", "deletebans"],
     });
 
   if (adm.restart)
@@ -2205,7 +2021,6 @@ export function registerAllCommands() {
       aliases: [
         "reboot",
         "botrestart",
-        "reset",
         "restartbot",
         "reload",
         "restartsystem",
@@ -2228,8 +2043,9 @@ export function registerAllCommands() {
       ],
     });
 
-  if (adm.eval)
-    safeRegister("eval", adm.eval, {
+  // adm.adminEval is the correct export name (eval is a reserved word)
+  if (adm.adminEval)
+    safeRegister("eval", adm.adminEval, {
       category: "admin",
       adminOnly: true,
       description: "Execute code",
@@ -2247,21 +2063,16 @@ export function registerAllCommands() {
 registerAllCommands();
 
 // ============================================================================
-//  COMMAND HANDLER EXECUTION - WITH ANTILINK DETECTION
+//  COMMAND HANDLER
 // ============================================================================
 export async function handleCommand(message, sock) {
   const executionStart = Date.now();
   const executionId = Math.random().toString(36).substring(2, 8);
 
   try {
-    // ======================================================================
-    //  PHASE 1: EXTRACT BASIC MESSAGE INFO
-    // ======================================================================
+    // ── PHASE 1: Extract basic message info ──────────────────────────────────
     const from = message?.key?.remoteJid;
-    if (!from) {
-      log.debug(`[${executionId}] No remoteJid, ignoring`);
-      return;
-    }
+    if (!from) return;
 
     const isGroup = from.endsWith("@g.us");
     const fromMe = !!message.key.fromMe;
@@ -2272,9 +2083,7 @@ export async function handleCommand(message, sock) {
       message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
     const sessionId = message._sessionId || session?.id || "";
 
-    // ======================================================================
-    //  PHASE 2: DETERMINE SENDER
-    // ======================================================================
+    // ── PHASE 2: Determine sender ─────────────────────────────────────────────
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -2285,25 +2094,22 @@ export async function handleCommand(message, sock) {
       rawSenderJid = from;
     }
 
+    // Strip device suffix for clean phone number
     const cleanPhone =
-      rawSenderJid?.split("@")[0]?.replace(/[^0-9]/g, "") || "";
+      rawSenderJid
+        ?.split("@")[0]
+        ?.split(":")[0]
+        ?.replace(/[^0-9]/g, "") || "";
     const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
 
-    if (!userJid || !cleanPhone) {
-      log.debug(`[${executionId}] Invalid user JID, ignoring`);
-      return;
-    }
+    if (!userJid || !cleanPhone) return;
 
-    // ======================================================================
-    //  PHASE 3: AUTHORIZATION CHECKS
-    // ======================================================================
+    // ── PHASE 3: Authorization checks ────────────────────────────────────────
     const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
     const isAuthorizedUser =
       isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
-    // ======================================================================
-    //  PHASE 4: EXTRACT MESSAGE TEXT
-    // ======================================================================
+    // ── PHASE 4: Extract message text ────────────────────────────────────────
     const m = message.message || {};
     const msgText =
       m.conversation ||
@@ -2316,50 +2122,47 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // ======================================================================
-    //  PHASE 5: ANTI-LINK DETECTION - RUNS FOR EVERY MESSAGE IN GROUPS
-    // ======================================================================
+    // ── PHASE 5: Anti-link detection ─────────────────────────────────────────
     if (isGroup) {
       try {
-        // Check if antilink is enabled for this group
         const settings = groupSettings.get(from) || {};
         if (settings.antilink && containsLink(trimmed)) {
-          // User is not admin
-          if (!isAdminUser) {
-            // Check if user is group admin
-            let isGroupAdmin = false;
-            try {
-              const metadata = await sock.groupMetadata(from);
-              isGroupAdmin = metadata.participants.some(
-                (p) =>
-                  p.id === userJid &&
-                  (p.admin === "admin" || p.admin === "superadmin"),
+          let isGroupAdmin = false;
+          try {
+            const metadata = await sock.groupMetadata(from);
+            isGroupAdmin = metadata.participants.some((p) => {
+              const pPhone = p.id
+                .split("@")[0]
+                .split(":")[0]
+                .replace(/[^0-9]/g, "");
+              return (
+                pPhone === cleanPhone &&
+                (p.admin === "admin" || p.admin === "superadmin")
               );
-            } catch (e) {}
+            });
+          } catch (_) {}
 
-            if (!isGroupAdmin) {
-              // Delete the message
+          if (!isAdminUser && !isGroupAdmin) {
+            try {
               await sock.sendMessage(from, { delete: message.key });
+            } catch (_) {}
 
-              // Warn the user
-              const warnings = groupWarnings.get(userJid) || 0;
-              const newWarnings = warnings + 1;
-              groupWarnings.set(userJid, newWarnings);
+            const warnings = groupWarnings.get(userJid) || 0;
+            const newWarnings = warnings + 1;
+            groupWarnings.set(userJid, newWarnings);
 
-              await sock.sendMessage(from, {
-                text: `🔗 *Link Detected!*\n\n@${cleanPhone} you are not allowed to send links here.\nWarning: ${newWarnings}/${ENV.MAX_WARNINGS || 3}`,
-                mentions: [userJid],
-              });
+            await sock.sendMessage(from, {
+              text: `🔗 *Link Detected!*\n\n@${cleanPhone} links are not allowed here.\n⚠️ Warning: ${newWarnings}/${ENV.MAX_WARNINGS || 3}`,
+              mentions: [userJid],
+            });
 
-              // Kick if max warnings reached
-              if (newWarnings >= (ENV.MAX_WARNINGS || 3)) {
-                if (await isBotGroupAdminCached(from, sock, true)) {
-                  await sock.groupParticipantsUpdate(from, [userJid], "remove");
-                  groupWarnings.delete(userJid);
-                }
+            if (newWarnings >= (ENV.MAX_WARNINGS || 3)) {
+              if (await isBotGroupAdminCached(from, sock, true)) {
+                await sock.groupParticipantsUpdate(from, [userJid], "remove");
+                groupWarnings.delete(userJid);
               }
-              return;
             }
+            return;
           }
         }
       } catch (err) {
@@ -2367,30 +2170,19 @@ export async function handleCommand(message, sock) {
       }
     }
 
-    // ======================================================================
-    //  PHASE 6: TRIVIA ANSWER HANDLER - FIXED
-    // ======================================================================
+    // ── PHASE 6: Trivia answer handler ───────────────────────────────────────
     if (!trimmed.startsWith(ENV.PREFIX)) {
-      // This is a non-command message
-
-      // Check for trivia answers (A, B, C, D)
       if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
         if (global.activeTrivia?.has(from)) {
-          // Check permissions
-          if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
+          if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from))
             return;
-          }
-          if (sessionMode === "private" && !isAdminUser) {
-            return;
-          }
-          if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
-            return;
-          }
+          if (sessionMode === "private" && !isAdminUser) return;
+          if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
 
           try {
-            const games = MODULES.games;
-            if (typeof games?.handleTriviaAnswer === "function") {
-              await games.handleTriviaAnswer(message, from, sock);
+            const g = MODULES.games;
+            if (typeof g?.handleTriviaAnswer === "function") {
+              await g.handleTriviaAnswer(message, from, sock);
               return;
             }
           } catch (error) {
@@ -2398,16 +2190,10 @@ export async function handleCommand(message, sock) {
           }
         }
       }
-
-      // IMPORTANT: Non-command messages that aren't trivia answers should be ignored
       return;
     }
 
-    // ======================================================================
-    //  PHASE 7: PREFIX CHECK
-    // ======================================================================
-    if (!trimmed.startsWith(ENV.PREFIX)) return;
-
+    // ── PHASE 7: Prefix check ────────────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
@@ -2418,35 +2204,25 @@ export async function handleCommand(message, sock) {
 
     if (!commandName) return;
 
-    // ======================================================================
-    //  PHASE 8: BANNED USER CHECK
-    // ======================================================================
+    // ── PHASE 8: Banned user check ───────────────────────────────────────────
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
       log.warn(`[${executionId}] Blocked banned user: ${cleanPhone}`);
       return;
     }
 
-    // ======================================================================
-    //  PHASE 9: GROUP ACTIVATION CHECK
-    // ======================================================================
+    // ── PHASE 9: Group activation check ─────────────────────────────────────
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
-      log.info(
-        `[${executionId}] Group not activated: ${commandName} ignored from ${cleanPhone}`,
-      );
+      log.info(`[${executionId}] Group not activated: ${commandName} ignored`);
       return;
     }
 
-    // ======================================================================
-    //  PHASE 10: PRIVATE MODE CHECK
-    // ======================================================================
+    // ── PHASE 10: Private mode check ─────────────────────────────────────────
     if (sessionMode === "private" && !isAdminUser) {
       log.info(`[${executionId}] Private mode: silently ignored ${cleanPhone}`);
       return;
     }
 
-    // ======================================================================
-    //  PHASE 11: COMMAND LOOKUP
-    // ======================================================================
+    // ── PHASE 11: Command lookup ──────────────────────────────────────────────
     log.info(
       `[${executionId}] ${ENV.PREFIX}${commandName} from ${cleanPhone}${isGroup ? " [GROUP]" : ""}`,
     );
@@ -2455,29 +2231,23 @@ export async function handleCommand(message, sock) {
 
     if (!commandMeta) {
       log.warn(`[${executionId}] Unknown command: ${commandName}`);
-
-      const similarCommands = findSimilarCommands(commandName);
-      let suggestionText = "";
-
-      if (similarCommands.length > 0) {
-        suggestionText = `\n\nDid you mean: *${ENV.PREFIX}${similarCommands[0]}*?`;
-        if (similarCommands.length > 1) {
-          suggestionText += `\nOr: ${similarCommands
+      const similar = findSimilarCommands(commandName);
+      let suggestion = "";
+      if (similar.length > 0) {
+        suggestion = `\n\nDid you mean: *${ENV.PREFIX}${similar[0]}*?`;
+        if (similar.length > 1)
+          suggestion += `\nOr: ${similar
             .slice(1, 3)
             .map((c) => `*${ENV.PREFIX}${c}*`)
             .join(", ")}`;
-        }
       }
-
       await sock.sendMessage(from, {
-        text: `❓ *Unknown Command:* ${ENV.PREFIX}${commandName}${suggestionText}\n\nType *${ENV.PREFIX}menu* to see all commands!`,
+        text: `❓ *Unknown Command:* ${ENV.PREFIX}${commandName}${suggestion}\n\nType *${ENV.PREFIX}menu* to see all commands!`,
       });
       return;
     }
 
-    // ======================================================================
-    //  PHASE 12: GET THE ACTUAL HANDLER FUNCTION
-    // ======================================================================
+    // ── PHASE 12: Resolve handler ─────────────────────────────────────────────
     let handlerFunction = commandMeta.handler;
     let primaryName = commandMeta.primaryName || commandName;
 
@@ -2488,12 +2258,8 @@ export async function handleCommand(message, sock) {
       );
     }
 
-    // ======================================================================
-    //  PHASE 13: TRACK USAGE
-    // ======================================================================
-    if (!commandUsage.has(userJid)) {
-      commandUsage.set(userJid, {});
-    }
+    // ── PHASE 13: Track usage ─────────────────────────────────────────────────
+    if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
     commandUsage.get(userJid)[primaryName] =
       (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
@@ -2508,9 +2274,7 @@ export async function handleCommand(message, sock) {
     stats.lastUsed = Date.now();
     commandStats.set(primaryName, stats);
 
-    // ======================================================================
-    //  PHASE 14: RATE LIMIT CHECK
-    // ======================================================================
+    // ── PHASE 14: Rate limit ──────────────────────────────────────────────────
     if (!isAdminUser && !rateLimiter.isAllowed(userJid)) {
       const seconds = Math.ceil(rateLimiter.remaining(userJid) / 1000);
       const messages = [
@@ -2518,23 +2282,22 @@ export async function handleCommand(message, sock) {
         `🧘 *Take a breath!* Wait ${seconds}s.`,
         `⚡ *Rate limited!* Try again in ${seconds}s.`,
       ];
-      const message = messages[Math.floor(Math.random() * messages.length)];
-      return sock.sendMessage(from, { text: message });
+      return sock.sendMessage(from, {
+        text: messages[Math.floor(Math.random() * messages.length)],
+      });
     }
 
-    // ======================================================================
-    //  PHASE 15: PERMISSION CHECKS
-    // ======================================================================
+    // ── PHASE 15: Permission checks ───────────────────────────────────────────
 
-    // Admin only check
+    // Bot-owner-only commands
     if (commandMeta.adminOnly && !isAdminUser) {
-      log.debug(`[${executionId}] Admin-only command blocked for non-admin`);
+      log.debug(`[${executionId}] Admin-only command blocked for non-owner`);
       return sock.sendMessage(from, {
         text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.`,
       });
     }
 
-    // Group only check
+    // Group-only commands
     if (commandMeta.groupOnly && !isGroup) {
       log.debug(`[${executionId}] Group-only command used in DM`);
       return sock.sendMessage(from, {
@@ -2542,58 +2305,62 @@ export async function handleCommand(message, sock) {
       });
     }
 
-    // Commands that require bot admin
+    // Commands requiring bot to be group admin
     if (commandMeta.requireBotAdmin && isGroup) {
-      // Check if the USER is a group admin
+      // FIX: Strip device suffix (:N) before comparing phone numbers
       let userIsGroupAdmin = false;
       let groupMetadata = null;
 
       try {
         groupMetadata = await sock.groupMetadata(from);
-        userIsGroupAdmin = groupMetadata.participants.some(
-          (p) =>
-            p.id === userJid &&
-            (p.admin === "admin" || p.admin === "superadmin"),
-        );
-        log.debug(
-          `[${executionId}] User group admin status: ${userIsGroupAdmin}`,
-        );
+        userIsGroupAdmin = groupMetadata.participants.some((p) => {
+          const pPhone = p.id
+            .split("@")[0]
+            .split(":")[0]
+            .replace(/[^0-9]/g, "");
+          return (
+            pPhone === cleanPhone &&
+            (p.admin === "admin" || p.admin === "superadmin")
+          );
+        });
       } catch (err) {
         log.debug(
           `[${executionId}] Failed to check user admin status: ${err.message}`,
         );
       }
 
-      if (!userIsGroupAdmin) {
-        log.debug(`[${executionId}] User is not a group admin - access denied`);
+      // Bot owners bypass the group admin requirement
+      if (!isAdminUser && !userIsGroupAdmin) {
         return sock.sendMessage(from, {
           text: `⛔ *Group Admin Only*\nYou need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.`,
         });
       }
 
-      // Check bot admin status (just for warning)
+      // Warn if bot itself is not admin
       let botIsAdmin = false;
       try {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
-        log.debug(`[${executionId}] Bot admin status: ${botIsAdmin}`);
-      } catch (err) {
-        log.debug(`[${executionId}] Bot admin check failed: ${err.message}`);
-      }
+      } catch (_) {}
 
       if (!botIsAdmin) {
-        log.debug(`[${executionId}] Bot is not admin - command may fail`);
         await sock.sendMessage(from, {
-          text: `⚠️ *Note:* I am not a group admin.\nSome features may not work. Please promote me to admin for full functionality.`,
+          text: `⚠️ *Note:* I am not a group admin yet.\nPlease promote me to admin for this command to work fully.`,
         });
-        // Continue execution
+        // Continue execution — some commands degrade gracefully
       }
     }
 
-    // ======================================================================
-    //  PHASE 16: EXECUTE COMMAND WITH TIMING
-    // ======================================================================
+    // ── PHASE 16: Execute command ─────────────────────────────────────────────
     const handlerStart = Date.now();
     log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
+
+    // setMode function — updates session mode in memory (persists for connection lifetime)
+    const setMode = async (newMode) => {
+      if (session) {
+        session.mode = newMode;
+        log.info(`[${executionId}] Session mode updated to: ${newMode}`);
+      }
+    };
 
     try {
       const context = {
@@ -2618,19 +2385,18 @@ export async function handleCommand(message, sock) {
         sessionMode,
         ownerPhone,
         ENV,
+        setMode, // injected for the .mode command in admin.js
       };
 
-      const executionPromise = handlerFunction(context);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Command execution timeout")), 60000),
       );
 
-      await Promise.race([executionPromise, timeoutPromise]);
+      await Promise.race([handlerFunction(context), timeoutPromise]);
 
       const executionTime = Date.now() - handlerStart;
       stats.totalResponseTime += executionTime;
       stats.avgResponseTime = stats.totalResponseTime / stats.uses;
-
       log.success(
         `[${executionId}] ${primaryName} completed (${executionTime}ms)`,
       );
@@ -2638,14 +2404,13 @@ export async function handleCommand(message, sock) {
       stats.errors++;
       log.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
 
-      const errorMessage = cmdError.message || "Unknown error";
-      const userMessage =
-        errorMessage.length > 100
+      const errMsg =
+        cmdError.message?.length > 100
           ? "An error occurred while executing the command."
-          : `❌ *Error*\n\n${errorMessage}`;
+          : `❌ *Error*\n\n${cmdError.message}`;
 
       try {
-        await sock.sendMessage(from, { text: userMessage });
+        await sock.sendMessage(from, { text: errMsg });
       } catch (_) {}
     }
 
@@ -2659,7 +2424,6 @@ export async function handleCommand(message, sock) {
   } catch (fatalError) {
     log.err(`[${executionId}] FATAL: ${fatalError.message}`);
     log.debug(fatalError.stack);
-
     try {
       await sock?.sendMessage(message?.key?.remoteJid, {
         text: "❌ A system error occurred. Please try again.",
@@ -2675,12 +2439,8 @@ function findSimilarCommands(input, limit = 3) {
   const inputLower = input.toLowerCase();
   const commandsList = Array.from(primaryCommands.keys());
 
-  const withDistance = commandsList.map((cmd) => {
-    const distance = levenshteinDistance(inputLower, cmd);
-    return { cmd, distance };
-  });
-
-  return withDistance
+  return commandsList
+    .map((cmd) => ({ cmd, distance: levenshteinDistance(inputLower, cmd) }))
     .filter((item) => item.distance <= 3 && item.distance > 0)
     .sort((a, b) => a.distance - b.distance)
     .slice(0, limit)
@@ -2688,20 +2448,16 @@ function findSimilarCommands(input, limit = 3) {
 }
 
 function levenshteinDistance(a, b) {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
 
   const matrix = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
 
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+      if (b[i - 1] === a[j - 1]) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
         matrix[i][j] = Math.min(
@@ -2721,7 +2477,6 @@ function levenshteinDistance(a, b) {
 export function getCommandInfo(name) {
   const meta = commands.get(name?.toLowerCase());
   if (!meta) return null;
-
   return {
     name: meta.primaryName || name,
     category: meta.category,
@@ -2734,31 +2489,26 @@ export function getCommandInfo(name) {
 }
 
 export function getCommandStats(name) {
-  const primary = name?.toLowerCase();
-  return commandStats.get(primary) || null;
+  return commandStats.get(name?.toLowerCase()) || null;
 }
 
 export function getCommandsByCategory(category) {
-  const uniqueCommands = new Map();
-
+  const unique = new Map();
   for (const [_, meta] of commands.entries()) {
     if (meta.category === category && !meta.isAlias) {
-      uniqueCommands.set(meta.primaryName, meta);
+      unique.set(meta.primaryName, meta);
     }
   }
-
-  return Array.from(uniqueCommands.values());
+  return Array.from(unique.values());
 }
 
 export function getAllStats() {
-  let totalUses = 0;
-  let totalErrors = 0;
-
+  let totalUses = 0,
+    totalErrors = 0;
   for (const stats of commandStats.values()) {
     totalUses += stats.uses;
     totalErrors += stats.errors;
   }
-
   return {
     totalCommands: primaryCommands.size,
     totalAliases: commands.size - primaryCommands.size,
@@ -2775,19 +2525,13 @@ export function getAllStats() {
 
 export async function reloadCommands() {
   log.title("🔄 RELOADING COMMANDS");
-
   commands.clear();
   primaryCommands.clear();
   aliasMap.clear();
   commandStats.clear();
-
-  for (const name in MODULES) {
-    delete MODULES[name];
-  }
-
+  for (const name in MODULES) delete MODULES[name];
   await loadAllModules();
   registerAllCommands();
-
   log.success("✅ Commands reloaded successfully");
 }
 

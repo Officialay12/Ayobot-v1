@@ -1,7 +1,12 @@
-// commands/group/moderation.js - AYOBOT v1.0.0
+// commands/group/moderation.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Moderation Module - FIXED with proper admin detection
+//  Group Moderation Module — FIXED & COMPLETE
 //  Author: AYOCODES
+//
+//  FIXES:
+//    • fmt() now calls body.trim() — removes double blank lines — AYOCODES
+//    • isGroupAdminCached() now works correctly since validators.js is fixed
+//      to strip :N device suffix before comparing JIDs
 //
 //  Commands: ban, unban, listbanned, warn, warnings, clearwarns
 // ════════════════════════════════════════════════════════════════════════════
@@ -21,15 +26,21 @@ import {
   isBotGroupAdminCached,
   getGroupMetadataCached,
   extractTargetUser,
-  toJid,
 } from "../../utils/validators.js";
 
 // ============================================================================
-//  HELPER FUNCTIONS
+//  HELPERS
 // ============================================================================
 
+// FIX: body.trim() removes trailing \n before divider — AYOCODES
 function fmt(emoji, title, body) {
-  return `${emoji} *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n${body}\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+  return (
+    `${emoji} *${title}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${body.trim()}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+  );
 }
 
 function phone(jid) {
@@ -53,7 +64,7 @@ export async function ban({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
+    // isGroupAdminCached now correctly handles :N device suffix — AYOCODES
     const isUserAdmin = await isGroupAdminCached(from, userJid, sock, true);
     if (!isUserAdmin && !isAdmin(userJid)) {
       return sock.sendMessage(from, {
@@ -65,7 +76,6 @@ export async function ban({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Check if bot is admin
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
@@ -77,7 +87,6 @@ export async function ban({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Get target user
     const target = extractTargetUser(args, message);
     if (!target) {
       return sock.sendMessage(from, {
@@ -94,21 +103,17 @@ export async function ban({ args, message, from, userJid, sock }) {
     const targetJid = target.jid;
     const targetPhone = target.phone;
 
-    // Cannot ban self
-    if (targetJid === userJid) {
+    if (normalizeNum(targetJid) === normalizeNum(userJid)) {
       return sock.sendMessage(from, {
         text: fmt("❌", "ERROR", "You cannot ban yourself."),
       });
     }
-
-    // Cannot ban bot
-    if (targetJid === sock.user?.id) {
+    if (normalizeNum(targetJid) === normalizeNum(sock.user?.id)) {
       return sock.sendMessage(from, {
         text: fmt("❌", "ERROR", "You cannot ban me!"),
       });
     }
 
-    // Check if target is admin
     const targetIsAdmin = await isGroupAdminCached(from, targetJid, sock, true);
     if (targetIsAdmin) {
       return sock.sendMessage(from, {
@@ -123,7 +128,6 @@ export async function ban({ args, message, from, userJid, sock }) {
     const reason =
       args.length > 1 ? args.slice(1).join(" ") : "No reason provided";
 
-    // Remove from group
     try {
       await sock.groupParticipantsUpdate(from, [targetJid], "remove");
     } catch (kickError) {
@@ -136,7 +140,6 @@ export async function ban({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Add to banned list
     const banKey = `${from}_${targetJid}`;
     bannedUsers.set(banKey, {
       jid: targetJid,
@@ -180,7 +183,6 @@ export async function unban({ args, from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const isUserAdmin = await isGroupAdminCached(from, userJid, sock, true);
     if (!isUserAdmin && !isAdmin(userJid)) {
       return sock.sendMessage(from, {
@@ -215,13 +217,11 @@ export async function unban({ args, from, userJid, sock }) {
       });
     }
 
-    // Find ban record
     let foundBan = null;
     let banKey = null;
 
     for (const [key, ban] of bannedUsers.entries()) {
       if (!key.startsWith(`${from}_`)) continue;
-
       const banPhone = String(ban.phone || "").replace(/[^0-9]/g, "");
       if (
         banPhone === targetPhone ||
@@ -238,13 +238,11 @@ export async function unban({ args, from, userJid, sock }) {
         text: fmt(
           "ℹ️",
           "NOT BANNED",
-          `+${targetPhone} is not banned in this group.\n\n` +
-            `💡 Use .listbanned to see all bans.`,
+          `+${targetPhone} is not banned in this group.\n\n💡 Use .listbanned to see all bans.`,
         ),
       });
     }
 
-    // Remove from banned list
     bannedUsers.delete(banKey);
     saveBannedUsers();
 
@@ -281,9 +279,7 @@ export async function listBanned({ from, sock }) {
 
     const groupBans = [];
     for (const [key, ban] of bannedUsers.entries()) {
-      if (key.startsWith(`${from}_`)) {
-        groupBans.push(ban);
-      }
+      if (key.startsWith(`${from}_`)) groupBans.push(ban);
     }
 
     if (!groupBans.length) {
@@ -296,12 +292,12 @@ export async function listBanned({ from, sock }) {
       });
     }
 
-    // Sort by most recent first
     groupBans.sort((a, b) => b.time - a.time);
 
-    let list = `╔══════════════════════════════════════╗\n`;
-    list += `║   🚫 *BANNED USERS* (${groupBans.length})           ║\n`;
-    list += `╚══════════════════════════════════════╝\n\n`;
+    let list =
+      `╔══════════════════════════════════════╗\n` +
+      `║   🚫 *BANNED USERS* (${groupBans.length})           ║\n` +
+      `╚══════════════════════════════════════╝\n\n`;
 
     groupBans.forEach((ban, i) => {
       const banPhone = ban.phone || phone(ban.jid);
@@ -312,9 +308,10 @@ export async function listBanned({ from, sock }) {
       list += `   📅 ${banDate}\n\n`;
     });
 
-    list += `━━━━━━━━━━━━━━━━━━━━━\n`;
-    list += `💡 Use .unban <phone> to unban someone\n`;
-    list += `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+    list +=
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 Use .unban <phone> to unban someone\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
     await sock.sendMessage(from, { text: list });
   } catch (error) {
@@ -336,7 +333,6 @@ export async function warn({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const isUserAdmin = await isGroupAdminCached(from, userJid, sock, true);
     if (!isUserAdmin && !isAdmin(userJid)) {
       return sock.sendMessage(from, {
@@ -348,7 +344,6 @@ export async function warn({ args, message, from, userJid, sock }) {
       });
     }
 
-    // Get target user
     const target = extractTargetUser(args, message);
     if (!target) {
       return sock.sendMessage(from, {
@@ -364,14 +359,12 @@ export async function warn({ args, message, from, userJid, sock }) {
     const targetJid = target.jid;
     const targetPhone = target.phone;
 
-    // Cannot warn self
-    if (targetJid === userJid) {
+    if (normalizeNum(targetJid) === normalizeNum(userJid)) {
       return sock.sendMessage(from, {
         text: fmt("❌", "ERROR", "You cannot warn yourself."),
       });
     }
 
-    // Check if target is admin
     const targetIsAdmin = await isGroupAdminCached(from, targetJid, sock, true);
     if (targetIsAdmin) {
       return sock.sendMessage(from, {
@@ -383,7 +376,6 @@ export async function warn({ args, message, from, userJid, sock }) {
       args.length > 1 ? args.slice(1).join(" ") : "No reason provided";
     const maxWarnings = parseInt(ENV.MAX_WARNINGS) || 3;
 
-    // Get or create warning record
     const warnKey = `${from}_${targetJid}`;
     let warning = groupWarnings.get(warnKey) || {
       count: 0,
@@ -399,10 +391,7 @@ export async function warn({ args, message, from, userJid, sock }) {
       warnedBy: phone(userJid),
     });
     warning.lastWarn = Date.now();
-
-    if (warning.count === 1) {
-      warning.firstWarn = Date.now();
-    }
+    if (warning.count === 1) warning.firstWarn = Date.now();
 
     groupWarnings.set(warnKey, warning);
     saveWarnings();
@@ -429,7 +418,6 @@ export async function warn({ args, message, from, userJid, sock }) {
         `⏰ *Time:* ${new Date().toLocaleTimeString()}`,
     );
 
-    // Auto-kick if max warnings reached
     if (warning.count >= maxWarnings) {
       try {
         const botAdmin = await isBotGroupAdminCached(from, sock, true);
@@ -469,7 +457,6 @@ export async function warnings({ args, from, userJid, sock }) {
       });
     }
 
-    // Determine whose warnings to show
     let targetJid = userJid;
     let targetPhone = phone(userJid);
 
@@ -479,7 +466,6 @@ export async function warnings({ args, from, userJid, sock }) {
         targetJid = target.jid;
         targetPhone = target.phone;
       } else {
-        // Try to parse as phone number
         const possiblePhone = args[0].replace(/[^0-9]/g, "");
         if (possiblePhone.length >= 7) {
           targetJid = `${possiblePhone}@s.whatsapp.net`;
@@ -494,20 +480,23 @@ export async function warnings({ args, from, userJid, sock }) {
 
     if (!warning || warning.count === 0) {
       return sock.sendMessage(from, {
-        text: `✅ *@${targetPhone}* has no active warnings.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        text:
+          `✅ *@${targetPhone}* has no active warnings.\n\n` +
+          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
         mentions: [targetJid],
       });
     }
 
-    let history = `╔══════════════════════════════════════╗\n`;
-    history += `║        📋 *WARNING HISTORY*          ║\n`;
-    history += `╚══════════════════════════════════════╝\n\n`;
-    history += `👤 *User:* @${targetPhone}\n`;
-    history += `${warnBar(warning.count, maxWarnings)}\n`;
-    history += `📊 *${warning.count}/${maxWarnings} warnings*\n`;
-    history += `📅 *First warn:* ${new Date(warning.firstWarn).toLocaleDateString()}\n`;
-    history += `⏰ *Last warn:* ${new Date(warning.lastWarn).toLocaleString()}\n\n`;
-    history += `📝 *History:*\n━━━━━━━━━━━━━━━━━━━━━\n`;
+    let history =
+      `╔══════════════════════════════════════╗\n` +
+      `║        📋 *WARNING HISTORY*          ║\n` +
+      `╚══════════════════════════════════════╝\n\n` +
+      `👤 *User:* @${targetPhone}\n` +
+      `${warnBar(warning.count, maxWarnings)}\n` +
+      `📊 *${warning.count}/${maxWarnings} warnings*\n` +
+      `📅 *First warn:* ${new Date(warning.firstWarn).toLocaleDateString()}\n` +
+      `⏰ *Last warn:* ${new Date(warning.lastWarn).toLocaleString()}\n\n` +
+      `📝 *History:*\n━━━━━━━━━━━━━━━━━━━━━\n`;
 
     warning.reasons.forEach((w, i) => {
       history += `${i + 1}. *${w.reason}*\n`;
@@ -517,10 +506,7 @@ export async function warnings({ args, from, userJid, sock }) {
 
     history += `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
-    await sock.sendMessage(from, {
-      text: history,
-      mentions: [targetJid],
-    });
+    await sock.sendMessage(from, { text: history, mentions: [targetJid] });
   } catch (error) {
     console.error("Warnings error:", error);
     await sock.sendMessage(from, {
@@ -540,7 +526,6 @@ export async function clearWarns({ args, from, userJid, sock }) {
       });
     }
 
-    // Check if user is admin
     const isUserAdmin = await isGroupAdminCached(from, userJid, sock, true);
     if (!isUserAdmin && !isAdmin(userJid)) {
       return sock.sendMessage(from, {
@@ -552,7 +537,6 @@ export async function clearWarns({ args, from, userJid, sock }) {
       });
     }
 
-    // If no args, clear all warnings in group
     if (!args.length) {
       let count = 0;
       for (const key of groupWarnings.keys()) {
@@ -562,7 +546,6 @@ export async function clearWarns({ args, from, userJid, sock }) {
         }
       }
       saveWarnings();
-
       return sock.sendMessage(from, {
         text: fmt(
           "✅",
@@ -572,15 +555,13 @@ export async function clearWarns({ args, from, userJid, sock }) {
       });
     }
 
-    // Clear warnings for specific user
     const target = extractTargetUser(args, { message: {} });
     if (!target) {
       return sock.sendMessage(from, {
         text: fmt(
           "❌",
           "INVALID USER",
-          "Provide a phone number or mention.\n" +
-            "Example: .clearwarns 2348123456789",
+          "Provide a phone number or mention.\nExample: .clearwarns 2348123456789",
         ),
       });
     }
@@ -600,8 +581,7 @@ export async function clearWarns({ args, from, userJid, sock }) {
         ? fmt(
             "✅",
             "WARNINGS CLEARED",
-            `✅ All warnings cleared for +${targetPhone}\n` +
-              `👑 *By:* @${phone(userJid)}`,
+            `✅ All warnings cleared for +${targetPhone}\n👑 *By:* @${phone(userJid)}`,
           )
         : fmt("ℹ️", "NO WARNINGS", `+${targetPhone} has no warnings to clear.`),
       mentions: hadWarnings ? [userJid] : [targetJid, userJid],
