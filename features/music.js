@@ -3,27 +3,53 @@
 //  COMPLETE FIXED MUSIC MODULE
 //  Author: AYOCODES
 //
-//  ✅ ALL APIS NOW WORKING:
-//    • YouTube via Piped/Invidious
-//    • Deezer (full tracks + previews)
-//    • Jamendo (free music, always works)
-//    • Audius (decentralized)
-//    • SoundCloud via public API
-//    • YouTube to MP3 converters (fallback)
-//    • Lyrics from 4 sources
+//  ✅ DOWNLOAD CHAIN (7 sources, tried in order):
+//    1. JioSaavn  — full 320kbps tracks, no key needed (BEST)
+//    2. Deezer    — 30-second preview, always available
+//    3. Audius    — decentralized (stream bug fixed)
+//    4. cobalt    — api.cobalt.tools (updated domain)
+//    5. y2mate    — fixed API path (was pointing to fake domain)
+//    6. yt1s      — fixed field name (.k not .d)
+//    7. RapidAPI  — uses RAPIDAPI_KEY from .env
 //
-//  🎯 GUARANTEED TO DOWNLOAD:
-//    Tries 6 different sources, always sends SOMETHING
+//  ✅ SEARCH CHAIN (5 sources):
+//    JioSaavn → Deezer → Invidious (updated instances) → Jamendo → Audius
+//
+//  ✅ LYRICS (4 sources):
+//    PopCat → Lyrist → Lyrics.ovh → Genius (scraped)
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { ENV } from "../index.js";
 import {
   formatData,
   formatError,
   formatInfo,
   formatSuccess,
 } from "../utils/formatters.js";
+
+// ─── Invidious instances (updated — same list as downloader.js) ───────────────
+const INVIDIOUS_INSTANCES = [
+  "https://invidious.privacydev.net",
+  "https://inv.nadeko.net",
+  "https://invidious.lunar.icu",
+  "https://invidious.perennialte.ch",
+  "https://inv.tux.pizza",
+  "https://invidious.flokinet.to",
+  "https://yt.artemislena.eu",
+  "https://invidious.protokolla.fi",
+];
+
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate, br",
+};
+
+const AYOBOT_TAG = "⚡ _AYOBOT v1 by AYOCODES_";
 
 // ─── Cache & Rate Limiting ────────────────────────────────────────────────────
 const musicCache = new Map();
@@ -40,35 +66,55 @@ function checkApiRateLimit(name) {
 
 // ─── Duration formatter ───────────────────────────────────────────────────────
 function fmtDur(secs) {
-  if (!secs) return "N/A";
-  const m = Math.floor(secs / 60);
-  const s = (secs % 60).toString().padStart(2, "0");
+  if (!secs || isNaN(parseInt(secs))) return "N/A";
+  const total = parseInt(secs);
+  const m = Math.floor(total / 60);
+  const s = (total % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
 }
 
+// ─── Format file size ─────────────────────────────────────────────────────────
+function fmtSize(bytes) {
+  if (!bytes || bytes <= 0) return "Unknown";
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
 // ─── Safe buffer download with retry ──────────────────────────────────────────
-async function downloadBuffer(url, timeout = 60000, maxSize = 50 * 1024 * 1024) {
-  for (let i = 0; i < 3; i++) {
+async function downloadBuffer(
+  url,
+  timeout = 60_000,
+  maxSize = 80 * 1024 * 1024,
+) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await axios.get(url, {
         responseType: "arraybuffer",
         timeout,
         maxContentLength: maxSize,
+        maxRedirects: 10,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': '*/*',
-          'Range': 'bytes=0-'
-        }
+          ...BROWSER_HEADERS,
+          Accept: "*/*",
+          Range: "bytes=0-",
+        },
       });
-      if (res.data && res.data.byteLength > 5000) {
-        return Buffer.from(res.data);
-      }
-    } catch (e) {
-      console.log(`Download attempt ${i + 1} failed: ${e.message}`);
-      await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+      const buf = Buffer.from(res.data);
+      if (buf.length < 5000)
+        throw new Error(`Buffer too small (${buf.length} bytes)`);
+      return buf;
+    } catch (err) {
+      lastErr = err;
+      console.log(
+        `[music] Download attempt ${attempt + 1} failed: ${err.message}`,
+      );
+      if (attempt < 2)
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
     }
   }
-  throw new Error("Failed to download after 3 attempts");
+  throw lastErr;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -118,16 +164,17 @@ export async function music({ fullArgs, from, sock }) {
       default:
         return musicLyrics({ fullArgs, from, sock });
     }
-  } catch (e) {
-    console.error("❌ Music error:", e);
+  } catch (err) {
+    console.error("❌ Music error:", err);
     await sock.sendMessage(from, {
-      text: formatError("MUSIC ERROR", e.message || "An error occurred."),
+      text: formatError("MUSIC ERROR", err.message || "An error occurred."),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MUSIC DOWNLOAD — COMPLETELY FIXED
+//  Download chain: JioSaavn → Deezer → Audius → cobalt → y2mate → yt1s → RapidAPI
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicDownload({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
@@ -135,123 +182,160 @@ export async function musicDownload({ fullArgs, from, sock }) {
       text: formatInfo(
         "🎵 DOWNLOAD MUSIC",
         `Usage: .play <song name or URL>\n\n` +
-          `Examples:\n• .play wildflower billie eilish\n• .play https://youtu.be/xxxxx\n\n` +
+          `Examples:\n• .play wildflower billie eilish\n• .play Essence Wizkid\n` +
+          `• .play https://youtu.be/xxxxx\n\n` +
           `💡 Search first: .musicsearch <query>`,
       ),
     });
   }
 
-  await sock.sendMessage(from, { text: `🔍 *Searching for "${fullArgs}"...*` });
+  const query = fullArgs.trim();
+  await sock.sendMessage(from, { text: `🔍 *Searching for "${query}"...*` });
 
-  // ── Step 1: Find song info ────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  //  STEP 1: FIND SONG INFO
+  //  Try each source until we have title, artist, and ideally a direct audio URL
+  // ══════════════════════════════════════════════════════════════════════════
   let songInfo = null;
 
-  // Try multiple search methods
-  const searchMethods = [
-    // Method 1: YouTube via Invidious (most reliable)
-    async () => {
-      const instances = [
-        'https://inv.riverside.rocks',
-        'https://yewtu.be',
-        'https://invidious.snopyta.org',
-        'https://vid.puffyan.us'
-      ];
-
-      for (const instance of instances) {
-        try {
-          const res = await axios.get(
-            `${instance}/api/v1/search?q=${encodeURIComponent(fullArgs)}&type=video`,
-            { timeout: 8000 }
-          );
-          if (res.data && res.data.length > 0) {
-            const v = res.data[0];
-            return {
-              id: v.videoId,
-              title: v.title,
-              artist: v.author,
-              duration: v.lengthSeconds,
-              thumbnail: v.videoThumbnails?.find(t => t.quality === 'medium')?.url,
-              source: 'youtube',
-              url: `https://www.youtube.com/watch?v=${v.videoId}`
-            };
-          }
-        } catch (e) {}
-      }
-      throw new Error('No YouTube results');
-    },
-
-    // Method 2: Deezer API (great for metadata)
-    async () => {
-      const res = await axios.get(
-        `https://api.deezer.com/search?q=${encodeURIComponent(fullArgs)}&limit=1`,
-        { timeout: 5000 }
+  // ── Source 1: JioSaavn (saavn.dev) — full tracks + metadata ──────────────
+  try {
+    const res = await axios.get(
+      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&page=1&limit=5`,
+      { timeout: 10_000 },
+    );
+    const track = res.data?.data?.results?.[0];
+    if (track) {
+      const thumb =
+        track.image?.find((i) => i.quality === "500x500")?.url ||
+        track.image?.find((i) => i.quality === "150x150")?.url ||
+        track.image?.[0]?.url;
+      const audioUrl =
+        track.downloadUrl?.find((d) => d.quality === "320kbps")?.url ||
+        track.downloadUrl?.find((d) => d.quality === "160kbps")?.url ||
+        track.downloadUrl?.find((d) => d.quality === "96kbps")?.url ||
+        track.downloadUrl?.[0]?.url;
+      songInfo = {
+        id: null,
+        title: track.name,
+        artist:
+          track.artists?.primary?.map((a) => a.name).join(", ") || "Unknown",
+        duration: track.duration,
+        thumbnail: thumb,
+        audioUrl, // direct MP3 — no conversion needed
+        source: "JioSaavn",
+        url: track.url,
+      };
+      console.log(
+        `[music] JioSaavn found: ${songInfo.title} | audioUrl: ${!!audioUrl}`,
       );
-      if (res.data?.data?.[0]) {
-        const t = res.data.data[0];
-        return {
-          id: t.id.toString(),
+    }
+  } catch (err) {
+    console.log(`[music] JioSaavn search failed: ${err.message}`);
+  }
+
+  // ── Source 2: Deezer (great metadata + 30s preview URL) ──────────────────
+  if (!songInfo) {
+    try {
+      const res = await axios.get(
+        `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
+        { timeout: 8_000 },
+      );
+      const t = res.data?.data?.[0];
+      if (t) {
+        songInfo = {
+          id: null,
+          title: t.title,
+          artist: t.artist.name,
+          duration: t.duration,
+          thumbnail: t.album.cover_medium,
+          preview: t.preview, // 30-second preview URL
+          source: "Deezer",
+          url: t.link,
+        };
+        console.log(`[music] Deezer found: ${songInfo.title}`);
+      }
+    } catch (err) {
+      console.log(`[music] Deezer search failed: ${err.message}`);
+    }
+  }
+
+  // ── Source 3: Updated Invidious instances ─────────────────────────────────
+  if (!songInfo) {
+    for (const instance of INVIDIOUS_INSTANCES) {
+      try {
+        const res = await axios.get(
+          `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
+          { timeout: 7_000, headers: { Accept: "application/json" } },
+        );
+        const v = res.data?.[0];
+        if (v?.videoId) {
+          songInfo = {
+            id: v.videoId,
+            title: v.title,
+            artist: v.author,
+            duration: v.lengthSeconds,
+            thumbnail:
+              v.videoThumbnails?.find((t) => t.quality === "medium")?.url ||
+              `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`,
+            source: "YouTube",
+            url: `https://www.youtube.com/watch?v=${v.videoId}`,
+          };
+          console.log(
+            `[music] Invidious (${instance}) found: ${songInfo.title}`,
+          );
+          break;
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ── Source 4: Deezer search again (if all above failed) ──────────────────
+  if (!songInfo) {
+    try {
+      const res = await axios.get(
+        `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
+        { timeout: 8_000 },
+      );
+      const t = res.data?.data?.[0];
+      if (t) {
+        songInfo = {
+          id: null,
           title: t.title,
           artist: t.artist.name,
           duration: t.duration,
           thumbnail: t.album.cover_medium,
           preview: t.preview,
-          source: 'deezer',
-          url: t.link
+          source: "Deezer",
+          url: t.link,
         };
       }
-      throw new Error('No Deezer results');
-    },
+    } catch (_) {}
+  }
 
-    // Method 3: Jamendo (free music, always works)
-    async () => {
+  // ── Source 5: Jamendo (CC/indie music) ────────────────────────────────────
+  if (!songInfo) {
+    try {
       const res = await axios.get(
-        `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=1&search=${encodeURIComponent(fullArgs)}`,
-        { timeout: 5000 }
+        `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=1&search=${encodeURIComponent(query)}`,
+        { timeout: 8_000 },
       );
-      if (res.data?.results?.[0]) {
-        const t = res.data.results[0];
-        return {
+      const t = res.data?.results?.[0];
+      if (t) {
+        songInfo = {
           id: t.id,
           title: t.name,
           artist: t.artist_name,
           duration: t.duration,
           thumbnail: t.image,
-          audio: t.audio,
-          source: 'jamendo',
-          url: t.shareurl
+          audioUrl: t.audio, // full track direct URL
+          source: "Jamendo",
+          url: t.shareurl,
         };
+        console.log(`[music] Jamendo found: ${songInfo.title}`);
       }
-      throw new Error('No Jamendo results');
-    },
-
-    // Method 4: Audius API
-    async () => {
-      const res = await axios.get(
-        `https://discoveryprovider.audius.co/v1/tracks/search?query=${encodeURIComponent(fullArgs)}&limit=1`,
-        { timeout: 5000 }
-      );
-      if (res.data?.data?.[0]) {
-        const t = res.data.data[0];
-        return {
-          id: t.id,
-          title: t.title,
-          artist: t.user.name,
-          duration: t.duration,
-          thumbnail: t.artwork?.['150x150'],
-          source: 'audius',
-          url: `https://audius.co${t.permalink}`
-        };
-      }
-      throw new Error('No Audius results');
-    }
-  ];
-
-  for (const method of searchMethods) {
-    try {
-      songInfo = await method();
-      if (songInfo) break;
-    } catch (e) {
-      console.log(`Search method failed: ${e.message}`);
+    } catch (err) {
+      console.log(`[music] Jamendo search failed: ${err.message}`);
     }
   }
 
@@ -259,199 +343,379 @@ export async function musicDownload({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatError(
         "NOT FOUND",
-        `Could not find "${fullArgs}" on any music service.\n\nTips:\n• Check spelling\n• Try a different song\n• Use .musicsearch to find the exact title`,
+        `Could not find "${query}" on any music service.\n\n` +
+          `Tips:\n• Check spelling\n• Try: .musicsearch ${query}\n• Try with artist: ${query} - Artist Name`,
       ),
     });
   }
 
-  // Show info card while downloading
+  // Show info card while we download
   await sock.sendMessage(from, {
     text:
       `🎵 *Found:* ${songInfo.title}\n` +
       `👤 *Artist:* ${songInfo.artist}\n` +
-      `${songInfo.duration ? `⏱️ *Duration:* ${fmtDur(songInfo.duration)}\n` : ""}` +
+      (songInfo.duration
+        ? `⏱️ *Duration:* ${fmtDur(songInfo.duration)}\n`
+        : "") +
       `📡 *Source:* ${songInfo.source}\n\n` +
       `⬇️ *Downloading audio...*\n` +
-      `_⚡ AYOBOT v1 by AYOCODES_`,
+      AYOBOT_TAG,
   });
 
-  // ── Step 2: Download audio using working APIs ────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  //  STEP 2: DOWNLOAD AUDIO
+  //  7-method chain. Each method is independent — failures don't block the next.
+  // ══════════════════════════════════════════════════════════════════════════
   let audioBuffer = null;
   let usedApi = "";
+  let isPreview = false;
   const failedApis = [];
 
-  // Download methods in order of reliability
-  const downloadMethods = [
-    // Method 1: Deezer (preview - always works)
-    {
-      name: "Deezer",
-      fn: async () => {
-        if (songInfo.source === 'deezer' && songInfo.preview) {
-          const buf = await downloadBuffer(songInfo.preview, 30000);
-          buf._isPreview = true;
-          return buf;
-        }
-
-        // Search Deezer for this song
-        const res = await axios.get(
-          `https://api.deezer.com/search?q=${encodeURIComponent(songInfo.title + ' ' + songInfo.artist)}&limit=1`,
-          { timeout: 5000 }
-        );
-        if (res.data?.data?.[0]?.preview) {
-          const buf = await downloadBuffer(res.data.data[0].preview, 30000);
-          buf._isPreview = true;
-          return buf;
-        }
-        throw new Error('No Deezer preview');
-      }
-    },
-
-    // Method 2: Jamendo (full tracks, always works)
-    {
-      name: "Jamendo",
-      fn: async () => {
-        if (songInfo.source === 'jamendo' && songInfo.audio) {
-          return await downloadBuffer(songInfo.audio, 60000);
-        }
-
-        // Search Jamendo
-        const res = await axios.get(
-          `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=1&search=${encodeURIComponent(songInfo.title + ' ' + songInfo.artist)}`,
-          { timeout: 5000 }
-        );
-        if (res.data?.results?.[0]?.audio) {
-          return await downloadBuffer(res.data.results[0].audio, 60000);
-        }
-        throw new Error('No Jamendo audio');
-      }
-    },
-
-    // Method 3: Audius (decentralized)
-    {
-      name: "Audius",
-      fn: async () => {
-        // Search Audius
-        const res = await axios.get(
-          `https://discoveryprovider.audius.co/v1/tracks/search?query=${encodeURIComponent(songInfo.title + ' ' + songInfo.artist)}&limit=1`,
-          { timeout: 5000 }
-        );
-        if (res.data?.data?.[0]?.id) {
-          const stream = await axios.get(
-            `https://discoveryprovider.audius.co/v1/tracks/${res.data.data[0].id}/stream`,
-            { timeout: 30000 }
-          );
-          if (stream.data?.data?.url) {
-            return await downloadBuffer(stream.data.data.url, 60000);
-          }
-        }
-        throw new Error('No Audius audio');
-      }
-    },
-
-    // Method 4: YouTube to MP3 converters
-    {
-      name: "YouTube-MP3",
-      fn: async () => {
-        // Get YouTube video ID
-        let videoId = songInfo.id;
-        if (!videoId && songInfo.url?.includes('youtube')) {
-          videoId = songInfo.url.split('v=')[1]?.split('&')[0];
-        }
-
-        if (!videoId) {
-          // Search YouTube
-          const ytSearch = await axios.get(
-            `https://inv.riverside.rocks/api/v1/search?q=${encodeURIComponent(songInfo.title + ' ' + songInfo.artist)}&type=video`,
-            { timeout: 8000 }
-          );
-          if (ytSearch.data?.[0]?.videoId) {
-            videoId = ytSearch.data[0].videoId;
-          } else {
-            throw new Error('No YouTube match');
-          }
-        }
-
-        // Try multiple converter services
-        const converters = [
-          // Service 1: y2mate.nu
-          async () => {
-            const apiUrl = `https://www.y2mate.nu/api/json/convert`;
-            const res = await axios.post(apiUrl, {
-              url: `https://www.youtube.com/watch?v=${videoId}`,
-              format: 'mp3',
-              quality: 128
-            }, {
-              headers: { 'Content-Type': 'application/json' },
-              timeout: 15000
-            });
-
-            if (res.data?.url) {
-              return await downloadBuffer(res.data.url, 90000);
-            }
-            throw new Error('No download URL');
-          },
-
-          // Service 2: loader.to
-          async () => {
-            const res = await axios.get(
-              `https://loader.to/api/button/?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&f=mp3`,
-              { timeout: 15000 }
-            );
-
-            const match = res.data.match(/href="(https:\/\/dl\.loader\.to\/[^"]+)"/);
-            if (match && match[1]) {
-              return await downloadBuffer(match[1], 90000);
-            }
-            throw new Error('No download URL');
-          },
-
-          // Service 3: yt1s.com
-          async () => {
-            const res = await axios.post('https://yt1s.com/api/ajaxSearch/index',
-              new URLSearchParams({ q: videoId, vt: 'home' }),
-              { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-            );
-
-            if (res.data?.links?.mp3?.['128']?.d) {
-              return await downloadBuffer(res.data.links.mp3['128'].d, 90000);
-            }
-            throw new Error('No download URL');
-          }
-        ];
-
-        for (const converter of converters) {
-          try {
-            return await converter();
-          } catch (e) {
-            console.log(`Converter failed: ${e.message}`);
-          }
-        }
-        throw new Error('All converters failed');
-      }
-    }
-  ];
-
-  for (const method of downloadMethods) {
+  // ── Download Method 1: JioSaavn direct URL (if we have it) ───────────────
+  if (!audioBuffer && songInfo.audioUrl) {
     try {
-      console.log(`🎵 Trying ${method.name}...`);
-      audioBuffer = await method.fn();
-      usedApi = method.name;
-      console.log(
-        `✅ ${method.name} succeeded: ${(audioBuffer.byteLength / 1024 / 1024).toFixed(2)} MB`
-      );
-      break;
-    } catch (e) {
-      console.log(`⚠️ ${method.name} failed: ${e.message}`);
-      failedApis.push(method.name);
+      console.log(`[music] M1 JioSaavn direct: ${songInfo.audioUrl}`);
+      audioBuffer = await downloadBuffer(songInfo.audioUrl, 60_000);
+      usedApi = `JioSaavn (${songInfo.source === "Jamendo" ? "Jamendo" : "JioSaavn"})`;
+    } catch (err) {
+      console.log(`[music] M1 direct URL failed: ${err.message}`);
+      failedApis.push("Direct");
     }
   }
 
-  // ── Step 3: Send result ───────────────────────────────────────────
-  if (audioBuffer && audioBuffer.byteLength > 5000) {
-    const sizeMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(2);
-    const isPreview = audioBuffer._isPreview === true;
+  // ── Download Method 2: JioSaavn search → download (when found via other source) ──
+  if (!audioBuffer) {
+    try {
+      console.log(
+        `[music] M2 JioSaavn search for: ${songInfo.title} ${songInfo.artist}`,
+      );
+      const res = await axios.get(
+        `https://saavn.dev/api/search/songs?query=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&page=1&limit=3`,
+        { timeout: 10_000 },
+      );
+      const tracks = res.data?.data?.results || [];
+      // Pick best match
+      const track =
+        tracks.find((t) =>
+          t.name
+            ?.toLowerCase()
+            .includes(songInfo.title.toLowerCase().split(" ")[0]),
+        ) || tracks[0];
 
-    // Send thumbnail if available
+      const audioUrl =
+        track?.downloadUrl?.find((d) => d.quality === "320kbps")?.url ||
+        track?.downloadUrl?.find((d) => d.quality === "160kbps")?.url ||
+        track?.downloadUrl?.[0]?.url;
+
+      if (audioUrl) {
+        audioBuffer = await downloadBuffer(audioUrl, 60_000);
+        usedApi = "JioSaavn 320kbps";
+        console.log(
+          `[music] M2 JioSaavn success: ${fmtSize(audioBuffer.length)}`,
+        );
+      } else {
+        throw new Error("No download URL in JioSaavn result");
+      }
+    } catch (err) {
+      console.log(`[music] M2 JioSaavn search-download failed: ${err.message}`);
+      failedApis.push("JioSaavn");
+    }
+  }
+
+  // ── Download Method 3: Deezer 30-second preview ───────────────────────────
+  if (!audioBuffer) {
+    try {
+      console.log(`[music] M3 Deezer preview`);
+      // Use existing preview if available, otherwise search Deezer
+      let previewUrl = songInfo.preview;
+      if (!previewUrl) {
+        const res = await axios.get(
+          `https://api.deezer.com/search?q=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&limit=1`,
+          { timeout: 8_000 },
+        );
+        previewUrl = res.data?.data?.[0]?.preview;
+      }
+      if (!previewUrl) throw new Error("No Deezer preview URL");
+      audioBuffer = await downloadBuffer(previewUrl, 30_000);
+      usedApi = "Deezer";
+      isPreview = true;
+      console.log(
+        `[music] M3 Deezer preview success: ${fmtSize(audioBuffer.length)}`,
+      );
+    } catch (err) {
+      console.log(`[music] M3 Deezer failed: ${err.message}`);
+      failedApis.push("Deezer");
+    }
+  }
+
+  // ── Download Method 4: Audius stream (FIXED — direct arraybuffer) ─────────
+  if (!audioBuffer) {
+    try {
+      console.log(`[music] M4 Audius`);
+      const searchRes = await axios.get(
+        `https://discoveryprovider.audius.co/v1/tracks/search?query=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&limit=3`,
+        { timeout: 8_000 },
+      );
+      const track = searchRes.data?.data?.[0];
+      if (!track?.id) throw new Error("No Audius track found");
+
+      // FIX: use responseType:'arraybuffer' directly on the stream endpoint
+      // The /stream endpoint does a redirect to the actual CDN file
+      const streamRes = await axios.get(
+        `https://discoveryprovider.audius.co/v1/tracks/${track.id}/stream`,
+        {
+          responseType: "arraybuffer",
+          timeout: 45_000,
+          maxRedirects: 10,
+          headers: { ...BROWSER_HEADERS, Accept: "audio/*,*/*" },
+        },
+      );
+      const buf = Buffer.from(streamRes.data);
+      if (buf.length < 5000) throw new Error("Audius stream too small");
+      audioBuffer = buf;
+      usedApi = "Audius";
+      console.log(`[music] M4 Audius success: ${fmtSize(audioBuffer.length)}`);
+    } catch (err) {
+      console.log(`[music] M4 Audius failed: ${err.message}`);
+      failedApis.push("Audius");
+    }
+  }
+
+  // ── Download Method 5: cobalt.tools (YouTube audio) ──────────────────────
+  if (!audioBuffer) {
+    try {
+      console.log(`[music] M5 cobalt.tools`);
+      // Resolve YouTube video ID
+      let videoId = songInfo.id;
+      if (!videoId && songInfo.url?.includes("youtube")) {
+        videoId = songInfo.url.split("v=")[1]?.split("&")[0];
+      }
+      if (!videoId) {
+        // Search Invidious for YouTube ID
+        for (const inst of INVIDIOUS_INSTANCES) {
+          try {
+            const r = await axios.get(
+              `${inst}/api/v1/search?q=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&type=video`,
+              { timeout: 7_000 },
+            );
+            if (r.data?.[0]?.videoId) {
+              videoId = r.data[0].videoId;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+      if (!videoId) throw new Error("Could not resolve YouTube ID for cobalt");
+
+      const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const res = await axios.post(
+        "https://api.cobalt.tools/api/json",
+        {
+          url: ytUrl,
+          isAudioOnly: true,
+          aFormat: "mp3",
+          filenamePattern: "basic",
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          timeout: 20_000,
+        },
+      );
+      if (!res.data?.url) throw new Error("cobalt returned no URL");
+      audioBuffer = await downloadBuffer(res.data.url, 60_000);
+      usedApi = "cobalt (YouTube)";
+      console.log(`[music] M5 cobalt success: ${fmtSize(audioBuffer.length)}`);
+    } catch (err) {
+      console.log(`[music] M5 cobalt failed: ${err.message}`);
+      failedApis.push("cobalt");
+    }
+  }
+
+  // ── Download Method 6: y2mate.com (FIXED — correct domain & API path) ─────
+  if (!audioBuffer) {
+    try {
+      console.log(`[music] M6 y2mate`);
+      let videoId = songInfo.id;
+      if (!videoId) {
+        for (const inst of INVIDIOUS_INSTANCES) {
+          try {
+            const r = await axios.get(
+              `${inst}/api/v1/search?q=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&type=video`,
+              { timeout: 7_000 },
+            );
+            if (r.data?.[0]?.videoId) {
+              videoId = r.data[0].videoId;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+      if (!videoId) throw new Error("No YouTube ID for y2mate");
+
+      const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+      // Step 1: Analyze
+      const analyzeRes = await axios.post(
+        "https://www.y2mate.com/mates/analyzeV2/ajax",
+        new URLSearchParams({
+          k_query: ytUrl,
+          k_page: "home",
+          hl: "en",
+          q_auto: "0",
+        }).toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...BROWSER_HEADERS,
+            Origin: "https://www.y2mate.com",
+            Referer: "https://www.y2mate.com/",
+          },
+          timeout: 15_000,
+        },
+      );
+      const mp3Links = analyzeRes.data?.links?.mp3;
+      if (!mp3Links) throw new Error("y2mate: no mp3 links in response");
+      const firstKey = Object.keys(mp3Links)[0];
+      const k = mp3Links[firstKey]?.k;
+      if (!k) throw new Error("y2mate: no conversion key");
+
+      // Step 2: Convert
+      const convertRes = await axios.post(
+        "https://www.y2mate.com/mates/convertV2/index",
+        new URLSearchParams({ vid: videoId, k }).toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...BROWSER_HEADERS,
+            Origin: "https://www.y2mate.com",
+            Referer: "https://www.y2mate.com/",
+          },
+          timeout: 20_000,
+        },
+      );
+      if (!convertRes.data?.dlink) throw new Error("y2mate: no download link");
+      audioBuffer = await downloadBuffer(convertRes.data.dlink, 60_000);
+      usedApi = "y2mate";
+      console.log(`[music] M6 y2mate success: ${fmtSize(audioBuffer.length)}`);
+    } catch (err) {
+      console.log(`[music] M6 y2mate failed: ${err.message}`);
+      failedApis.push("y2mate");
+    }
+  }
+
+  // ── Download Method 7: yt1s.com (FIXED — correct field .k not .d) ────────
+  if (!audioBuffer) {
+    try {
+      console.log(`[music] M7 yt1s`);
+      let videoId = songInfo.id;
+      if (!videoId) {
+        for (const inst of INVIDIOUS_INSTANCES) {
+          try {
+            const r = await axios.get(
+              `${inst}/api/v1/search?q=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&type=video`,
+              { timeout: 7_000 },
+            );
+            if (r.data?.[0]?.videoId) {
+              videoId = r.data[0].videoId;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+      if (!videoId) throw new Error("No YouTube ID for yt1s");
+
+      const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+      // Step 1: Search
+      const searchRes = await axios.post(
+        "https://yt1s.com/api/ajaxSearch/index",
+        new URLSearchParams({ q: ytUrl, vt: "home" }).toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...BROWSER_HEADERS,
+          },
+          timeout: 15_000,
+        },
+      );
+      const mp3Obj = searchRes.data?.links?.mp3;
+      if (!mp3Obj) throw new Error("yt1s: no mp3 links");
+      // FIX: get first quality key, use .k (conversion key) not .d
+      const qualityKey = Object.keys(mp3Obj)[0];
+      const k = mp3Obj[qualityKey]?.k;
+      if (!k) throw new Error("yt1s: no conversion key (.k field missing)");
+
+      // Step 2: Convert
+      const convertRes = await axios.post(
+        "https://yt1s.com/api/ajaxConvert/convert",
+        new URLSearchParams({ vid: videoId, k }).toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...BROWSER_HEADERS,
+          },
+          timeout: 20_000,
+        },
+      );
+      if (!convertRes.data?.dlink) throw new Error("yt1s: no download link");
+      audioBuffer = await downloadBuffer(convertRes.data.dlink, 60_000);
+      usedApi = "yt1s";
+      console.log(`[music] M7 yt1s success: ${fmtSize(audioBuffer.length)}`);
+    } catch (err) {
+      console.log(`[music] M7 yt1s failed: ${err.message}`);
+      failedApis.push("yt1s");
+    }
+  }
+
+  // ── Download Method 8: RapidAPI YouTube MP3 (uses RAPIDAPI_KEY from .env) ─
+  if (!audioBuffer && ENV.RAPIDAPI_KEY) {
+    try {
+      console.log(`[music] M8 RapidAPI`);
+      let videoId = songInfo.id;
+      if (!videoId) {
+        for (const inst of INVIDIOUS_INSTANCES) {
+          try {
+            const r = await axios.get(
+              `${inst}/api/v1/search?q=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}&type=video`,
+              { timeout: 7_000 },
+            );
+            if (r.data?.[0]?.videoId) {
+              videoId = r.data[0].videoId;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+      if (!videoId) throw new Error("No YouTube ID for RapidAPI");
+
+      const res = await axios.get("https://youtube-mp36.p.rapidapi.com/dl", {
+        params: { id: videoId },
+        headers: {
+          "X-RapidAPI-Key": ENV.RAPIDAPI_KEY,
+          "X-RapidAPI-Host": "youtube-mp36.p.rapidapi.com",
+        },
+        timeout: 20_000,
+      });
+      if (!res.data?.link) throw new Error("RapidAPI: no download link");
+      audioBuffer = await downloadBuffer(res.data.link, 60_000);
+      usedApi = "RapidAPI";
+      console.log(
+        `[music] M8 RapidAPI success: ${fmtSize(audioBuffer.length)}`,
+      );
+    } catch (err) {
+      console.log(`[music] M8 RapidAPI failed: ${err.message}`);
+      failedApis.push("RapidAPI");
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  STEP 3: SEND RESULT
+  // ══════════════════════════════════════════════════════════════════════════
+  if (audioBuffer && audioBuffer.length > 5000) {
+    // Send thumbnail
     if (songInfo.thumbnail) {
       try {
         await sock.sendMessage(from, {
@@ -459,14 +723,14 @@ export async function musicDownload({ fullArgs, from, sock }) {
           caption:
             `🎵 *${songInfo.title}*\n` +
             `👤 *${songInfo.artist}*\n` +
-            `${songInfo.duration ? `⏱️ ${fmtDur(songInfo.duration)}\n` : ""}` +
-            `${isPreview ? "⚠️ _30-second preview_\n" : ""}` +
-            `⚡ _AYOBOT v1 by AYOCODES_`,
+            (songInfo.duration ? `⏱️ ${fmtDur(songInfo.duration)}\n` : "") +
+            (isPreview ? "⚠️ _30-second Deezer preview_\n" : "") +
+            AYOBOT_TAG,
         });
       } catch (_) {}
     }
 
-    // Send the audio
+    // Send audio
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: "audio/mpeg",
@@ -475,27 +739,31 @@ export async function musicDownload({ fullArgs, from, sock }) {
 
     await sock.sendMessage(from, {
       text:
-        `${isPreview ? "⚠️ *Preview* (30 seconds)\n" : "✅ *Downloaded!*\n"}` +
-        `🎵 ${songInfo.title} - ${songInfo.artist}\n` +
-        `📦 ${sizeMB} MB\n` +
-        `🔧 via ${usedApi}\n` +
-        `⚡ _AYOBOT v1 by AYOCODES_`,
+        `${isPreview ? "⚠️ *Preview* (30 sec)\n" : "✅ *Downloaded!*\n"}` +
+        `🎵 *${songInfo.title}* - ${songInfo.artist}\n` +
+        `📦 ${fmtSize(audioBuffer.length)} | 🔧 ${usedApi}\n` +
+        AYOBOT_TAG,
     });
   } else {
-    // Send link as fallback
+    // All downloads failed — send a link instead
+    const listenUrl =
+      songInfo.url ||
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(songInfo.title + " " + songInfo.artist)}`;
+
     await sock.sendMessage(from, {
       text:
         `🎵 *${songInfo.title}*\n` +
-        `👤 ${songInfo.artist}\n` +
-        `\n🔗 *Listen here:*\n${songInfo.url || `https://www.youtube.com/results?search_query=${encodeURIComponent(songInfo.title + ' ' + songInfo.artist)}`}\n\n` +
-        `⚠️ _Could not download (${failedApis.join(", ")}). Open the link to listen._\n` +
-        `⚡ _AYOBOT v1 by AYOCODES_`,
+        `👤 ${songInfo.artist}\n\n` +
+        `🔗 *Listen here:*\n${listenUrl}\n\n` +
+        `⚠️ _Could not download — tried: ${failedApis.join(", ")}._\n` +
+        `_Open the link above to listen._\n\n` +
+        AYOBOT_TAG,
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  LYRICS — COMPLETELY FIXED
+//  LYRICS — FIXED (4 sources)
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicLyrics({ fullArgs, from, sock }) {
   try {
@@ -503,7 +771,8 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       return sock.sendMessage(from, {
         text: formatInfo(
           "🎵 MUSIC LYRICS",
-          `Usage: .lyrics <song name>\nWith artist: .lyrics <song> - <artist>\n\nExamples:\n• .lyrics Shape of You\n• .lyrics Perfect - Ed Sheeran`,
+          `Usage: .lyrics <song name>\nWith artist: .lyrics <song> - <artist>\n\n` +
+            `Examples:\n• .lyrics Shape of You\n• .lyrics Perfect - Ed Sheeran`,
         ),
       });
     }
@@ -513,16 +782,16 @@ export async function musicLyrics({ fullArgs, from, sock }) {
     if (title.includes(" - ")) {
       const parts = title.split(" - ");
       title = parts[0].trim();
-      artist = parts[1].trim();
+      artist = parts.slice(1).join(" - ").trim();
     }
 
     await sock.sendMessage(from, {
       text: `🎵 *Searching lyrics for "${title}"${artist ? ` by ${artist}` : ""}...*`,
     });
 
-    const cacheKey = `lyrics-${title.toLowerCase()}-${artist || ""}`;
+    const cacheKey = `lyrics-${title.toLowerCase()}-${(artist || "").toLowerCase()}`;
     const cached = musicCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
+    if (cached && Date.now() - cached.timestamp < 30 * 60_000) {
       return sendLyricsResponse(sock, from, cached.data, true);
     }
 
@@ -546,11 +815,12 @@ export async function musicLyrics({ fullArgs, from, sock }) {
           musicCache.set(cacheKey, { data: result, timestamp: Date.now() });
           return sendLyricsResponse(sock, from, result);
         }
-      } catch (e) {
-        console.log(`Lyrics API ${api.name} failed: ${e.message}`);
+      } catch (err) {
+        console.log(`[music] Lyrics API ${api.name} failed: ${err.message}`);
       }
     }
 
+    // Fallback: show song info without lyrics
     try {
       const info = await fetchSongInfo(title, artist);
       if (info) {
@@ -566,12 +836,13 @@ export async function musicLyrics({ fullArgs, from, sock }) {
     await sock.sendMessage(from, {
       text: formatInfo(
         "🎵 LYRICS NOT FOUND",
-        `Could not find lyrics for "${title}"${artist ? ` by ${artist}` : ""}.\n\n💡 Tips:\n• Include artist: .lyrics ${title} - Artist Name\n• Try: .genius ${title}`,
+        `Could not find lyrics for "${title}"${artist ? ` by ${artist}` : ""}.\n\n` +
+          `💡 Tips:\n• Include artist: .lyrics ${title} - Artist Name\n• Try: .genius ${title}`,
       ),
     });
-  } catch (e) {
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatError("LYRICS ERROR", e.message),
+      text: formatError("LYRICS ERROR", err.message),
     });
   }
 }
@@ -587,45 +858,50 @@ export async function musicTrending({ from, sock }) {
     try {
       const res = await axios.get(
         "https://api.deezer.com/chart/0/tracks?limit=10",
-        { timeout: 8000 }
+        { timeout: 8_000 },
       );
       if (res.data?.data?.length) {
-        let text = "📈 *TRENDING SONGS (Deezer)*\n\n";
-        res.data.data.forEach((track, i) => {
+        let text = "📈 *TRENDING SONGS (Deezer Global)*\n\n";
+        res.data.data.forEach((t, i) => {
           text +=
-            `${i + 1}. *${track.title}*\n` +
-            `   👤 ${track.artist.name}\n` +
-            `   💿 ${track.album.title}\n` +
-            `   ⏱️ ${fmtDur(track.duration)}\n\n`;
+            `${i + 1}. *${t.title}*\n` +
+            `   👤 ${t.artist.name}\n` +
+            `   💿 ${t.album.title}\n` +
+            `   ⏱️ ${fmtDur(t.duration)}\n\n`;
         });
-        text += `💡 Use .play <song name> to download`;
-        return sock.sendMessage(from, { text: formatSuccess("🔥 TRENDING NOW", text) });
+        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        return sock.sendMessage(from, {
+          text: formatSuccess("🔥 TRENDING NOW", text),
+        });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.log(`[music] Deezer trending failed: ${err.message}`);
+    }
 
     // Fallback to Jamendo
     const res = await axios.get(
       `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=10&order=popularity_total`,
-      { timeout: 5000 }
+      { timeout: 8_000 },
     );
-
     if (res.data?.results?.length) {
       let text = "📈 *TRENDING SONGS (Jamendo)*\n\n";
-      res.data.results.forEach((track, i) => {
+      res.data.results.forEach((t, i) => {
         text +=
-          `${i + 1}. *${track.name}*\n` +
-          `   👤 ${track.artist_name}\n` +
-          `   💿 ${track.album_name || 'Single'}\n` +
-          `   ⏱️ ${fmtDur(track.duration)}\n\n`;
+          `${i + 1}. *${t.name}*\n` +
+          `   👤 ${t.artist_name}\n` +
+          `   💿 ${t.album_name || "Single"}\n` +
+          `   ⏱️ ${fmtDur(t.duration)}\n\n`;
       });
-      text += `💡 Use .play <song name> to download`;
-      await sock.sendMessage(from, { text: formatSuccess("🔥 TRENDING NOW", text) });
-    } else {
-      throw new Error("No trending data");
+      text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+      return sock.sendMessage(from, {
+        text: formatSuccess("🔥 TRENDING NOW", text),
+      });
     }
-  } catch (e) {
+
+    throw new Error("No trending data from any source");
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not fetch trending: ${e.message}`),
+      text: formatError("ERROR", `Could not fetch trending: ${err.message}`),
     });
   }
 }
@@ -637,49 +913,52 @@ export async function musicRandom({ from, sock }) {
   try {
     await sock.sendMessage(from, { text: "🎲 *Finding random song...*" });
 
-    // Try Deezer first
+    // Deezer chart (50 songs, pick one random)
     try {
       const res = await axios.get(
         "https://api.deezer.com/chart/0/tracks?limit=50",
-        { timeout: 5000 }
+        { timeout: 8_000 },
       );
       if (res.data?.data?.length) {
-        const track = res.data.data[Math.floor(Math.random() * res.data.data.length)];
+        const t =
+          res.data.data[Math.floor(Math.random() * res.data.data.length)];
         return sock.sendMessage(from, {
           text:
             formatData("🎲 RANDOM SONG (Deezer)", {
-              "🎵 Title": track.title,
-              "👤 Artist": track.artist.name,
-              "💿 Album": track.album.title,
-              "⏱️ Duration": fmtDur(track.duration),
-            }) + `\n\n💡 Use .play ${track.title} to download`,
+              "🎵 Title": t.title,
+              "👤 Artist": t.artist.name,
+              "💿 Album": t.album.title,
+              "⏱️ Duration": fmtDur(t.duration),
+            }) + `\n\n💡 Use .play ${t.title} to download\n\n${AYOBOT_TAG}`,
         });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.log(`[music] Deezer random failed: ${err.message}`);
+    }
 
     // Fallback to Jamendo
     const res = await axios.get(
       `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=50`,
-      { timeout: 5000 }
+      { timeout: 8_000 },
     );
-
     if (res.data?.results?.length) {
-      const track = res.data.results[Math.floor(Math.random() * res.data.results.length)];
-      await sock.sendMessage(from, {
+      const t =
+        res.data.results[Math.floor(Math.random() * res.data.results.length)];
+      return sock.sendMessage(from, {
         text:
           formatData("🎲 RANDOM SONG (Jamendo)", {
-            "🎵 Title": track.name,
-            "👤 Artist": track.artist_name,
-            "💿 Album": track.album_name || 'Single',
-            "⏱️ Duration": fmtDur(track.duration),
-          }) + `\n\n💡 Use .play ${track.name} to download`,
+            "🎵 Title": t.name,
+            "👤 Artist": t.artist_name,
+            "💿 Album": t.album_name || "Single",
+            "⏱️ Duration": fmtDur(t.duration),
+          }) + `\n\n💡 Use .play ${t.name} to download\n\n${AYOBOT_TAG}`,
       });
-    } else {
-      throw new Error("No data");
     }
-  } catch (e) {
+
+    throw new Error("No data from any source");
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not fetch random song: ${e.message}`),
+      text: formatError("ERROR", `Could not fetch random song: ${err.message}`),
     });
   }
 }
@@ -702,25 +981,32 @@ export async function musicArtist({ fullArgs, from, sock }) {
       text: `👤 *Searching for artist: ${fullArgs}...*`,
     });
 
-    // Try Deezer first
+    // Deezer
     try {
-      const search = await axios.get(
+      const searchRes = await axios.get(
         `https://api.deezer.com/search/artist?q=${encodeURIComponent(fullArgs)}&limit=1`,
-        { timeout: 8000 }
+        { timeout: 8_000 },
       );
-
-      if (search.data?.data?.length) {
-        const artist = search.data.data[0];
-        const [tracks, albums] = await Promise.allSettled([
-          axios.get(`https://api.deezer.com/artist/${artist.id}/top?limit=5`, { timeout: 5000 }),
-          axios.get(`https://api.deezer.com/artist/${artist.id}/albums?limit=1`, { timeout: 5000 }),
+      if (searchRes.data?.data?.length) {
+        const artist = searchRes.data.data[0];
+        const [tracksRes, albumsRes] = await Promise.allSettled([
+          axios.get(`https://api.deezer.com/artist/${artist.id}/top?limit=5`, {
+            timeout: 5_000,
+          }),
+          axios.get(
+            `https://api.deezer.com/artist/${artist.id}/albums?limit=1`,
+            { timeout: 5_000 },
+          ),
         ]);
 
         let topTracks = "";
-        if (tracks.status === "fulfilled" && tracks.value.data?.data?.length) {
+        if (
+          tracksRes.status === "fulfilled" &&
+          tracksRes.value.data?.data?.length
+        ) {
           topTracks =
             "\n\n*🎵 Top Tracks:*\n" +
-            tracks.value.data.data
+            tracksRes.value.data.data
               .map((t, i) => `${i + 1}. ${t.title} (${fmtDur(t.duration)})`)
               .join("\n");
         }
@@ -731,26 +1017,29 @@ export async function musicArtist({ fullArgs, from, sock }) {
               "👤 Name": artist.name,
               "👥 Fans": artist.nb_fan?.toLocaleString() || "N/A",
               "💿 Total Albums":
-                albums.status === "fulfilled"
-                  ? albums.value.data?.total || "N/A"
+                albumsRes.status === "fulfilled"
+                  ? albumsRes.value.data?.total || "N/A"
                   : "N/A",
               "🔗 Link": artist.link,
-            }) + topTracks,
+            }) +
+            topTracks +
+            `\n\n${AYOBOT_TAG}`,
         });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.log(`[music] Deezer artist failed: ${err.message}`);
+    }
 
     // Fallback to Jamendo
     const jamendoRes = await axios.get(
       `https://api.jamendo.com/v3.0/artists/?client_id=3a7a4d3a&format=json&limit=1&namesearch=${encodeURIComponent(fullArgs)}`,
-      { timeout: 5000 }
+      { timeout: 8_000 },
     );
-
     if (jamendoRes.data?.results?.length) {
       const artist = jamendoRes.data.results[0];
       const tracksRes = await axios.get(
         `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=5&artist_id=${artist.id}`,
-        { timeout: 5000 }
+        { timeout: 5_000 },
       );
 
       let topTracks = "";
@@ -769,17 +1058,18 @@ export async function musicArtist({ fullArgs, from, sock }) {
             "🌍 Country": artist.artist_country || "N/A",
             "🎵 Tracks": artist.tracks || "N/A",
             "🔗 Link": artist.shareurl,
-          }) + topTracks,
+          }) +
+          topTracks +
+          `\n\n${AYOBOT_TAG}`,
       });
     }
 
-    throw new Error("Artist not found");
-
-  } catch (e) {
+    throw new Error("Artist not found on any service");
+  } catch (err) {
     await sock.sendMessage(from, {
       text: formatError(
         "ERROR",
-        `Could not find artist "${fullArgs}": ${e.message}`,
+        `Could not find artist "${fullArgs}": ${err.message}`,
       ),
     });
   }
@@ -803,29 +1093,28 @@ export async function musicAlbum({ fullArgs, from, sock }) {
       text: `💿 *Searching for album: ${fullArgs}...*`,
     });
 
-    // Try Deezer first
+    // Deezer
     try {
       const res = await axios.get(
         `https://api.deezer.com/search/album?q=${encodeURIComponent(fullArgs)}&limit=1`,
-        { timeout: 8000 }
+        { timeout: 8_000 },
       );
-
       if (res.data?.data?.length) {
         const album = res.data.data[0];
-        const tracks = await axios.get(
+        const tracksRes = await axios.get(
           `https://api.deezer.com/album/${album.id}/tracks?limit=20`,
-          { timeout: 5000 }
+          { timeout: 5_000 },
         );
 
         let tracklist = "";
-        if (tracks.data?.data?.length) {
+        if (tracksRes.data?.data?.length) {
           tracklist =
             "\n\n*📝 Tracklist:*\n" +
-            tracks.data.data
+            tracksRes.data.data
               .map((t, i) => `${i + 1}. ${t.title} (${fmtDur(t.duration)})`)
               .join("\n");
-          if (tracks.data.total > tracks.data.data.length) {
-            tracklist += `\n... and ${tracks.data.total - tracks.data.data.length} more`;
+          if (tracksRes.data.total > tracksRes.data.data.length) {
+            tracklist += `\n_...and ${tracksRes.data.total - tracksRes.data.data.length} more_`;
           }
         }
 
@@ -835,24 +1124,27 @@ export async function musicAlbum({ fullArgs, from, sock }) {
               "💿 Album": album.title,
               "👤 Artist": album.artist.name,
               "📅 Released": album.release_date || "N/A",
-              "🎵 Tracks": album.nb_tracks || tracks.data?.total || "N/A",
+              "🎵 Tracks": album.nb_tracks || tracksRes.data?.total || "N/A",
               "🔗 Link": album.link,
-            }) + tracklist,
+            }) +
+            tracklist +
+            `\n\n${AYOBOT_TAG}`,
         });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.log(`[music] Deezer album failed: ${err.message}`);
+    }
 
     // Fallback to Jamendo
     const jamendoRes = await axios.get(
       `https://api.jamendo.com/v3.0/albums/?client_id=3a7a4d3a&format=json&limit=1&namesearch=${encodeURIComponent(fullArgs)}`,
-      { timeout: 5000 }
+      { timeout: 8_000 },
     );
-
     if (jamendoRes.data?.results?.length) {
       const album = jamendoRes.data.results[0];
       const tracksRes = await axios.get(
         `https://api.jamendo.com/v3.0/albums/tracks/?client_id=3a7a4d3a&format=json&limit=20&album_id=${album.id}`,
-        { timeout: 5000 }
+        { timeout: 5_000 },
       );
 
       let tracklist = "";
@@ -870,19 +1162,21 @@ export async function musicAlbum({ fullArgs, from, sock }) {
             "💿 Album": album.name,
             "👤 Artist": album.artist_name,
             "📅 Released": album.releasedate || "N/A",
-            "🎵 Tracks": album.tracks || tracksRes.data?.results?.length || "N/A",
+            "🎵 Tracks":
+              album.tracks || tracksRes.data?.results?.length || "N/A",
             "🔗 Link": album.shareurl,
-          }) + tracklist,
+          }) +
+          tracklist +
+          `\n\n${AYOBOT_TAG}`,
       });
     }
 
-    throw new Error("Album not found");
-
-  } catch (e) {
+    throw new Error("Album not found on any service");
+  } catch (err) {
     await sock.sendMessage(from, {
       text: formatError(
         "ERROR",
-        `Could not find album "${fullArgs}": ${e.message}`,
+        `Could not find album "${fullArgs}": ${err.message}`,
       ),
     });
   }
@@ -906,13 +1200,39 @@ export async function musicSearch({ fullArgs, from, sock }) {
       text: `🔍 *Searching for: ${fullArgs}...*`,
     });
 
-    // Try Deezer first
+    // Try JioSaavn first (full tracks)
+    try {
+      const res = await axios.get(
+        `https://saavn.dev/api/search/songs?query=${encodeURIComponent(fullArgs)}&page=1&limit=8`,
+        { timeout: 10_000 },
+      );
+      const results = res.data?.data?.results;
+      if (results?.length) {
+        let text = "🔍 *SEARCH RESULTS (JioSaavn)*\n\n";
+        results.forEach((t, i) => {
+          const artists =
+            t.artists?.primary?.map((a) => a.name).join(", ") || "Unknown";
+          text +=
+            `${i + 1}. *${t.name}*\n` +
+            `   👤 ${artists}\n` +
+            `   💿 ${t.album?.name || "Single"}\n` +
+            `   ⏱️ ${fmtDur(t.duration)}\n\n`;
+        });
+        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        return sock.sendMessage(from, {
+          text: formatSuccess("🔍 MUSIC SEARCH", text),
+        });
+      }
+    } catch (err) {
+      console.log(`[music] JioSaavn search failed: ${err.message}`);
+    }
+
+    // Deezer fallback
     try {
       const res = await axios.get(
         `https://api.deezer.com/search?q=${encodeURIComponent(fullArgs)}&limit=8`,
-        { timeout: 8000 }
+        { timeout: 8_000 },
       );
-
       if (res.data?.data?.length) {
         let text = "🔍 *SEARCH RESULTS (Deezer)*\n\n";
         res.data.data.forEach((t, i) => {
@@ -922,34 +1242,42 @@ export async function musicSearch({ fullArgs, from, sock }) {
             `   💿 ${t.album.title}\n` +
             `   ⏱️ ${fmtDur(t.duration)}\n\n`;
         });
-        text += `\n💡 Use .play <song name> to download`;
-        return sock.sendMessage(from, { text: formatSuccess("🔍 MUSIC SEARCH", text) });
+        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        return sock.sendMessage(from, {
+          text: formatSuccess("🔍 MUSIC SEARCH", text),
+        });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.log(`[music] Deezer search failed: ${err.message}`);
+    }
 
-    // Fallback to Jamendo
+    // Jamendo fallback
     const jamendoRes = await axios.get(
       `https://api.jamendo.com/v3.0/tracks/?client_id=3a7a4d3a&format=json&limit=8&search=${encodeURIComponent(fullArgs)}`,
-      { timeout: 5000 }
+      { timeout: 8_000 },
     );
-
     if (jamendoRes.data?.results?.length) {
       let text = "🔍 *SEARCH RESULTS (Jamendo)*\n\n";
       jamendoRes.data.results.forEach((t, i) => {
         text +=
           `${i + 1}. *${t.name}*\n` +
           `   👤 ${t.artist_name}\n` +
-          `   💿 ${t.album_name || 'Single'}\n` +
+          `   💿 ${t.album_name || "Single"}\n` +
           `   ⏱️ ${fmtDur(t.duration)}\n\n`;
       });
-      text += `\n💡 Use .play <song name> to download`;
-      await sock.sendMessage(from, { text: formatSuccess("🔍 MUSIC SEARCH", text) });
-    } else {
-      throw new Error("No results");
+      text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+      return sock.sendMessage(from, {
+        text: formatSuccess("🔍 MUSIC SEARCH", text),
+      });
     }
-  } catch (e) {
+
+    throw new Error("No results from any service");
+  } catch (err) {
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `No results for "${fullArgs}": ${e.message}`),
+      text: formatError(
+        "ERROR",
+        `No results for "${fullArgs}": ${err.message}`,
+      ),
     });
   }
 }
@@ -973,25 +1301,25 @@ export async function musicGenius({ fullArgs, from, sock }) {
     const result = await fetchFromGenius(fullArgs);
     if (!result?.lyrics) throw new Error("No lyrics found on Genius");
     await sendLyricsResponse(sock, from, result);
-  } catch (e) {
+  } catch (err) {
     await sock.sendMessage(from, {
       text: formatError(
         "ERROR",
-        `Could not find lyrics on Genius for "${fullArgs}": ${e.message}`,
+        `Could not find lyrics on Genius for "${fullArgs}": ${err.message}`,
       ),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INTERNAL API HELPERS
+//  INTERNAL HELPERS
 // ════════════════════════════════════════════════════════════════════════════
 async function fetchSongInfo(title, artist) {
   try {
     const q = artist ? `${title} ${artist}` : title;
     const res = await axios.get(
       `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`,
-      { timeout: 5000 },
+      { timeout: 5_000 },
     );
     const t = res.data?.data?.[0];
     if (!t) return null;
@@ -1005,7 +1333,7 @@ async function fetchFromPopCat(title, artist) {
   const q = artist ? `${title} ${artist}` : title;
   const res = await axios.get(
     `https://api.popcat.xyz/lyrics?song=${encodeURIComponent(q)}`,
-    { timeout: 8000 },
+    { timeout: 8_000 },
   );
   if (!res.data?.lyrics) throw new Error("No lyrics from PopCat");
   return {
@@ -1021,7 +1349,7 @@ async function fetchFromLyrist(title, artist) {
   const q = artist ? `${title}/${artist}` : title;
   const res = await axios.get(
     `https://lyrist.vercel.app/api/${encodeURIComponent(q)}`,
-    { timeout: 8000 },
+    { timeout: 8_000 },
   );
   if (!res.data?.lyrics) throw new Error("No lyrics from Lyrist");
   return {
@@ -1033,16 +1361,21 @@ async function fetchFromLyrist(title, artist) {
 }
 
 async function fetchFromLyricsOvh(title, artist) {
+  // Resolve artist from Deezer if not provided
   if (!artist) {
-    const res = await axios.get(
-      `https://api.deezer.com/search?q=${encodeURIComponent(title)}&limit=1`,
-      { timeout: 5000 },
-    );
-    artist = res.data?.data?.[0]?.artist?.name || "unknown";
+    try {
+      const res = await axios.get(
+        `https://api.deezer.com/search?q=${encodeURIComponent(title)}&limit=1`,
+        { timeout: 5_000 },
+      );
+      artist = res.data?.data?.[0]?.artist?.name || "unknown";
+    } catch (_) {
+      artist = "unknown";
+    }
   }
   const res = await axios.get(
     `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
-    { timeout: 8000 },
+    { timeout: 8_000 },
   );
   if (!res.data?.lyrics) throw new Error("No lyrics from Lyrics.ovh");
   return { lyrics: res.data.lyrics, title, artist, source: "Lyrics.ovh" };
@@ -1053,7 +1386,7 @@ async function fetchFromGenius(title, artist) {
   const res = await axios.get(
     `https://genius.com/api/search/multi?q=${encodeURIComponent(q)}`,
     {
-      timeout: 8000,
+      timeout: 10_000,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -1074,7 +1407,7 @@ async function fetchFromGenius(title, artist) {
   }
 
   const page = await axios.get(hit.result.url, {
-    timeout: 10000,
+    timeout: 12_000,
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -1085,7 +1418,8 @@ async function fetchFromGenius(title, artist) {
     $('[data-lyrics-container="true"]').text() ||
     $(".lyrics").text() ||
     $(".song_body-lyrics").text();
-  if (!lyrics) throw new Error("Genius lyrics not parseable");
+  if (!lyrics?.trim())
+    throw new Error("Genius: lyrics container not found on page");
   lyrics = lyrics.replace(/\[.*?\]/g, "").trim();
   return {
     lyrics,
@@ -1115,7 +1449,7 @@ async function sendLyricsResponse(sock, from, data, fromCache = false) {
     const cut = clean.lastIndexOf("\n", 3800);
     clean =
       clean.substring(0, cut > 3000 ? cut : 3800) +
-      `\n\n... _[Lyrics truncated${url ? `. Full: ${url}` : ""}]_`;
+      `\n\n_...[Lyrics truncated${url ? `. Full: ${url}` : ""}]_`;
   }
 
   await sock.sendMessage(from, {
@@ -1125,7 +1459,7 @@ async function sendLyricsResponse(sock, from, data, fromCache = false) {
       `━━━━━━━━━━━━━━━━━━━━━\n\n` +
       clean +
       `\n\n━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1 by AYOCODES_`,
+      AYOBOT_TAG,
   });
 }
 
@@ -1147,6 +1481,7 @@ async function showMusicHelp(from, sock) {
         `💿 *.album <name>* — Album + full tracklist\n` +
         `🎤 *.genius <song>* — Genius lyrics\n\n` +
         `*Examples:*\n` +
+        `• .play Essence Wizkid\n` +
         `• .play wildflower billie eilish\n` +
         `• .lyrics Perfect - Ed Sheeran\n` +
         `• .musicsearch Drake God's Plan\n` +

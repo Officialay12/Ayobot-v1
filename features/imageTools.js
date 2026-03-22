@@ -1,18 +1,21 @@
-// features/imageTools.js
+// features/imageTools.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  AYOBOT v1 — Image Tools Module (ULTIMATE WORKING EDITION)
+//  Image Tools Module — FIXED & COMPLETE
 //  Author  : AYOCODES
 //
-//  🚀 FIXED: Actually sends results after processing
-//  • Removes progress updates (they're annoying)
-//  • Shows clear success/failure messages
-//  • Actually sends the converted files
+//  FIXES:
+//    • .tovideo and .sticker ffmpeg commands now use execFile() with an args
+//      array instead of exec() with a shell string. The old code had
+//      mismatched quote boundaries in the template literals — the closing "
+//      after "decrease," ended the shell string early, leaving (ow-iw) outside
+//      the quotes where /bin/sh interpreted ( as a subshell and threw:
+//      /bin/sh: 1: Syntax error: "(" unexpected
+//      execFile() bypasses the shell entirely so parentheses are safe. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
-// @ts-nocheck
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import axios from "axios";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import FormData from "form-data";
 import fs from "fs";
 import path from "path";
@@ -22,15 +25,16 @@ import util from "util";
 import { ENV } from "../index.js";
 import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
 
-const execPromise = util.promisify(exec);
+// FIX: Use execFile (not exec) — bypasses shell so parentheses never crash — AYOCODES
+const execFilePromise = util.promisify(execFile);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const TEMP_DIR = path.join(__dirname, "../temp");
 
-// ── Ensure temp dir exists ────────────────────────────────────────────────────
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// ── Auto-clean temp files older than 1 hour ───────────────────────────────────
+// Auto-clean temp files older than 1 hour
 setInterval(() => {
   try {
     const files = fs.readdirSync(TEMP_DIR);
@@ -42,15 +46,14 @@ setInterval(() => {
   } catch (_) {}
 }, 3_600_000);
 
-// ── Check if ffmpeg is available ─────────────────────────────────────────────
+// Check if ffmpeg is available
 let ffmpegAvailable = null;
 let ffmpegChecked = false;
 
 async function checkFfmpeg() {
   if (ffmpegChecked) return ffmpegAvailable;
-
   try {
-    await execPromise("ffmpeg -version");
+    await execFilePromise("ffmpeg", ["-version"]);
     ffmpegAvailable = true;
     console.log("✅ ffmpeg detected");
   } catch (_) {
@@ -61,7 +64,7 @@ async function checkFfmpeg() {
   return ffmpegAvailable;
 }
 
-// ── Download media helper (silent, no progress updates) ───────────────────
+// Download media helper
 async function downloadMedia(msg, type) {
   try {
     const stream = await downloadContentFromMessage(msg, type);
@@ -76,7 +79,7 @@ async function downloadMedia(msg, type) {
   }
 }
 
-// ── Safe file cleanup ─────────────────────────────────────────────────────────
+// Safe file cleanup
 function safeUnlink(...files) {
   for (const f of files) {
     try {
@@ -85,21 +88,27 @@ function safeUnlink(...files) {
   }
 }
 
-// ── Get video duration ────────────────────────────────────────
+// Get video duration
 async function getVideoDuration(filePath) {
   try {
-    const { stdout } = await execPromise(
-      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
-    );
+    const { stdout } = await execFilePromise("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
     return parseFloat(stdout);
-  } catch (e) {
+  } catch (_) {
     return null;
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  STICKER EXIF METADATA
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
   const json = JSON.stringify({
     "sticker-pack-id": "ayobot-v1",
@@ -111,14 +120,13 @@ function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
 
   const jsonBuf = Buffer.from(json, "utf-8");
   const header = Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]);
-
-  const exifBuf = Buffer.concat([Buffer.from("Exif\x00\x00"), header, jsonBuf]);
-  return exifBuf;
+  return Buffer.concat([Buffer.from("Exif\x00\x00"), header, jsonBuf]);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  STICKER
-// ════════════════════════════════════════════════════════════════════════════
+//  FIX: video sticker ffmpeg now uses execFile args array — no shell quoting
+// ============================================================================
 export async function sticker({ message, from, sock }) {
   try {
     const quoted =
@@ -146,7 +154,7 @@ export async function sticker({ message, from, sock }) {
     let stickerBuffer;
 
     if (!isVideo) {
-      // Image sticker
+      // Image sticker — sharp handles this perfectly
       stickerBuffer = await sharp(mediaBuffer)
         .resize(512, 512, {
           fit: "contain",
@@ -165,7 +173,7 @@ export async function sticker({ message, from, sock }) {
       const hasFfmpeg = await checkFfmpeg();
 
       if (!hasFfmpeg) {
-        // Static fallback
+        // Static fallback — extract first frame
         stickerBuffer = await sharp(mediaBuffer)
           .resize(512, 512, {
             fit: "contain",
@@ -179,9 +187,8 @@ export async function sticker({ message, from, sock }) {
           mimetype: "image/webp",
           exif,
         });
-
         await sock.sendMessage(from, {
-          text: "⚠️ ffmpeg not installed - created static sticker instead.",
+          text: "⚠️ ffmpeg not installed — created static sticker instead.",
         });
         return;
       }
@@ -192,13 +199,30 @@ export async function sticker({ message, from, sock }) {
       fs.writeFileSync(inputPath, mediaBuffer);
 
       try {
-        await execPromise(
-          `ffmpeg -i "${inputPath}" ` +
-            `-vcodec libwebp -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=10,"` +
-            `format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" ` +
-            `-lossless 0 -q:v 70 -preset default -loop 0 -an -vsync 0 -t 5 ` +
-            `-y "${outputPath}"`,
-        );
+        // FIX: execFile with args array — parentheses in vf are safe — AYOCODES
+        await execFilePromise("ffmpeg", [
+          "-i",
+          inputPath,
+          "-vcodec",
+          "libwebp",
+          "-vf",
+          "scale=512:512:force_original_aspect_ratio=decrease,fps=10,format=rgba,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000",
+          "-lossless",
+          "0",
+          "-q:v",
+          "70",
+          "-preset",
+          "default",
+          "-loop",
+          "0",
+          "-an",
+          "-vsync",
+          "0",
+          "-t",
+          "5",
+          "-y",
+          outputPath,
+        ]);
 
         stickerBuffer = fs.readFileSync(outputPath);
 
@@ -208,9 +232,9 @@ export async function sticker({ message, from, sock }) {
           exif,
         });
       } catch (ffErr) {
-        console.error("ffmpeg error:", ffErr.message);
+        console.error("ffmpeg sticker error:", ffErr.message);
 
-        // Fallback to static
+        // Fallback to static on ffmpeg failure
         stickerBuffer = await sharp(mediaBuffer)
           .resize(512, 512, {
             fit: "contain",
@@ -223,6 +247,9 @@ export async function sticker({ message, from, sock }) {
           sticker: stickerBuffer,
           mimetype: "image/webp",
           exif,
+        });
+        await sock.sendMessage(from, {
+          text: `⚠️ Could not create animated sticker: ${ffErr.message}\nCreated static sticker instead.`,
         });
       } finally {
         safeUnlink(inputPath, outputPath);
@@ -238,9 +265,9 @@ export async function sticker({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  TO IMAGE — sticker → PNG
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 export async function toImage({ message, from, sock }) {
   try {
     const quoted =
@@ -260,7 +287,6 @@ export async function toImage({ message, from, sock }) {
     });
 
     const stickerBuffer = await downloadMedia(quoted.stickerMessage, "image");
-
     const pngBuffer = await sharp(stickerBuffer)
       .png({ quality: 100 })
       .toBuffer();
@@ -277,9 +303,10 @@ export async function toImage({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  TO VIDEO — animated sticker → MP4
-// ════════════════════════════════════════════════════════════════════════════
+//  FIX: execFile with args array — parentheses in vf filter are safe — AYOCODES
+// ============================================================================
 export async function toVideo({ message, from, sock }) {
   try {
     const quoted =
@@ -315,13 +342,24 @@ export async function toVideo({ message, from, sock }) {
 
     fs.writeFileSync(inputPath, stickerBuffer);
 
-    await execPromise(
-      `ffmpeg -i "${inputPath}" ` +
-        `-c:v libx264 -pix_fmt yuv420p -t 5 ` +
-        `-vf "scale=512:512:force_original_aspect_ratio=decrease,"` +
-        `pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black" ` +
-        `-movflags +faststart -y "${outputPath}"`,
-    );
+    // FIX: execFile args array — (ow-iw)/2 and (oh-ih)/2 are passed directly
+    // to ffmpeg without shell interpretation — no more "(" unexpected — AYOCODES
+    await execFilePromise("ffmpeg", [
+      "-i",
+      inputPath,
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-t",
+      "5",
+      "-vf",
+      "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black",
+      "-movflags",
+      "+faststart",
+      "-y",
+      outputPath,
+    ]);
 
     const videoBuffer = fs.readFileSync(outputPath);
 
@@ -339,9 +377,9 @@ export async function toVideo({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  TO GIF — video → GIF playback (FIXED TO ACTUALLY SEND)
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  TO GIF — video → GIF playback
+// ============================================================================
 export async function toGif({ message, from, sock }) {
   try {
     const quoted =
@@ -367,7 +405,6 @@ export async function toGif({ message, from, sock }) {
 
     const videoBuffer = await downloadMedia(quoted.videoMessage, "video");
 
-    // Check file size
     if (videoBuffer.length > 50 * 1024 * 1024) {
       return sock.sendMessage(from, {
         text: formatError("TOO LARGE", "Video too large (max 50MB)."),
@@ -379,7 +416,6 @@ export async function toGif({ message, from, sock }) {
 
     fs.writeFileSync(inputPath, videoBuffer);
 
-    // Check video duration
     const duration = await getVideoDuration(inputPath);
     if (duration && duration > 30) {
       await sock.sendMessage(from, {
@@ -387,16 +423,21 @@ export async function toGif({ message, from, sock }) {
       });
     }
 
-    // Convert to GIF-optimized MP4
-    await execPromise(
-      `ffmpeg -i "${inputPath}" ` +
-        `-vf "fps=10,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" ` +
-        `-loop 0 -t 30 -y "${outputPath}"`,
-    );
+    await execFilePromise("ffmpeg", [
+      "-i",
+      inputPath,
+      "-vf",
+      "fps=10,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+      "-loop",
+      "0",
+      "-t",
+      "30",
+      "-y",
+      outputPath,
+    ]);
 
     const gifBuffer = fs.readFileSync(outputPath);
 
-    // ✅ ACTUALLY SEND THE RESULT
     await sock.sendMessage(from, {
       video: gifBuffer,
       gifPlayback: true,
@@ -412,9 +453,9 @@ export async function toGif({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  TO AUDIO — video → MP3 (FIXED TO ACTUALLY SEND)
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  TO AUDIO — video → MP3
+// ============================================================================
 export async function toAudio({ message, from, sock }) {
   try {
     const quoted =
@@ -430,7 +471,7 @@ export async function toAudio({ message, from, sock }) {
 
     const isAudio = !!quoted.audioMessage;
 
-    // If it's already audio, just re-send it
+    // Already audio — re-send directly
     if (isAudio) {
       const audioBuffer = await downloadMedia(quoted.audioMessage, "audio");
       return sock.sendMessage(from, {
@@ -452,7 +493,6 @@ export async function toAudio({ message, from, sock }) {
 
     const videoBuffer = await downloadMedia(quoted.videoMessage, "video");
 
-    // Check file size
     if (videoBuffer.length > 100 * 1024 * 1024) {
       return sock.sendMessage(from, {
         text: formatError("TOO LARGE", "Video too large (max 100MB)."),
@@ -464,13 +504,22 @@ export async function toAudio({ message, from, sock }) {
 
     fs.writeFileSync(inputPath, videoBuffer);
 
-    await execPromise(
-      `ffmpeg -i "${inputPath}" -vn -acodec libmp3lame -ab 128k -ar 44100 -y "${outputPath}"`,
-    );
+    await execFilePromise("ffmpeg", [
+      "-i",
+      inputPath,
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-ab",
+      "128k",
+      "-ar",
+      "44100",
+      "-y",
+      outputPath,
+    ]);
 
     const audioBuffer = fs.readFileSync(outputPath);
 
-    // ✅ ACTUALLY SEND THE RESULT
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: "audio/mpeg",
@@ -493,9 +542,9 @@ export async function toAudio({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  REMOVE BACKGROUND
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 export async function removeBg({ message, from, sock }) {
   try {
     const quoted =
@@ -578,7 +627,10 @@ export async function removeBg({ message, from, sock }) {
       });
     } else {
       await sock.sendMessage(from, {
-        text: formatError("REMOVEBG FAILED", "Could not remove background."),
+        text: formatError(
+          "REMOVEBG FAILED",
+          "Could not remove background. Set REMOVEBG_KEY for better results.",
+        ),
       });
     }
   } catch (e) {
@@ -589,9 +641,9 @@ export async function removeBg({ message, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  MEME
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 export async function meme({ message, fullArgs, from, sock }) {
   try {
     const quoted =
@@ -665,9 +717,9 @@ export async function meme({ message, fullArgs, from, sock }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 //  DEFAULT EXPORT
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
 export default {
   sticker,
   toImage,

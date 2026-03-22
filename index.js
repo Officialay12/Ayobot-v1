@@ -13,6 +13,15 @@
 //     - /dashboard/:sessionId route serves per-user dashboard
 //     - All original features, commands, handlers unchanged
 //   — AYOCODES
+//
+//   FIXES APPLIED (v1.0.1):
+//     - requireAdmin: API routes now return JSON 401 instead of HTML redirect
+//       (was causing dashboard to show "Loading..." forever)
+//     - Admin cookie: Added Secure + SameSite=Lax for Render HTTPS
+//     - New endpoints: /api/delete-offline + /api/delete-all for session cleanup
+//     - adminDashboardHTML: Full rewrite with auth error handling,
+//       DELETE OFFLINE button, DELETE ALL button, offline count card,
+//       owner phone + session ID in table
 // ============================================================
 
 import makeWASocket, {
@@ -23,8 +32,6 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   initAuthCreds,
 } from "@whiskeysockets/baileys";
-// BufferJSON and proto must be imported separately — they are NOT
-// re-exported from the main baileys entry point in v6+. — AYOCODES
 import { proto } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import bodyParser from "body-parser";
@@ -41,7 +48,6 @@ dotenv.config();
 
 // ============================================================
 //   TERMINAL COLORS & LOGGER
-//   Color-coded = I know what's wrong in 1 second. — AYOCODES
 // ============================================================
 const C = {
   reset: "\x1b[0m",
@@ -63,11 +69,8 @@ export const log = {
 
 // ============================================================
 //   ENVIRONMENT CONFIG
-//   All env vars in one place. Missing keys silently disable
-//   that feature — no crashes. — AYOCODES
 // ============================================================
 export const ENV = {
-  // ── BOT CONFIG ─────────────────────────────────────────────
   PREFIX: process.env.PREFIX || ".",
   BOT_NAME: process.env.BOT_NAME || "AYOBOT",
   BOT_VERSION: process.env.BOT_VERSION || "1.0.0",
@@ -78,7 +81,6 @@ export const ENV = {
   BOT_MODE: process.env.BOT_MODE || "public",
   ANTI_DELETE_ENABLED: process.env.ANTI_DELETE_ENABLED !== "false",
 
-  // ── MEDIA & SOCIAL ─────────────────────────────────────────
   WELCOME_IMAGE_URL:
     process.env.WELCOME_IMAGE_URL ||
     "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
@@ -93,13 +95,11 @@ export const ENV = {
     process.env.WHATSAPP_GROUP ||
     "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN",
 
-  // ── CREATOR ─────────────────────────────────────────────────
   CREATOR_NAME: "AYOCODES",
   CREATOR_CONTACT: process.env.CREATOR_CONTACT || process.env.ADMIN,
   CREATOR_EMAIL: process.env.CREATOR_EMAIL,
   CREATOR_GITHUB: "https://github.com/Officialay12",
 
-  // ── AI & LLM KEYS ──────────────────────────────────────────
   GEMINI_KEY: process.env.GEMINI_KEY,
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   OPENROUTER_KEY: process.env.OPENROUTER_KEY,
@@ -107,7 +107,6 @@ export const ENV = {
   HF_TOKEN: process.env.HF_TOKEN,
   POLLINATIONS_KEY: process.env.POLLINATIONS_API_KEY,
 
-  // ── MEDIA & SEARCH KEYS ────────────────────────────────────
   OPENWEATHER_KEY: process.env.OPENWEATHER_KEY,
   NEWS_API_KEY: process.env.NEWS_API_KEY,
   TMDB_API_KEY: process.env.TMDB_API_KEY,
@@ -120,31 +119,25 @@ export const ENV = {
   UNSPLASH_KEY: process.env.UNSPLASH_KEY,
   RAPIDAPI_KEY: process.env.RAPIDAPI_KEY,
 
-  // ── SECURITY KEYS ─────────────────────────────────────────
   VIRUSTOTAL_KEY: process.env.VIRUSTOTAL_KEY,
   GOOGLE_SAFE_BROWSING: process.env.GOOGLE_SAFE_BROWSING_KEY,
   URLSCAN_KEY: process.env.URLSCAN_KEY,
 
-  // ── SHORTENER ─────────────────────────────────────────────
   SHORTENER_API: process.env.SHORTENER_API || "https://ayo-link.onrender.com",
   SHORTENER_API_KEY: process.env.SHORTENER_API_KEY,
 
-  // ── RENDER & SERVER ───────────────────────────────────────
   PORT: process.env.PORT || 3000,
   RENDER_API_KEY: process.env.RENDER_API_KEY,
 
-  // ── MULTI-SESSION (MongoDB) ───────────────────────────────
   MONGODB_URI: process.env.MONGODB_URI || "",
   MAX_SESSIONS: parseInt(process.env.MAX_SESSIONS) || 100,
 
-  // ── ADMIN PANEL ───────────────────────────────────────────
   AYOCODES_ADMIN_KEY: process.env.AYOCODES_ADMIN_KEY || null,
   CENTRAL_SERVER_URL:
     process.env.CENTRAL_SERVER_URL || "https://ayobot-v1-wo21.onrender.com",
   INSTANCE_ID: process.env.INSTANCE_ID || null,
 };
 
-// Hard stop if MongoDB URI is missing — nothing works without it. — AYOCODES
 if (!ENV.MONGODB_URI) {
   console.error(
     `${C.red}❌ MONGODB_URI is required! Add it to your Render environment variables.${C.reset}`,
@@ -217,7 +210,7 @@ function checkEnvVars() {
 }
 
 // ============================================================
-//   HELPERS — unchanged from original
+//   HELPERS
 // ============================================================
 export function normalizePhone(raw) {
   if (!raw) return "";
@@ -240,7 +233,7 @@ export async function sendMsg(sock, jid, content, opts = {}) {
 }
 
 // ============================================================
-//   CONSTANTS — unchanged from original
+//   CONSTANTS
 // ============================================================
 export const ADMIN_CACHE_TTL = 30000;
 export const GROUP_META_TTL = 60000;
@@ -259,7 +252,7 @@ export const RATE_LIMIT_MESSAGES = [
 ];
 
 // ============================================================
-//   GLOBAL STATE — exported so submodules can import as before
+//   GLOBAL STATE
 // ============================================================
 export let messageCount = 0;
 export let botStartTime = Date.now();
@@ -279,25 +272,17 @@ export const adminCache = new Map();
 export const groupMetadataCache = new Map();
 export const msgCache = new NodeCache({ stdTTL: 60, maxKeys: 5000 });
 
-// Initialize global trivia store
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
   console.log("✅ [index.js] Created global.activeTrivia");
 }
 
-// Session owner map for optimized lookups
-const sessionOwnerMap = new Map(); // ownerPhone -> session
+const sessionOwnerMap = new Map();
 
 // ============================================================
-//   GROUP ACTIVATIONS - FIXED (ISSUE #3)
-//   Tracks which groups each session's owner has activated.
-//   sessionId → Set<groupJid>
-//   By default a bot only responds to its owner in a group.
-//   Owner must run .activate in a group to open it to everyone.
-//   This prevents two deployed bots from both replying to
-//   every message in a shared group. — AYOCODES
+//   GROUP ACTIVATIONS
 // ============================================================
-export const groupActivations = new Map(); // sessionId -> Set<groupJid>
+export const groupActivations = new Map();
 
 export function activateGroup(sessionId, groupJid) {
   if (!groupActivations.has(sessionId)) {
@@ -316,7 +301,6 @@ export function isGroupActivated(sessionId, groupJid) {
   return groupActivations.get(sessionId)?.has(groupJid) === true;
 }
 
-// DB alias wrappers — moderation.js and settings.js import these. — AYOCODES
 export function saveBann(jid, reason = "") {
   bannedUsers.set(jid, { reason, timestamp: Date.now() });
   saveDatabases();
@@ -339,9 +323,8 @@ export function saveGroupSettings() {
 }
 
 // ============================================================
-//   DATABASE — now MongoDB-backed for multi-session
+//   DATABASE
 // ============================================================
-// Kept for compatibility with existing imports
 let dbCollection = null;
 
 export function loadDatabases() {
@@ -349,51 +332,30 @@ export function loadDatabases() {
 }
 
 export function saveDatabases() {
-  // No-op — keeps submodule imports working without changes. — AYOCODES
+  // No-op — keeps submodule imports working
 }
 
 // ============================================================
-//   ADMIN HELPERS - FIXED SECURITY (ISSUE #4)
-//   SECURITY FIX: If ownerPhone is missing/falsy, return false immediately
-//   This prevents cross-session privilege escalation where any
-//   user could claim admin rights against a different session's
-//   bot just because their number matched another session owner.
-//   — AYOCODES
+//   ADMIN HELPERS
 // ============================================================
 export function isAdmin(userJid, ownerPhone) {
-  // SECURITY FIX: If ownerPhone is missing/falsy, return false immediately
   if (!userJid || !ownerPhone) return false;
-
   const rawLocal = userJid.split("@")[0].split(":")[0];
   const u = normalizePhone(rawLocal);
   const o = normalizePhone(ownerPhone);
-
   if (!u || !o) return false;
-
-  // Only return true if this user's phone exactly matches the session owner's phone
   return u === o || userJid === `${o}@s.whatsapp.net` || userJid === `${o}@lid`;
 }
 
-// Backwards compatible isAuthorized — works with 1, 2, or 3 args.
-// sessionMode = the per-session mode ("public" or "private"). — AYOCODES
 export function isAuthorized(userJid, ownerPhone, sessionMode) {
-  // First check if user is admin (owner)
   if (isAdmin(userJid, ownerPhone)) return true;
-
-  // Use cached session lookup instead of looping through all sessions
   if (ownerPhone) {
     const session = sessionOwnerMap.get(ownerPhone);
     if (session?.authorizedUsers?.has(userJid)) return true;
   }
-
-  // Check global whitelist (legacy compat). — AYOCODES
   if (authorizedUsers.has(userJid)) return true;
-
-  // Use the passed session mode, or fall back to ENV default. — AYOCODES
   const mode = sessionMode || ENV.BOT_MODE || "public";
   if (mode === "public") return true;
-
-  // PRIVATE MODE: Only admin/authorized users are allowed
   return false;
 }
 export const authorizedUsers = new Set();
@@ -402,7 +364,6 @@ export const authorizedUsers = new Set();
 //   BAD MAC SUPPRESSION + PINO LOGGER
 // ============================================================
 const logger = pino({ level: "silent" });
-// FIX: Declare originalConsoleError before using it
 const originalConsoleError = console.error;
 console.error = function (...args) {
   const m = args[0];
@@ -413,9 +374,6 @@ console.error = function (...args) {
 
 // ============================================================
 //   MONGODB AUTH STATE
-//   Replaces useMultiFileAuthState() — stores Baileys creds
-//   in MongoDB so sessions survive Render restarts forever.
-//   Each sessionId gets its own isolated key namespace. — AYOCODES
 // ============================================================
 async function useMongoAuthState(collection, sessionId) {
   const writeData = async (data, id) => {
@@ -509,8 +467,8 @@ function createSessionObject(sessionId) {
     pingInterval: null,
     reconnectTimeout: null,
     pairingCodeTimeout: null,
-    mode: process.env.BOT_MODE || "public", // per-session mode — AYOCODES
-    authorizedUsers: new Set(), // per-session whitelist
+    mode: process.env.BOT_MODE || "public",
+    authorizedUsers: new Set(),
   };
 }
 
@@ -541,7 +499,7 @@ async function connectMongo() {
 }
 
 // ============================================================
-//   RESTORE SESSIONS ON STARTUP - FIXED with proper error handling
+//   RESTORE SESSIONS ON STARTUP
 // ============================================================
 async function restoreAllSessions() {
   const saved = await sessionMetaCollection.find({ active: true }).toArray();
@@ -552,17 +510,18 @@ async function restoreAllSessions() {
       const session = await startSession(s.sessionId, false);
       if (session && s.mode) {
         session.mode = s.mode;
-
-        // Wait for handlers to be ready (max 30 seconds)
         const startTime = Date.now();
         while (!session.handlersReady && Date.now() - startTime < 30000) {
           await delay(1000);
         }
-
         if (session.handlersReady) {
-          log.info(`[${s.sessionId.slice(0, 8)}] Session restored successfully`);
+          log.info(
+            `[${s.sessionId.slice(0, 8)}] Session restored successfully`,
+          );
         } else {
-          log.warn(`[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`);
+          log.warn(
+            `[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`,
+          );
         }
       }
     } catch (e) {
@@ -574,7 +533,7 @@ async function restoreAllSessions() {
 }
 
 // ============================================================
-//   HANDLER LOADER — per session
+//   HANDLER LOADER
 // ============================================================
 async function loadHandlersForSession(session) {
   session.handlersReady = false;
@@ -603,7 +562,7 @@ async function loadHandlersForSession(session) {
 }
 
 // ============================================================
-//   ATTACH MESSAGE LISTENERS — per session - FIXED with error handling
+//   ATTACH MESSAGE LISTENERS
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
@@ -612,17 +571,14 @@ function attachListeners(session) {
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     try {
       if (type !== "notify" && type !== "append") return;
-
       const msg = messages[0];
       if (!msg?.message) return;
       if (msg.key.remoteJid === "status@broadcast") return;
-
       const from = msg.key.remoteJid;
       if (!from) return;
 
       const isGroup = from.endsWith("@g.us");
       const fromMe = !!msg.key.fromMe;
-
       const m = msg.message;
       const messageText =
         m.conversation ||
@@ -680,13 +636,11 @@ function attachListeners(session) {
         return;
       }
 
-      // Inject full session context — commandHandler reads this. — AYOCODES
       msg._session = session;
       msg._sessionId = session.id;
       msg._sessionMode = session.mode || "public";
       msg._ownerPhone = session.ownerPhone || "";
 
-      // FIX: Add error handling for command handler
       try {
         await session.commandHandler(msg, sock);
       } catch (cmdError) {
@@ -767,13 +721,11 @@ async function updateUserMessageCount(session) {
       { phone: session.ownerPhone },
       { $set: { lastSeen: new Date(), totalMessages: session.messageCount } },
     );
-  } catch (err) {
-    // Silently fail
-  }
+  } catch (_) {}
 }
 
 // ============================================================
-//   OWNER HELPERS — per session
+//   OWNER HELPERS
 // ============================================================
 function setSessionOwner(session, jid, phone, name = "Owner") {
   const cleanPhone = String(phone).replace(/[^0-9]/g, "");
@@ -784,7 +736,6 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
   session.ownerPhone = cleanPhone;
   session.ownerName = cleanName;
 
-  // Update session owner map for optimized lookups
   if (cleanPhone) {
     sessionOwnerMap.set(cleanPhone, session);
   }
@@ -809,29 +760,28 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
 }
 
 // ============================================================
-//   WELCOME MESSAGE — FIXED with better error handling and retry logic
+//   WELCOME MESSAGE
 // ============================================================
 async function sendWelcomeMessage(session, sock) {
   try {
-    // Wait longer for connection to stabilize
     await delay(15000);
-
-    // Multiple connection checks with retry
     let connectionChecked = false;
     for (let i = 0; i < 3; i++) {
       if (session.connected && session.ownerJid) {
         connectionChecked = true;
         break;
       }
-      log.info(`[${session.id.slice(0, 8)}] Waiting for connection... (${i+1}/3)`);
+      log.info(
+        `[${session.id.slice(0, 8)}] Waiting for connection... (${i + 1}/3)`,
+      );
       await delay(5000);
     }
-
     if (!connectionChecked) {
-      log.warn(`[${session.id.slice(0, 8)}] Welcome: still not ready, aborting`);
+      log.warn(
+        `[${session.id.slice(0, 8)}] Welcome: still not ready, aborting`,
+      );
       return;
     }
-
     if (!session.ownerJid) {
       log.warn(`[${session.id.slice(0, 8)}] Welcome: no owner JID, aborting`);
       return;
@@ -843,11 +793,9 @@ async function sendWelcomeMessage(session, sock) {
     const speedIcon =
       connectTime < 15000 ? "🟢" : connectTime < 30000 ? "🟡" : "🔴";
     const connectSecs = (connectTime / 1000).toFixed(1);
-
     const mem = process.memoryUsage();
     const usedMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
     const totalMB = (mem.heapTotal / 1024 / 1024).toFixed(1);
-
     const displayName =
       session.ownerName &&
       session.ownerName !== session.ownerPhone &&
@@ -896,30 +844,33 @@ async function sendWelcomeMessage(session, sock) {
           return;
         }
       } catch (e) {
-        log.warn(`[${session.id.slice(0, 8)}] Image attempt ${i} failed: ${e.message}`);
+        log.warn(
+          `[${session.id.slice(0, 8)}] Image attempt ${i} failed: ${e.message}`,
+        );
         try {
           const r = await sock.sendMessage(session.ownerJid, { text: caption });
           if (r) {
             log.ok(`[${session.id.slice(0, 8)}] Welcome sent (text fallback)`);
             return;
           }
-        } catch (textErr) {
-          // Silently continue to next attempt
-        }
+        } catch (_) {}
       }
       await delay(4000 * i);
     }
 
-    // Final fallback
     try {
       await sock.sendMessage(session.ownerJid, {
         text: `✅ AYOBOT online! Type ${ENV.PREFIX}menu for commands.`,
       });
     } catch (finalErr) {
-      log.err(`[${session.id.slice(0, 8)}] All welcome attempts failed: ${finalErr.message}`);
+      log.err(
+        `[${session.id.slice(0, 8)}] All welcome attempts failed: ${finalErr.message}`,
+      );
     }
   } catch (error) {
-    log.err(`[${session.id.slice(0, 8)}] Welcome function error: ${error.message}`);
+    log.err(
+      `[${session.id.slice(0, 8)}] Welcome function error: ${error.message}`,
+    );
   }
 }
 
@@ -939,7 +890,7 @@ async function clearSessionAuth(sessionId) {
 }
 
 // ============================================================
-//   RATE LIMIT CLEANUP — global - FIXED with better cleanup
+//   CLEANUP
 // ============================================================
 function cleanupRateLimits() {
   const now = Date.now();
@@ -950,21 +901,14 @@ function cleanupRateLimits() {
   }
 }
 
-// ============================================================
-//   CLEANUP STORES - FIXED: Added cleanup for deletedMessages
-// ============================================================
 function cleanupStores() {
   const now = Date.now();
   const ONE_HOUR = 3600000;
-
-  // Clean up deleted messages older than 1 hour
   for (const [key, data] of deletedMessages.entries()) {
     if (data && now - (data.timestamp || 0) > ONE_HOUR) {
       deletedMessages.delete(key);
     }
   }
-
-  // Clean up user cooldowns older than 1 hour
   for (const [key, timestamp] of userCooldown.entries()) {
     if (now - timestamp > ONE_HOUR) {
       userCooldown.delete(key);
@@ -1115,7 +1059,6 @@ async function _startSocket(session) {
 
         await saveCreds();
 
-        // Load handlers with error handling
         try {
           await loadHandlersForSession(session);
         } catch (handlerErr) {
@@ -1123,12 +1066,9 @@ async function _startSocket(session) {
         }
 
         attachListeners(session);
-
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
-
-        // Send welcome message with error handling
-        sendWelcomeMessage(session, sock).catch(err =>
-          log.warn(`[${sid}] Welcome error: ${err.message}`)
+        sendWelcomeMessage(session, sock).catch((err) =>
+          log.warn(`[${sid}] Welcome error: ${err.message}`),
         );
       }
 
@@ -1184,14 +1124,13 @@ async function _startSocket(session) {
 }
 
 // ============================================================
-//   DESTROY SESSION — full cleanup
+//   DESTROY SESSION
 // ============================================================
 async function destroySession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
   session.destroyed = true;
 
-  // Remove from session owner map
   if (session.ownerPhone) {
     sessionOwnerMap.delete(session.ownerPhone);
   }
@@ -1213,7 +1152,7 @@ async function destroySession(sessionId) {
 }
 
 // ============================================================
-//   REQUEST PAIRING CODE — per session
+//   REQUEST PAIRING CODE
 // ============================================================
 async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
@@ -1297,10 +1236,25 @@ app.use((req, _res, next) => {
 });
 
 const adminTokens = new Set();
+
+// ============================================================
+//   FIX 1 — requireAdmin: JSON 401 for API routes
+//   BEFORE: ALL unauthenticated requests → redirect to login HTML
+//   AFTER: /api/ routes get JSON 401, page routes get the redirect
+//   WHY: fetch() in dashboard was getting HTML, r.json() threw,
+//        dashboard stayed "Loading..." forever
+// ============================================================
 function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
   if (token && adminTokens.has(token)) return next();
   if (req.path.includes("/login")) return next();
+  // API routes must return JSON so fetch() can handle the error gracefully
+  if (req.path.includes("/api/")) {
+    return res.status(401).json({
+      error:
+        "Unauthorized — session expired, please log in at /ayocodes-admin/login",
+    });
+  }
   res.redirect("/ayocodes-admin/login");
 }
 
@@ -1348,12 +1302,10 @@ function setupWebDashboard() {
     }
 
     if (session.connected) return res.send(connectedHTML(session));
-
     if (session.qr) {
       const qrUrl = await QRCode.toDataURL(session.qr).catch(() => null);
       return res.send(connectHTML(sessionId, qrUrl));
     }
-
     return res.send(loadingHTML(sessionId));
   });
 
@@ -1434,20 +1386,32 @@ function setupWebDashboard() {
     }
   });
 
+  // ── Admin routes ────────────────────────────────────────────────────────
   app.get("/ayocodes-admin/login", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(adminLoginHTML());
   });
 
+  // ============================================================
+  //   FIX 2 — Admin login cookie: Secure + SameSite=Lax
+  //   BEFORE: No Secure flag → cookie dropped on Render HTTPS
+  //   AFTER:  Adds Secure on HTTPS + SameSite=Lax
+  //   WHY: Without Secure, browser won't send cookie on HTTPS,
+  //        requireAdmin fails auth on every API call
+  // ============================================================
   app.post("/ayocodes-admin/login-post", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     if (req.body.password !== ENV.AYOCODES_ADMIN_KEY)
       return res.send(adminLoginHTML("Wrong password — try again."));
     const token = crypto.randomBytes(20).toString("hex");
     adminTokens.add(token);
+    // Detect HTTPS (Render sets x-forwarded-proto, or RENDER env var is set)
+    const isHttps =
+      req.headers["x-forwarded-proto"] === "https" || !!process.env.RENDER;
+    const secureFlag = isHttps ? "; Secure" : "";
     res.setHeader(
       "Set-Cookie",
-      `ayoAdminToken=${token}; HttpOnly; Path=/; Max-Age=43200`,
+      `ayoAdminToken=${token}; HttpOnly; Path=/; Max-Age=43200; SameSite=Lax${secureFlag}`,
     );
     res.redirect("/ayocodes-admin");
   });
@@ -1464,6 +1428,7 @@ function setupWebDashboard() {
     res.send(adminDashboardHTML());
   });
 
+  // ── Instances API — lists all sessions ──────────────────────────────────
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
@@ -1487,6 +1452,7 @@ function setupWebDashboard() {
     });
   });
 
+  // ── Kill a single session ────────────────────────────────────────────────
   app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
@@ -1497,6 +1463,58 @@ function setupWebDashboard() {
     res.json({ ok: true });
   });
 
+  // ============================================================
+  //   FIX 3a — New endpoint: delete all OFFLINE sessions
+  //   Clears every disconnected/dead session from memory + MongoDB
+  //   This stops the 408 reconnect loop caused by 28 stale sessions
+  // ============================================================
+  app.post(
+    "/ayocodes-admin/api/delete-offline",
+    requireAdmin,
+    async (req, res) => {
+      if (!ENV.AYOCODES_ADMIN_KEY)
+        return res.status(403).json({ error: "Not enabled" });
+      const offline = Array.from(sessions.values()).filter((s) => !s.connected);
+      let deleted = 0;
+      for (const session of offline) {
+        try {
+          await destroySession(session.id);
+          deleted++;
+        } catch (e) {
+          log.warn(
+            `Admin: failed to destroy ${session.id.slice(0, 8)}: ${e.message}`,
+          );
+        }
+      }
+      log.ok(
+        `Admin: deleted ${deleted} offline session(s). Remaining: ${sessions.size}`,
+      );
+      res.json({ ok: true, deleted, remaining: sessions.size });
+    },
+  );
+
+  // ============================================================
+  //   FIX 3b — New endpoint: delete ALL sessions (nuclear option)
+  //   Requires double-confirmation from the frontend
+  // ============================================================
+  app.post("/ayocodes-admin/api/delete-all", requireAdmin, async (req, res) => {
+    if (!ENV.AYOCODES_ADMIN_KEY)
+      return res.status(403).json({ error: "Not enabled" });
+    const all = Array.from(sessions.keys());
+    let deleted = 0;
+    for (const id of all) {
+      try {
+        await destroySession(id);
+        deleted++;
+      } catch (e) {
+        log.warn(`Admin: failed to destroy ${id.slice(0, 8)}: ${e.message}`);
+      }
+    }
+    log.ok(`Admin: deleted ALL ${deleted} sessions. Server is now clean.`);
+    res.json({ ok: true, deleted, remaining: sessions.size });
+  });
+
+  // ── Users page ──────────────────────────────────────────────────────────
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(userTrackingHTML());
@@ -1510,7 +1528,6 @@ function setupWebDashboard() {
       const limit = 50;
       const skip = (page - 1) * limit;
       const search = req.query.search || "";
-
       const query = search
         ? {
             $or: [
@@ -1519,7 +1536,6 @@ function setupWebDashboard() {
             ],
           }
         : {};
-
       const [users, total] = await Promise.all([
         userLogCollection
           .find(query)
@@ -1529,13 +1545,11 @@ function setupWebDashboard() {
           .toArray(),
         userLogCollection.countDocuments(query),
       ]);
-
       const activeSessions = new Set(
         Array.from(sessions.values())
           .filter((s) => s.connected)
           .map((s) => s.ownerPhone),
       );
-
       res.json({
         users: users.map((u) => ({
           ...u,
@@ -1603,7 +1617,7 @@ function setupWebDashboard() {
 }
 
 // ============================================================
-//   DASHBOARD HTML — SHARED HEAD
+//   SHARED HEAD
 // ============================================================
 function sharedHead(title) {
   return `<!DOCTYPE html><html lang="en"><head>
@@ -1882,7 +1896,7 @@ function animCount(el,target,dur){
   const t=setInterval(()=>{cur=target>start?Math.min(cur+step,target):Math.max(cur-step,target);el.textContent=cur;if(cur===target)clearInterval(t);},16);
 }
 function updateStats(){
-  fetch('/api/status/'+SID).then(r=>r.json()).then(d=>{
+  fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
     if(!d.exists||!d.connected){location.reload();return;}
     animCount(document.getElementById('sMsg'),d.messageCount||0,600);
     animCount(document.getElementById('sCmd'),d.commandCount||0,600);
@@ -1899,14 +1913,14 @@ function tick(){const n=new Date(),el=document.getElementById('footerTime');if(e
 tick();setInterval(tick,1000);
 async function logout(){
   if(!confirm('Disconnect your WhatsApp and reset your bot?'))return;
-  await fetch('/api/logout/'+SID,{method:'POST'});
+  await fetch('/api/logout/'+SID,{method:'POST',credentials:'same-origin'});
   location.href='/';
 }
 function joinWaitlist(v,btn){
   if(btn.classList.contains('joined'))return;
   btn.disabled=true;btn.textContent='⏳ JOINING...';
   fetch('/api/waitlist-join/'+SID,{
-    method:'POST',headers:{'Content-Type':'application/json'},
+    method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
     body:JSON.stringify({version:v})
   }).then(r=>r.json()).then(d=>{
     const key='wl_'+v;
@@ -2027,7 +2041,7 @@ async function requestCode(){
   if(!ph||!/^\\d{10,15}$/.test(ph)){err.textContent='⚠️ Enter a valid phone number (10-15 digits, no + or spaces)';err.style.display='block';return;}
   pb.disabled=true;pb.textContent='⏳ REQUESTING…';
   try{
-    const r=await fetch('/api/request-pairing/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:ph})});
+    const r=await fetch('/api/request-pairing/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({phoneNumber:ph})});
     const d=await r.json();
     if(d.success){
       document.getElementById('pairForm').style.display='none';
@@ -2039,13 +2053,13 @@ async function requestCode(){
   }catch(e){err.textContent='❌ Network error: '+e.message;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE';}
 }
 setInterval(()=>{
-  fetch('/api/status/'+SID).then(r=>r.json()).then(d=>{
+  fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
     if(d.connected)location.reload();
     if(d.hasQr && !document.getElementById('qrImg')?.src.startsWith('data:'))location.reload();
   }).catch(()=>{});
 },5000);
 window.onload=function(){
-  fetch('/api/status/'+SID).then(r=>r.json()).then(d=>{
+  fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
     if(d.pairingCode){
       showTab('pair',document.querySelectorAll('.ctab')[1]);
       document.getElementById('pairForm').style.display='none';
@@ -2153,7 +2167,17 @@ function adminLoginHTML(error = "") {
 }
 
 // ============================================================
-//   ADMIN DASHBOARD HTML
+//   FIX 4 — adminDashboardHTML: Full rewrite
+//   BEFORE: loadInstances() had no auth error handling,
+//           no delete buttons, no offline count card,
+//           showed "Loading..." forever on any fetch failure
+//   AFTER:  Checks r.status before r.json() (catches 401),
+//           shows red error banner on failures,
+//           DELETE OFFLINE button (clears dead sessions),
+//           DELETE ALL button (nuclear, double-confirmed),
+//           Offline/Dead count card,
+//           Owner phone + session ID in the table,
+//           credentials:'same-origin' on all fetch calls
 // ============================================================
 function adminDashboardHTML() {
   return (
@@ -2177,75 +2201,295 @@ function adminDashboardHTML() {
       <span class="line2">MONITOR</span>
     </h1>
   </div>
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
-    <div class="stat-card red-glow"><div class="stat-icon">🌐</div><div class="stat-val" id="totalI">—</div><div class="stat-label">Total Bots</div></div>
-    <div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-val" id="onlineI" style="color:var(--green)">—</div><div class="stat-label">Online</div></div>
-    <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-val" id="totalM" style="color:var(--gold)">—</div><div class="stat-label">Total Messages</div></div>
-    <div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-val" id="lastR" style="font-size:14px;color:var(--text2)">—</div><div class="stat-label">Last Refresh</div></div>
-  </div>
-  <div style="margin:24px 0">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div><div class="section-title">// Live Sessions</div></div>
-      <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px">↻ REFRESH</button>
+
+  <!-- Stat cards — now includes Offline/Dead count -->
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+    <div class="stat-card red-glow">
+      <div class="stat-icon">🌐</div>
+      <div class="stat-val" id="totalI">—</div>
+      <div class="stat-label">Total Bots</div>
     </div>
-    <div id="instanceTable"><div style="text-align:center;padding:60px;color:var(--text3);font-family:'JetBrains Mono',monospace">Loading...</div></div>
+    <div class="stat-card">
+      <div class="stat-icon">🟢</div>
+      <div class="stat-val" id="onlineI" style="color:var(--green)">—</div>
+      <div class="stat-label">Online</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🔴</div>
+      <div class="stat-val" id="offlineI" style="color:var(--red)">—</div>
+      <div class="stat-label">Offline / Dead</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">💬</div>
+      <div class="stat-val" id="totalM" style="color:var(--gold)">—</div>
+      <div class="stat-label">Total Messages</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⏱️</div>
+      <div class="stat-val" id="lastR" style="font-size:14px;color:var(--text2)">—</div>
+      <div class="stat-label">Last Refresh</div>
+    </div>
   </div>
+
+  <!-- Action bar -->
+  <div style="margin:24px 0 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+    <div class="section-title">// Live Sessions</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">
+        ↻ REFRESH
+      </button>
+      <button id="btnDelOffline" onclick="deleteOffline()"
+        style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;transition:all .2s"
+        onmouseover="this.style.background='rgba(255,170,0,0.18)'" onmouseout="this.style.background='rgba(255,170,0,0.08)'">
+        🗑️ DELETE OFFLINE
+      </button>
+      <button onclick="deleteAll()"
+        style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,0,0,0.06);border:1px solid rgba(255,0,0,0.3);color:var(--red);transition:all .2s"
+        onmouseover="this.style.background='rgba(255,0,0,0.16)'" onmouseout="this.style.background='rgba(255,0,0,0.06)'">
+        💥 DELETE ALL
+      </button>
+    </div>
+  </div>
+
+  <!-- Error / status banner -->
+  <div id="errBanner" style="display:none;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:10px;padding:14px 18px;color:var(--red);font-size:13px;margin-bottom:16px;font-family:'JetBrains Mono',monospace"></div>
+
+  <!-- Sessions table -->
+  <div id="instanceTable">
+    <div style="text-align:center;padding:60px;color:var(--text3);font-family:'JetBrains Mono',monospace">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      Loading sessions...
+    </div>
+  </div>
+
   <div class="footer-bar">AYOBOT Developer Panel &nbsp;·&nbsp; <span id="footerClock"></span></div>
 </div>
+
 <style>
 .inst-table{width:100%;border-collapse:collapse;font-size:13px}
-.inst-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2)}
+.inst-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2);white-space:nowrap}
 .inst-table td{padding:12px 14px;border-bottom:1px solid var(--border2);vertical-align:middle}
 .inst-table tr:last-child td{border-bottom:none}
+.inst-table tr.row-offline td{opacity:0.6}
 .inst-table tr:hover td{background:rgba(255,0,0,0.03)}
 .mono{font-family:'JetBrains Mono',monospace}
-.kill-btn{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;padding:6px 12px;border-radius:6px;cursor:pointer;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);color:var(--red);transition:all .2s}
-.kill-btn:hover{background:rgba(255,0,0,0.2);border-color:var(--red)}
+.kill-btn{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:1px;padding:6px 12px;border-radius:6px;cursor:pointer;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);color:var(--red);transition:all .2s}
+.kill-btn:hover{background:rgba(255,0,0,0.25);border-color:var(--red);transform:scale(1.05)}
+.kill-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
 </style>
+
 <script>
-async function loadInstances(){
-  try{
-    const r=await fetch('/ayocodes-admin/api/instances');
-    const d=await r.json();
-    document.getElementById('totalI').textContent=d.total;
-    document.getElementById('onlineI').textContent=d.online;
-    document.getElementById('totalM').textContent=d.instances.reduce((a,i)=>a+(i.messageCount||0),0).toLocaleString();
-    document.getElementById('lastR').textContent=new Date().toLocaleTimeString('en-GB',{hour12:false});
-    document.getElementById('globalStats').textContent=d.online+' online / '+d.total+' total';
-    if(!d.instances.length){
-      document.getElementById('instanceTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3);font-family:JetBrains Mono,monospace">No active sessions</div>';
+// ── Main fetch function: loads sessions from backend ─────────────────────
+async function loadInstances() {
+  const errBanner = document.getElementById('errBanner');
+  errBanner.style.display = 'none';
+
+  let d;
+  try {
+    const r = await fetch('/ayocodes-admin/api/instances', { credentials: 'same-origin' });
+
+    // 401 = admin token expired or cookie dropped — redirect to login
+    if (r.status === 401) {
+      errBanner.innerHTML = '🔐 <strong>Session expired</strong> — redirecting to login...';
+      errBanner.style.display = 'block';
+      setTimeout(() => { location.href = '/ayocodes-admin/login'; }, 1800);
       return;
     }
-    let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>ACTION</th></tr></thead><tbody>';
-    d.instances.forEach(inst=>{
-      const up=inst.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60);
-      const status=inst.connected
-        ?'<span style="color:var(--green);font-family:JetBrains Mono,monospace">● LIVE</span>'
-        :'<span style="color:var(--red);font-family:JetBrains Mono,monospace">● OFFLINE</span>';
-      html += '<tr>' +
-        '<td>' + status + '</td>' +
-        '<td><span class="mono" style="color:var(--gold)">' + (inst.ownerName||'—') + '</span></td>' +
-        '<td><span class="mono">+' + (inst.ownerPhone||'—') + '</span></td>' +
-        '<td><span class="mono" style="color:var(--green)">' + h + 'h ' + m + 'm</span></td>' +
-        '<td><span class="mono">' + (inst.messageCount||0).toLocaleString() + '</span></td>' +
-        '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod||'—') + '</span></td>' +
-        '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')">⚡ KILL</button></td>' +
-        '</tr>';
+
+    // Any other non-OK status
+    if (!r.ok) {
+      errBanner.textContent = '⚠️ Server error ' + r.status + ' — check Render logs';
+      errBanner.style.display = 'block';
+      return;
+    }
+
+    d = await r.json();
+  } catch (e) {
+    // Network error (offline, CORS, etc.)
+    errBanner.textContent = '❌ Network error: ' + e.message + ' — retrying in 5s';
+    errBanner.style.display = 'block';
+    return;
+  }
+
+  // ── Update stat cards ────────────────────────────────────────────────
+  const offline = d.total - d.online;
+  document.getElementById('totalI').textContent   = d.total;
+  document.getElementById('onlineI').textContent  = d.online;
+  document.getElementById('offlineI').textContent = offline;
+  document.getElementById('totalM').textContent   = d.instances.reduce((a, i) => a + (i.messageCount || 0), 0).toLocaleString();
+  document.getElementById('lastR').textContent    = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  document.getElementById('globalStats').textContent = d.online + ' online / ' + d.total + ' total';
+
+  // Update DELETE OFFLINE button label with count
+  const delBtn = document.getElementById('btnDelOffline');
+  if (delBtn) delBtn.textContent = '🗑️ DELETE OFFLINE (' + offline + ')';
+
+  // ── Empty state ──────────────────────────────────────────────────────
+  if (!d.instances || !d.instances.length) {
+    document.getElementById('instanceTable').innerHTML =
+      '<div style="text-align:center;padding:60px;color:var(--text3);font-family:JetBrains Mono,monospace">' +
+      '<div style="font-size:40px;margin-bottom:12px">🎉</div>' +
+      '<div style="font-size:16px;margin-bottom:8px">No sessions — all clean!</div>' +
+      '<div style="font-size:13px">Visit <a href="/" style="color:var(--red)">the main dashboard</a> to connect a new bot.</div>' +
+      '</div>';
+    return;
+  }
+
+  // ── Build table ──────────────────────────────────────────────────────
+  let html =
+    '<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto">' +
+    '<table class="inst-table"><thead><tr>' +
+    '<th>STATUS</th><th>OWNER</th><th>BOT NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>SESSION ID</th><th>ACTION</th>' +
+    '</tr></thead><tbody>';
+
+  d.instances.forEach(inst => {
+    const up = inst.uptime || 0;
+    const h  = Math.floor(up / 3600);
+    const m  = Math.floor((up % 3600) / 60);
+    const isOnline = !!inst.connected;
+
+    const statusCell = isOnline
+      ? '<span style="color:var(--green);font-family:JetBrains Mono,monospace;font-size:12px">● LIVE</span>'
+      : '<span style="color:var(--red);font-family:JetBrains Mono,monospace;font-size:12px">● DEAD</span>';
+
+    const ownerCell =
+      '<span class="mono" style="color:var(--gold)">' + (inst.ownerName || '—') + '</span>' +
+      (inst.ownerPhone
+        ? '<br><span class="mono" style="font-size:11px;color:var(--text2)">+' + inst.ownerPhone + '</span>'
+        : '');
+
+    const shortId = inst.instanceId ? inst.instanceId.slice(0, 8) + '...' : '—';
+    const uptimeColor = isOnline ? 'var(--green)' : 'var(--text3)';
+
+    html +=
+      '<tr class="' + (isOnline ? '' : 'row-offline') + '">' +
+      '<td>' + statusCell + '</td>' +
+      '<td>' + ownerCell + '</td>' +
+      '<td><span class="mono">+' + (inst.botNumber || '—') + '</span></td>' +
+      '<td><span class="mono" style="color:' + uptimeColor + '">' + h + 'h ' + m + 'm</span></td>' +
+      '<td><span class="mono">' + (inst.messageCount || 0).toLocaleString() + '</span></td>' +
+      '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod || '—') + '</span></td>' +
+      '<td><span class="mono" style="font-size:11px;color:var(--text3)">' + shortId + '</span></td>' +
+      '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')" title="Disconnect & delete session">⚡ KILL</button></td>' +
+      '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  document.getElementById('instanceTable').innerHTML = html;
+}
+
+// ── Kill a single session ────────────────────────────────────────────────
+async function killSession(id) {
+  if (!confirm('Kill session ' + id.slice(0, 8) + '...?\nThis disconnects their WhatsApp and removes the session from the server.')) return;
+  const allBtns = document.querySelectorAll('.kill-btn');
+  allBtns.forEach(b => b.disabled = true);
+  try {
+    const r = await fetch('/ayocodes-admin/api/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ instanceId: id })
     });
-    html+='</tbody></table></div>';
-    document.getElementById('instanceTable').innerHTML=html;
-  }catch(e){
-    document.getElementById('instanceTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';
+    if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
+    const d = await r.json();
+    if (d.ok) {
+      loadInstances();
+    } else {
+      alert('Error: ' + (d.error || 'unknown error'));
+      allBtns.forEach(b => b.disabled = false);
+    }
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    allBtns.forEach(b => b.disabled = false);
   }
 }
-async function killSession(id){
-  if(!confirm('Kill session '+id.slice(0,8)+'...? This will disconnect their WhatsApp.'))return;
-  await fetch('/ayocodes-admin/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instanceId:id})});
-  loadInstances();
+
+// ── Delete all OFFLINE sessions ──────────────────────────────────────────
+async function deleteOffline() {
+  const offlineCount = parseInt(document.getElementById('offlineI').textContent) || 0;
+  if (offlineCount === 0) {
+    alert('✅ No offline sessions to delete — all good!');
+    return;
+  }
+  if (!confirm(
+    '🗑️ Delete ALL ' + offlineCount + ' offline/dead session(s)?\n\n' +
+    'This removes them from MongoDB and stops the 408 reconnect loop.\n' +
+    'Online sessions are NOT affected.'
+  )) return;
+
+  const btn = document.getElementById('btnDelOffline');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting...'; }
+
+  try {
+    const r = await fetch('/ayocodes-admin/api/delete-offline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin'
+    });
+    if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
+    const d = await r.json();
+    if (d.ok) {
+      alert('✅ Deleted ' + d.deleted + ' offline session(s).\n' + d.remaining + ' session(s) remaining.\n\nThe 408 reconnect loop will now stop.');
+      loadInstances();
+    } else {
+      alert('Error: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
 }
-loadInstances();setInterval(loadInstances,5000);
-function tick(){const e=document.getElementById('footerClock');if(e)e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
-tick();setInterval(tick,1000);
+
+// ── Delete ALL sessions (nuclear) ────────────────────────────────────────
+async function deleteAll() {
+  const total = parseInt(document.getElementById('totalI').textContent) || 0;
+  if (total === 0) {
+    alert('✅ No sessions to delete — server is already clean!');
+    return;
+  }
+  if (!confirm(
+    '⚠️ DELETE ALL ' + total + ' SESSION(S)?\n\n' +
+    'This disconnects EVERYONE including connected bots.\n' +
+    'You will need to re-scan QR to reconnect.'
+  )) return;
+
+  const confirm2 = prompt('Type "yes" to confirm deleting ALL ' + total + ' sessions:');
+  if (!confirm2 || confirm2.trim().toLowerCase() !== 'yes') {
+    alert('Cancelled.');
+    return;
+  }
+
+  try {
+    const r = await fetch('/ayocodes-admin/api/delete-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin'
+    });
+    if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
+    const d = await r.json();
+    if (d.ok) {
+      alert('✅ Deleted ' + d.deleted + ' session(s).\nServer is now completely clean.\n\nVisit the main dashboard to connect a fresh bot.');
+      loadInstances();
+    } else {
+      alert('Error: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  }
+}
+
+// ── Boot + auto-refresh ──────────────────────────────────────────────────
+loadInstances();
+setInterval(loadInstances, 5000);
+
+// ── Clock ────────────────────────────────────────────────────────────────
+function tick() {
+  const e = document.getElementById('footerClock');
+  if (e) e.textContent = new Date().toLocaleTimeString('en-GB', { hour12: false }) + ' UTC';
+}
+tick();
+setInterval(tick, 1000);
 </script>
 </body></html>`
   );
@@ -2309,79 +2553,52 @@ function userTrackingHTML() {
 </style>
 <script>
 let currentPage=1, searchTimer=null;
-
 function debounceSearch(){
   clearTimeout(searchTimer);
   searchTimer=setTimeout(()=>loadUsers(1),400);
 }
-
 async function loadUsers(page=1){
   currentPage=page;
   const search=document.getElementById('searchInput').value.trim();
   const url='/ayocodes-admin/api/users?page='+page+(search?'&search='+encodeURIComponent(search):'');
   try{
-    const r=await fetch(url);
+    const r=await fetch(url,{credentials:'same-origin'});
+    if(r.status===401){location.href='/ayocodes-admin/login';return;}
     const d=await r.json();
-
     document.getElementById('totalU').textContent=d.total.toLocaleString();
     document.getElementById('onlineU').textContent=d.users.filter(u=>u.online).length;
     document.getElementById('pageInfo').textContent=d.page+' / '+d.pages;
-
     if(!d.users.length){
       document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3);font-family:JetBrains Mono,monospace">No users found</div>';
       document.getElementById('pagination').innerHTML='';
       return;
     }
-
-    let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto">' +
-      '<table class="user-table"><thead><tr>' +
-      '<th>STATUS</th><th>PHONE</th><th>NAME</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>MSGS</th><th>SESSIONS</th><th>AUTH</th>' +
-      '</tr></thead><tbody>';
-
+    let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="user-table"><thead><tr><th>STATUS</th><th>PHONE</th><th>NAME</th><th>FIRST SEEN</th><th>LAST SEEN</th><th>MSGS</th><th>SESSIONS</th><th>AUTH</th></tr></thead><tbody>';
     d.users.forEach(u=>{
-      const online = u.online
-        ? '<span style="color:var(--green)">● LIVE</span>'
-        : '<span style="color:var(--text3)">○ OFFLINE</span>';
-      const firstSeen = u.firstSeen ? new Date(u.firstSeen).toLocaleDateString('en-GB') : '—';
-      const lastSeen  = u.lastSeen  ? timeAgo(new Date(u.lastSeen)) : '—';
-      html += '<tr>' +
-        '<td>'+online+'</td>' +
-        '<td style="color:var(--gold)">+'+( u.phone||'—')+'</td>' +
-        '<td style="color:var(--text)">'+( u.name||'—')+'</td>' +
-        '<td style="color:var(--text3)">'+firstSeen+'</td>' +
-        '<td style="color:var(--text2)">'+lastSeen+'</td>' +
-        '<td style="color:var(--green)">'+(u.totalMessages||0).toLocaleString()+'</td>' +
-        '<td>'+(u.totalSessions||0)+'</td>' +
-        '<td style="color:var(--text3)">'+(u.authMethod||'—')+'</td>' +
-        '</tr>';
+      const online=u.online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--text3)">○ OFFLINE</span>';
+      const firstSeen=u.firstSeen?new Date(u.firstSeen).toLocaleDateString('en-GB'):'—';
+      const lastSeen=u.lastSeen?timeAgo(new Date(u.lastSeen)):'—';
+      html+='<tr><td>'+online+'</td><td style="color:var(--gold)">+'+(u.phone||'—')+'</td><td style="color:var(--text)">'+(u.name||'—')+'</td><td style="color:var(--text3)">'+firstSeen+'</td><td style="color:var(--text2)">'+lastSeen+'</td><td style="color:var(--green)">'+(u.totalMessages||0).toLocaleString()+'</td><td>'+(u.totalSessions||0)+'</td><td style="color:var(--text3)">'+(u.authMethod||'—')+'</td></tr>';
     });
     html+='</tbody></table></div>';
     document.getElementById('userTable').innerHTML=html;
-
     let pag='';
     if(d.pages>1){
       pag+='<button class="page-btn" onclick="loadUsers('+(d.page-1)+')" '+(d.page<=1?'disabled':'')+'>← PREV</button>';
-      const start=Math.max(1,d.page-2), end=Math.min(d.pages,d.page+2);
-      for(let i=start;i<=end;i++){
-        pag+='<button class="page-btn'+(i===d.page?' active':'')+'" onclick="loadUsers('+i+')">'+i+'</button>';
-      }
+      const start=Math.max(1,d.page-2),end=Math.min(d.pages,d.page+2);
+      for(let i=start;i<=end;i++){pag+='<button class="page-btn'+(i===d.page?' active':'')+'" onclick="loadUsers('+i+')">'+i+'</button>';}
       pag+='<button class="page-btn" onclick="loadUsers('+(d.page+1)+')" '+(d.page>=d.pages?'disabled':'')+'>NEXT →</button>';
     }
     document.getElementById('pagination').innerHTML=pag;
-
   }catch(e){
     document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';
   }
 }
-
 function timeAgo(date){
   const s=Math.floor((Date.now()-date)/1000);
-  if(s<60)return s+'s ago';
-  if(s<3600)return Math.floor(s/60)+'m ago';
-  if(s<86400)return Math.floor(s/3600)+'h ago';
-  return Math.floor(s/86400)+'d ago';
+  if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';
 }
-
 loadUsers(1);
 setInterval(()=>loadUsers(currentPage),30000);
 function tick(){const e=document.getElementById('footerClock');if(e)e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';}
@@ -2392,7 +2609,7 @@ tick();setInterval(tick,1000);
 }
 
 // ============================================================
-//   FEATURE LOADER (terminal display only — non-blocking)
+//   FEATURE LOADER
 // ============================================================
 async function loadAndDisplayFeatures() {
   const line = "━".repeat(54);
@@ -2463,19 +2680,16 @@ async function main() {
     `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 Multi-Session by AYOCODES…${C.reset}\n`,
   );
   checkEnvVars();
-
   await connectMongo();
   setupWebDashboard();
   setInterval(cleanupRateLimits, 5 * 60 * 1000);
-  setInterval(cleanupStores, 30 * 60 * 1000); // Added cleanup for stores
+  setInterval(cleanupStores, 30 * 60 * 1000);
   await restoreAllSessions();
-
   loadAndDisplayFeatures().catch((e) =>
     log.warn("Feature display: " + e.message),
   );
-
   console.log(
-    `${C.green}${C.bold}✨ AYOBOT v1.0.0 Multi-Session ready. Anyone can visit the link and connect their own WhatsApp.${C.reset}\n`,
+    `${C.green}${C.bold}✨ AYOBOT v1.0.0 Multi-Session ready.${C.reset}\n`,
   );
 }
 
@@ -2517,4 +2731,3 @@ process.on("uncaughtException", (e) => {
 process.on("exit", () => {
   console.error = originalConsoleError;
 });
-

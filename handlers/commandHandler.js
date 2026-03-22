@@ -2,11 +2,12 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Command Handler — COMPLETE FIXED VERSION
 //  Author  : AYOCODES
-//  Version : 1.0.0
 //
 //  FIXES:
+//  • REMOVED Phase 5 antilink entirely — it was the duplicate causing
+//    4/3, 5/3 warning overflow. automation.js is the SOLE antilink handler.
 //  • Removed adminOnly from group commands (group admins can now use them)
-//  • Fixed Phase 15 JID comparison (strips :N device suffix)
+//  • Fixed Phase 15 JID comparison (strips :N device suffix — pure digits)
 //  • Fixed adm.eval → adm.adminEval
 //  • Fixed url command registration syntax error
 //  • Added setMode to command context
@@ -302,14 +303,7 @@ export function registerAllCommands() {
     safeRegister("auto", b.auto, {
       category: "core",
       description: "Toggle auto-reply",
-      aliases: [
-        "autoreply",
-        "toggleauto",
-        "autorespond",
-        "automsg",
-        "autooff",
-        "autoon",
-      ],
+      aliases: ["autoreply", "toggleauto", "autorespond", "automsg"],
     });
 
   if (b.connectInfo)
@@ -374,7 +368,6 @@ export function registerAllCommands() {
         "iplookup",
         "ipinfo",
         "checkip",
-        "whatsmyip",
         "iptrace",
         "iplocate",
       ],
@@ -419,14 +412,7 @@ export function registerAllCommands() {
     safeRegister("url", b.url, {
       category: "web",
       description: "URL information",
-      aliases: [
-        "urlinfo",
-        "urlcheck",
-        "expandurl",
-        "urldetails",
-        "urldecode",
-        "urlinspect",
-      ],
+      aliases: ["urlinfo", "urlcheck", "expandurl", "urldetails", "urlinspect"],
     });
 
   if (b.fetch)
@@ -475,7 +461,6 @@ export function registerAllCommands() {
         "analyze",
         "webinspect",
         "inspectpage",
-        "pageanalysis",
       ],
     });
 
@@ -520,7 +505,6 @@ export function registerAllCommands() {
         "savesticker",
         "stickersteal",
         "takestk",
-        "stealsticker",
       ],
     });
 
@@ -535,7 +519,6 @@ export function registerAllCommands() {
         "img",
         "imghost",
         "uploadimg",
-        "imagehost",
       ],
     });
 
@@ -572,7 +555,6 @@ export function registerAllCommands() {
         "avatar",
         "getpfp",
         "profilepicture",
-        "getavatar",
       ],
     });
 
@@ -611,14 +593,7 @@ export function registerAllCommands() {
     safeRegister("jarvisv", b.jarvisVoice, {
       category: "ai",
       description: "Jarvis with voice",
-      aliases: [
-        "jv",
-        "voiceask",
-        "speakjarvis",
-        "jarvisvoice",
-        "jvoice",
-        "voiceai",
-      ],
+      aliases: ["jv", "voiceask", "speakjarvis", "jarvisvoice", "jvoice"],
     });
   } else {
     const voiceFallback = async ({ from, sock }) =>
@@ -642,7 +617,6 @@ export function registerAllCommands() {
         "joinfuture",
         "waiting",
         "waitlistjoin",
-        "joinwait",
       ],
     });
 
@@ -667,13 +641,7 @@ export function registerAllCommands() {
       groupOnly: true,
       adminOnly: true,
       description: "Restrict bot to owner-only (bot owner only)",
-      aliases: [
-        "groupdeactivate",
-        "deactivatebot",
-        "closebot",
-        "lockbot",
-        "deactivategroup",
-      ],
+      aliases: ["groupdeactivate", "deactivatebot", "closebot", "lockbot"],
     });
 
   if (b.antilink)
@@ -732,7 +700,6 @@ export function registerAllCommands() {
         "proofread",
         "grammarcheck",
         "correct",
-        "grammarfix",
       ],
     });
 
@@ -743,15 +710,7 @@ export function registerAllCommands() {
     safeRegister("calc", calc.calculate, {
       category: "tools",
       description: "Math calculator",
-      aliases: [
-        "math",
-        "calculate",
-        "solve",
-        "calculator",
-        "eval",
-        "cal",
-        "maths",
-      ],
+      aliases: ["math", "calculate", "solve", "calculator", "cal", "maths"],
     });
 
   // ── CRYPTO.JS ─────────────────────────────────────────────────────────────
@@ -811,7 +770,6 @@ export function registerAllCommands() {
         "ytvideo",
         "youtubedl",
         "ytaudio",
-        "ytdownload",
       ],
     });
 
@@ -826,74 +784,35 @@ export function registerAllCommands() {
     safeRegister("spotify", dl.spotify, {
       category: "dl",
       description: "Download Spotify",
-      aliases: [
-        "sp",
-        "spotifydl",
-        "spotifymp3",
-        "spotifydown",
-        "spotifyaudio",
-        "spdl",
-      ],
+      aliases: ["sp", "spotifydl", "spotifymp3", "spotifydown", "spdl"],
     });
 
   if (dl.play)
     safeRegister("play", dl.play, {
       category: "dl",
       description: "Play music",
-      aliases: [
-        "mp3",
-        "music",
-        "song",
-        "audio",
-        "playmusic",
-        "playsong",
-        "playaudio",
-      ],
+      aliases: ["mp3", "music", "song", "audio", "playmusic", "playsong"],
     });
 
   if (dl.instagram)
     safeRegister("instagram", dl.instagram, {
       category: "dl",
       description: "Download Instagram",
-      aliases: [
-        "ig",
-        "insta",
-        "igdl",
-        "igreels",
-        "instadl",
-        "instagramdl",
-        "igvideo",
-      ],
+      aliases: ["ig", "insta", "igdl", "igreels", "instadl", "instagramdl"],
     });
 
   if (dl.facebook)
     safeRegister("facebook", dl.facebook, {
       category: "dl",
       description: "Download Facebook",
-      aliases: [
-        "fb",
-        "fbdl",
-        "fbvideo",
-        "fbd",
-        "facebookdl",
-        "fbdown",
-        "facebookvideo",
-      ],
+      aliases: ["fb", "fbdl", "fbvideo", "fbd", "facebookdl", "fbdown"],
     });
 
   if (dl.twitter)
     safeRegister("twitter", dl.twitter, {
       category: "dl",
       description: "Download Twitter/X",
-      aliases: [
-        "x",
-        "tweet",
-        "xdl",
-        "twitterdl",
-        "twdl",
-        "xdown",
-        "twittervideo",
-      ],
+      aliases: ["x", "tweet", "xdl", "twitterdl", "twdl", "xdown"],
     });
 
   if (dl.gif)
@@ -910,7 +829,7 @@ export function registerAllCommands() {
       aliases: ["image", "imgsearch", "pics", "photos", "picture"],
     });
 
-  // Pinterest: PRIMARY name is "pinterest" to avoid conflict with .pin (message pin)
+  // Pinterest: PRIMARY name is "pinterest" — avoid conflict with .pin (message pin)
   if (dl.pinterest)
     safeRegister("pinterest", dl.pinterest, {
       category: "dl",
@@ -932,51 +851,28 @@ export function registerAllCommands() {
     safeRegister("encrypt", enc.encrypt, {
       category: "security",
       description: "Encrypt text",
-      aliases: ["enc", "lock", "cipher", "encode", "encrypttext", "encryption"],
+      aliases: ["enc", "lock", "cipher", "encode", "encrypttext"],
     });
 
   if (enc.decrypt)
     safeRegister("decrypt", enc.decrypt, {
       category: "security",
       description: "Decrypt text",
-      aliases: [
-        "dec",
-        "unlock",
-        "decipher",
-        "decode",
-        "decrypttext",
-        "decryption",
-      ],
+      aliases: ["dec", "unlock", "decipher", "decode", "decrypttext"],
     });
 
   if (enc.hash)
     safeRegister("hash", enc.hash, {
       category: "security",
       description: "Hash text",
-      aliases: [
-        "md5",
-        "sha256",
-        "hashtext",
-        "checksum",
-        "hashgen",
-        "hashstring",
-        "hashing",
-      ],
+      aliases: ["md5", "sha256", "hashtext", "checksum", "hashgen"],
     });
 
   if (enc.password)
     safeRegister("password", enc.password, {
       category: "security",
       description: "Generate password",
-      aliases: [
-        "genpass",
-        "newpass",
-        "passgen",
-        "mkpass",
-        "passwordgen",
-        "createpass",
-        "randompass",
-      ],
+      aliases: ["genpass", "newpass", "passgen", "mkpass", "passwordgen"],
     });
 
   // ── GAMES.JS ──────────────────────────────────────────────────────────────
@@ -986,50 +882,28 @@ export function registerAllCommands() {
     safeRegister("rps", games.rps, {
       category: "games",
       description: "Rock Paper Scissors",
-      aliases: [
-        "rockpaperscissors",
-        "rpsgame",
-        "rock",
-        "paper",
-        "scissors",
-        "rpsplay",
-      ],
+      aliases: ["rockpaperscissors", "rpsgame", "rock", "paper", "scissors"],
     });
 
   if (games.dice)
     safeRegister("dice", games.dice, {
       category: "games",
       description: "Roll dice",
-      aliases: ["roll", "rolldice", "rolld6", "diceroll", "dicer", "dicethrow"],
+      aliases: ["roll", "rolldice", "rolld6", "diceroll", "dicer"],
     });
 
   if (games.coinFlip)
     safeRegister("flip", games.coinFlip, {
       category: "games",
       description: "Flip coin",
-      aliases: [
-        "coin",
-        "coinflip",
-        "toss",
-        "heads",
-        "tails",
-        "cointoss",
-        "flipcoin",
-      ],
+      aliases: ["coin", "coinflip", "toss", "heads", "tails", "cointoss"],
     });
 
   if (games.trivia)
     safeRegister("trivia", games.trivia, {
       category: "games",
       description: "Trivia question",
-      aliases: [
-        "quiz",
-        "question",
-        "q",
-        "triviaquestion",
-        "triv",
-        "triviaquiz",
-      ],
+      aliases: ["quiz", "question", "q", "triviaquestion", "triv"],
     });
 
   // ── IMAGETOOLS.JS ─────────────────────────────────────────────────────────
@@ -1039,42 +913,21 @@ export function registerAllCommands() {
     safeRegister("sticker", img.sticker, {
       category: "media",
       description: "Create sticker from image/video",
-      aliases: [
-        "s",
-        "stiker",
-        "makesticker",
-        "tosticker",
-        "stickerize",
-        "stk",
-        "stickermake",
-      ],
+      aliases: ["s", "stiker", "makesticker", "tosticker", "stickerize", "stk"],
     });
 
   if (img.toImage)
     safeRegister("toimage", img.toImage, {
       category: "media",
       description: "Convert sticker to image",
-      aliases: [
-        "toimg",
-        "stickertoimage",
-        "stktoimg",
-        "sticker2img",
-        "stk2img",
-        "stickerimage",
-      ],
+      aliases: ["toimg", "stickertoimage", "stktoimg", "sticker2img"],
     });
 
   if (img.toVideo)
     safeRegister("tovideo", img.toVideo, {
       category: "media",
       description: "Convert animated sticker to video",
-      aliases: [
-        "tovid",
-        "stickertovideo",
-        "stk2vid",
-        "sticker2video",
-        "stickervideo",
-      ],
+      aliases: ["tovid", "stickertovideo", "stk2vid", "sticker2video"],
     });
 
   if (img.toGif)
@@ -1108,8 +961,6 @@ export function registerAllCommands() {
         "cutbg",
         "backgroundremove",
         "removebackground",
-        "bgremover",
-        "erasebg",
       ],
     });
 
@@ -1117,7 +968,7 @@ export function registerAllCommands() {
     safeRegister("meme", img.meme, {
       category: "media",
       description: "Create meme from image",
-      aliases: ["makememe", "memegen", "imagememe", "creatememe", "mememaker"],
+      aliases: ["makememe", "memegen", "imagememe", "creatememe"],
     });
 
   // ── JOKES.JS ──────────────────────────────────────────────────────────────
@@ -1127,30 +978,14 @@ export function registerAllCommands() {
     safeRegister("joke", jokes.joke, {
       category: "fun",
       description: "Random joke",
-      aliases: [
-        "laugh",
-        "funny",
-        "lol",
-        "haha",
-        "humor",
-        "jokefun",
-        "telljoke",
-      ],
+      aliases: ["laugh", "funny", "lol", "haha", "humor", "jokefun"],
     });
 
   if (jokes.roast)
     safeRegister("roast", jokes.roast, {
       category: "fun",
       description: "Roast someone",
-      aliases: [
-        "burn",
-        "flame",
-        "diss",
-        "insult",
-        "roastme",
-        "roastuser",
-        "roastthem",
-      ],
+      aliases: ["burn", "flame", "diss", "insult", "roastme"],
     });
 
   if (jokes.pickupLine)
@@ -1167,30 +1002,14 @@ export function registerAllCommands() {
     safeRegister("movie", movies.movie, {
       category: "info",
       description: "Movie info",
-      aliases: [
-        "film",
-        "imdb",
-        "movieinfo",
-        "moviesearch",
-        "moviedb",
-        "filmdb",
-        "moviedetails",
-      ],
+      aliases: ["film", "imdb", "movieinfo", "moviesearch", "moviedb"],
     });
 
   if (movies.tv)
     safeRegister("tv", movies.tv, {
       category: "info",
       description: "TV series info",
-      aliases: [
-        "series",
-        "show",
-        "tvshow",
-        "tvseries",
-        "tvguide",
-        "serie",
-        "tvinfo",
-      ],
+      aliases: ["series", "show", "tvshow", "tvseries", "tvguide"],
     });
 
   // ── MUSIC.JS ──────────────────────────────────────────────────────────────
@@ -1200,29 +1019,14 @@ export function registerAllCommands() {
     safeRegister("lyrics", music.lyrics, {
       category: "music",
       description: "Song lyrics",
-      aliases: [
-        "lyric",
-        "words",
-        "songlyrics",
-        "getlyrics",
-        "lyricsearch",
-        "lyricsfind",
-      ],
+      aliases: ["lyric", "words", "songlyrics", "getlyrics", "lyricsearch"],
     });
 
   if (music.trending)
     safeRegister("trending", music.trending, {
       category: "music",
       description: "Trending songs",
-      aliases: [
-        "chart",
-        "topsongs",
-        "topmusic",
-        "hotmusic",
-        "trendingmusic",
-        "trend",
-        "trendingnow",
-      ],
+      aliases: ["chart", "topsongs", "topmusic", "hotmusic", "trendingmusic"],
     });
 
   // ── NEWS.JS ───────────────────────────────────────────────────────────────
@@ -1232,15 +1036,7 @@ export function registerAllCommands() {
     safeRegister("news", news.news, {
       category: "info",
       description: "Latest news",
-      aliases: [
-        "headlines",
-        "breaking",
-        "latestnews",
-        "topnews",
-        "newsupdate",
-        "newstoday",
-        "newsnow",
-      ],
+      aliases: ["headlines", "breaking", "latestnews", "topnews", "newsupdate"],
     });
 
   // ── NOTES.JS ──────────────────────────────────────────────────────────────
@@ -1250,15 +1046,7 @@ export function registerAllCommands() {
     safeRegister("note", notes.note, {
       category: "storage",
       description: "Save note",
-      aliases: [
-        "store",
-        "savenote",
-        "addnote",
-        "remember",
-        "savenow",
-        "newnote",
-        "createnote",
-      ],
+      aliases: ["store", "savenote", "addnote", "remember", "newnote"],
     });
 
   if (notes.getnote)
@@ -1272,21 +1060,14 @@ export function registerAllCommands() {
     safeRegister("notes", notes.notes, {
       category: "storage",
       description: "List notes",
-      aliases: [
-        "mynotes",
-        "listnotes",
-        "allnotes",
-        "notelist",
-        "shownotes",
-        "noteslist",
-      ],
+      aliases: ["mynotes", "listnotes", "allnotes", "notelist", "shownotes"],
     });
 
   if (notes.deleteKey)
     safeRegister("delnote", notes.deleteKey, {
       category: "storage",
       description: "Delete note",
-      aliases: ["forget", "deletenote", "removenote", "rmnote", "removenote"],
+      aliases: ["forget", "deletenote", "removenote", "rmnote"],
     });
 
   // ── QUOTES.JS ─────────────────────────────────────────────────────────────
@@ -1296,15 +1077,7 @@ export function registerAllCommands() {
     safeRegister("quote", quotes.quote, {
       category: "fun",
       description: "Random quote",
-      aliases: [
-        "motivation",
-        "inspire",
-        "wisdom",
-        "motivate",
-        "inspiration",
-        "quot",
-        "inspirational",
-      ],
+      aliases: ["motivation", "inspire", "wisdom", "motivate", "inspiration"],
     });
 
   // ── REMINDER.JS ───────────────────────────────────────────────────────────
@@ -1333,7 +1106,6 @@ export function registerAllCommands() {
         "listreminders",
         "showreminders",
         "reminderlist",
-        "allreminders",
       ],
     });
 
@@ -1345,8 +1117,6 @@ export function registerAllCommands() {
         "delreminder",
         "removereminder",
         "stopreminder",
-        "cancelminder",
-        "cancelremind",
         "deletereminder",
       ],
     });
@@ -1355,13 +1125,7 @@ export function registerAllCommands() {
     safeRegister("snooze", reminder.snooze, {
       category: "storage",
       description: "Snooze reminder",
-      aliases: [
-        "snoozereminder",
-        "delayrm",
-        "snoozealarm",
-        "snoozer",
-        "remindersnooze",
-      ],
+      aliases: ["snoozereminder", "delayrm", "snoozealarm"],
     });
 
   // ── SECURITY.JS ───────────────────────────────────────────────────────────
@@ -1377,7 +1141,6 @@ export function registerAllCommands() {
         "safescan",
         "checksafe",
         "threatscan",
-        "scanurl",
         "checkurl",
       ],
     });
@@ -1389,15 +1152,7 @@ export function registerAllCommands() {
     safeRegister("stock", stocks.stock, {
       category: "info",
       description: "Stock prices",
-      aliases: [
-        "stocks",
-        "share",
-        "stockprice",
-        "stockinfo",
-        "market",
-        "shareprice",
-        "stockmarket",
-      ],
+      aliases: ["stocks", "share", "stockprice", "stockinfo", "market"],
     });
 
   // ── TRANSLATION.JS ────────────────────────────────────────────────────────
@@ -1414,27 +1169,14 @@ export function registerAllCommands() {
     safeRegister("detect", trans.detect, {
       category: "tools",
       description: "Detect language",
-      aliases: [
-        "langdetect",
-        "whatlang",
-        "detectlang",
-        "language",
-        "langid",
-        "detectlanguage",
-      ],
+      aliases: ["langdetect", "whatlang", "detectlang", "language", "langid"],
     });
 
   if (trans.languages)
     safeRegister("languages", trans.languages, {
       category: "tools",
       description: "List languages",
-      aliases: [
-        "langs",
-        "langlist",
-        "supportedlangs",
-        "alllangs",
-        "languagelist",
-      ],
+      aliases: ["langs", "langlist", "supportedlangs", "alllangs"],
     });
 
   // ── TTS.JS ────────────────────────────────────────────────────────────────
@@ -1444,15 +1186,7 @@ export function registerAllCommands() {
     safeRegister("tts", tts.tts, {
       category: "media",
       description: "Text to speech",
-      aliases: [
-        "voice",
-        "say",
-        "speak",
-        "read",
-        "texttospeech",
-        "ttsaudio",
-        "speaktext",
-      ],
+      aliases: ["voice", "say", "speak", "read", "texttospeech", "speaktext"],
     });
 
   // ── UNITCONVERTER.JS ──────────────────────────────────────────────────────
@@ -1462,29 +1196,14 @@ export function registerAllCommands() {
     safeRegister("convert", uc.convert, {
       category: "tools",
       description: "Convert units",
-      aliases: [
-        "conv",
-        "uconvert",
-        "unitconvert",
-        "cvt",
-        "conversion",
-        "convertunit",
-        "unitconv",
-      ],
+      aliases: ["conv", "uconvert", "unitconvert", "cvt", "conversion"],
     });
 
   if (uc.units)
     safeRegister("units", uc.units, {
       category: "tools",
       description: "List units",
-      aliases: [
-        "listunits",
-        "unitlist",
-        "availableunits",
-        "unittypes",
-        "showunits",
-        "allunits",
-      ],
+      aliases: ["listunits", "unitlist", "availableunits", "showunits"],
     });
 
   // ── GROUP CORE.JS ─────────────────────────────────────────────────────────
@@ -1497,14 +1216,7 @@ export function registerAllCommands() {
       groupOnly: true,
       requireBotAdmin: true,
       description: "Kick member",
-      aliases: [
-        "remove",
-        "kickmember",
-        "removemember",
-        "boot",
-        "kickout",
-        "removeuser",
-      ],
+      aliases: ["remove", "kickmember", "removemember", "boot", "kickout"],
     });
 
   if (gc.add)
@@ -1516,7 +1228,6 @@ export function registerAllCommands() {
       aliases: [
         "invite",
         "addmember",
-        "adduser",
         "addperson",
         "addtogroup",
         "addparticipant",
@@ -1529,14 +1240,7 @@ export function registerAllCommands() {
       groupOnly: true,
       requireBotAdmin: true,
       description: "Promote to admin",
-      aliases: [
-        "makeadmin",
-        "adminpromote",
-        "setadmin",
-        "promoteadmin",
-        "promoteuser",
-        "promotemember",
-      ],
+      aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin"],
     });
 
   if (gc.demote)
@@ -1545,14 +1249,7 @@ export function registerAllCommands() {
       groupOnly: true,
       requireBotAdmin: true,
       description: "Demote admin",
-      aliases: [
-        "unadmin",
-        "removeadmin",
-        "deadmin",
-        "demoteadmin",
-        "demoteuser",
-        "demotemember",
-      ],
+      aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin"],
     });
 
   if (gc.admins)
@@ -1566,7 +1263,6 @@ export function registerAllCommands() {
         "groupadmins",
         "getadmins",
         "showadmins",
-        "adminslist",
       ],
     });
 
@@ -1582,7 +1278,6 @@ export function registerAllCommands() {
         "mentionall",
         "pingall",
         "tag",
-        "mentioneveryone",
       ],
     });
 
@@ -1598,7 +1293,6 @@ export function registerAllCommands() {
         "hiddentag",
         "ghosttag",
         "silenttag",
-        "hidetagall",
       ],
     });
 
@@ -1611,14 +1305,7 @@ export function registerAllCommands() {
       groupOnly: true,
       requireBotAdmin: true,
       description: "Ban user from group",
-      aliases: [
-        "block",
-        "banuser",
-        "blacklist",
-        "banmember",
-        "banperson",
-        "banthem",
-      ],
+      aliases: ["block", "banuser", "blacklist", "banmember"],
     });
 
   if (gm.unban)
@@ -1626,14 +1313,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "Unban user from group",
-      aliases: [
-        "unblock",
-        "unbanuser",
-        "whitelist",
-        "removeban",
-        "unbanperson",
-        "unblockuser",
-      ],
+      aliases: ["unblock", "unbanuser", "whitelist", "removeban"],
     });
 
   if (gm.warn)
@@ -1641,14 +1321,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "Warn user",
-      aliases: [
-        "warning",
-        "warnuser",
-        "givewarn",
-        "addwarn",
-        "warnmember",
-        "warnperson",
-      ],
+      aliases: ["warning", "warnuser", "givewarn", "addwarn", "warnmember"],
     });
 
   if (gm.warnings)
@@ -1656,14 +1329,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "View warnings",
-      aliases: [
-        "warnlist",
-        "checkwarns",
-        "getwarn",
-        "mywarnings",
-        "seewarns",
-        "warningslist",
-      ],
+      aliases: ["warnlist", "checkwarns", "getwarn", "mywarnings", "seewarns"],
     });
 
   if (gm.clearWarns)
@@ -1671,14 +1337,15 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "Clear warnings",
-      aliases: [
-        "resetwarns",
-        "clearwarnings",
-        "rmwarns",
-        "deletewarns",
-        "removewarns",
-        "clearallwarns",
-      ],
+      aliases: ["resetwarns", "clearwarnings", "rmwarns", "deletewarns"],
+    });
+
+  if (gm.listBanned)
+    safeRegister("listbanned", gm.listBanned, {
+      category: "group",
+      groupOnly: true,
+      description: "List banned users in group",
+      aliases: ["bannedlist", "getbanned", "showbanned"],
     });
 
   // ── GROUP SETTINGS.JS ─────────────────────────────────────────────────────
@@ -1699,13 +1366,7 @@ export function registerAllCommands() {
       groupOnly: true,
       requireBotAdmin: true,
       description: "Unmute group",
-      aliases: [
-        "unlockgroup",
-        "groupunlock",
-        "unmuteall",
-        "unmutechat",
-        "unmutegroup",
-      ],
+      aliases: ["unlockgroup", "groupunlock", "unmuteall", "unmutechat"],
     });
 
   if (gs.lock)
@@ -1739,7 +1400,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "Toggle welcome messages",
-      aliases: ["togglewelcome", "welcomeon", "welcomeoff", "welcomemsg"],
+      aliases: ["togglewelcome", "welcomeon", "welcomeoff"],
     });
 
   if (gs.setWelcome)
@@ -1755,7 +1416,7 @@ export function registerAllCommands() {
       category: "group",
       groupOnly: true,
       description: "Toggle goodbye messages",
-      aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff", "goodbyemsg"],
+      aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff"],
     });
 
   if (gs.setGoodbye)
@@ -1790,7 +1451,7 @@ export function registerAllCommands() {
       aliases: ["setgrules", "addrules"],
     });
 
-  // link registered ONCE from settings (most complete version)
+  // link registered ONCE from settings (most complete version) — AYOCODES
   if (gs.link)
     safeRegister("link", gs.link, {
       category: "group",
@@ -1890,7 +1551,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Add authorized user",
-      aliases: ["auth", "allow", "authorize", "addauth", "authorizeuser"],
+      aliases: ["auth", "allow", "authorize", "addauth"],
     });
 
   if (adm.removeUser)
@@ -1898,13 +1559,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Remove authorized user",
-      aliases: [
-        "deauth",
-        "disallow",
-        "unauthorize",
-        "removeauth",
-        "deauthorize",
-      ],
+      aliases: ["deauth", "disallow", "unauthorize", "removeauth"],
     });
 
   if (adm.listUsers)
@@ -1912,13 +1567,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "List authorized users",
-      aliases: [
-        "users",
-        "showusers",
-        "authlist",
-        "listauth",
-        "authorizedusers",
-      ],
+      aliases: ["users", "showusers", "authlist", "listauth"],
     });
 
   if (adm.mode)
@@ -1926,14 +1575,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Change bot mode",
-      aliases: [
-        "setmode",
-        "botmode",
-        "changemode",
-        "switchmode",
-        "modechange",
-        "setbotmode",
-      ],
+      aliases: ["setmode", "botmode", "changemode", "switchmode"],
     });
 
   if (adm.broadcast)
@@ -1941,14 +1583,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Broadcast message",
-      aliases: [
-        "bc",
-        "announce",
-        "sendall",
-        "massmessage",
-        "broadcastmsg",
-        "broadcastmessage",
-      ],
+      aliases: ["bc", "announce", "sendall", "massmessage"],
     });
 
   if (adm.globalBroadcast)
@@ -1956,13 +1591,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Global broadcast",
-      aliases: [
-        "gbc",
-        "globalbroadcast",
-        "globalannounce",
-        "massbc",
-        "globalmessage",
-      ],
+      aliases: ["gbc", "globalbroadcast", "globalannounce", "massbc"],
     });
 
   if (adm.stats)
@@ -1998,11 +1627,11 @@ export function registerAllCommands() {
     });
 
   if (adm.listBanned)
-    safeRegister("listbanned", adm.listBanned, {
+    safeRegister("listglobalbanned", adm.listBanned, {
       category: "admin",
       adminOnly: true,
       description: "List globally banned users",
-      aliases: ["bannedlist", "getbanned", "showbanned", "bannedusers"],
+      aliases: ["globalbannedlist", "getglobalbanned"],
     });
 
   if (adm.clearBans)
@@ -2018,13 +1647,7 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Restart bot",
-      aliases: [
-        "reboot",
-        "botrestart",
-        "restartbot",
-        "reload",
-        "restartsystem",
-      ],
+      aliases: ["reboot", "botrestart", "restartbot", "reload"],
     });
 
   if (adm.shutdown)
@@ -2032,24 +1655,16 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Shutdown bot",
-      aliases: [
-        "off",
-        "stop",
-        "botoff",
-        "poweroff",
-        "halt",
-        "shut",
-        "shutdownbot",
-      ],
+      aliases: ["off", "stop", "botoff", "poweroff", "halt"],
     });
 
-  // adm.adminEval is the correct export name (eval is a reserved word)
+  // adm.adminEval is the correct export name (eval is a reserved word) — AYOCODES
   if (adm.adminEval)
     safeRegister("eval", adm.adminEval, {
       category: "admin",
       adminOnly: true,
       description: "Execute code",
-      aliases: ["exec", "run", "runcode", "execute", "evalcode", "runjs"],
+      aliases: ["exec", "run", "runcode", "execute", "evalcode"],
     });
 
   log.div();
@@ -2094,7 +1709,7 @@ export async function handleCommand(message, sock) {
       rawSenderJid = from;
     }
 
-    // Strip device suffix for clean phone number
+    // Strip device suffix — pure phone number — AYOCODES
     const cleanPhone =
       rawSenderJid
         ?.split("@")[0]
@@ -2122,53 +1737,11 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // ── PHASE 5: Anti-link detection ─────────────────────────────────────────
-    if (isGroup) {
-      try {
-        const settings = groupSettings.get(from) || {};
-        if (settings.antilink && containsLink(trimmed)) {
-          let isGroupAdmin = false;
-          try {
-            const metadata = await sock.groupMetadata(from);
-            isGroupAdmin = metadata.participants.some((p) => {
-              const pPhone = p.id
-                .split("@")[0]
-                .split(":")[0]
-                .replace(/[^0-9]/g, "");
-              return (
-                pPhone === cleanPhone &&
-                (p.admin === "admin" || p.admin === "superadmin")
-              );
-            });
-          } catch (_) {}
-
-          if (!isAdminUser && !isGroupAdmin) {
-            try {
-              await sock.sendMessage(from, { delete: message.key });
-            } catch (_) {}
-
-            const warnings = groupWarnings.get(userJid) || 0;
-            const newWarnings = warnings + 1;
-            groupWarnings.set(userJid, newWarnings);
-
-            await sock.sendMessage(from, {
-              text: `🔗 *Link Detected!*\n\n@${cleanPhone} links are not allowed here.\n⚠️ Warning: ${newWarnings}/${ENV.MAX_WARNINGS || 3}`,
-              mentions: [userJid],
-            });
-
-            if (newWarnings >= (ENV.MAX_WARNINGS || 3)) {
-              if (await isBotGroupAdminCached(from, sock, true)) {
-                await sock.groupParticipantsUpdate(from, [userJid], "remove");
-                groupWarnings.delete(userJid);
-              }
-            }
-            return;
-          }
-        }
-      } catch (err) {
-        log.debug(`[${executionId}] Anti-link error: ${err.message}`);
-      }
-    }
+    // ── PHASE 5: [ANTILINK REMOVED] ──────────────────────────────────────────
+    // Antilink is handled EXCLUSIVELY by automation.js handleAntiLink().
+    // Having it here too caused duplicate warnings (4/3, 5/3) because the two
+    // implementations used different warning key formats and separate counters.
+    // The ONLY antilink code that runs is in automation.js. — AYOCODES
 
     // ── PHASE 6: Trivia answer handler ───────────────────────────────────────
     if (!trimmed.startsWith(ENV.PREFIX)) {
@@ -2307,7 +1880,7 @@ export async function handleCommand(message, sock) {
 
     // Commands requiring bot to be group admin
     if (commandMeta.requireBotAdmin && isGroup) {
-      // FIX: Strip device suffix (:N) before comparing phone numbers
+      // FIX: Pure digit comparison on both sides — strips :N device suffix — AYOCODES
       let userIsGroupAdmin = false;
       let groupMetadata = null;
 
@@ -2336,7 +1909,7 @@ export async function handleCommand(message, sock) {
         });
       }
 
-      // Warn if bot itself is not admin
+      // Warn if bot itself is not admin (but still let the command run)
       let botIsAdmin = false;
       try {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
@@ -2354,7 +1927,7 @@ export async function handleCommand(message, sock) {
     const handlerStart = Date.now();
     log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
 
-    // setMode function — updates session mode in memory (persists for connection lifetime)
+    // setMode — updates session mode in memory — AYOCODES
     const setMode = async (newMode) => {
       if (session) {
         session.mode = newMode;
@@ -2385,7 +1958,7 @@ export async function handleCommand(message, sock) {
         sessionMode,
         ownerPhone,
         ENV,
-        setMode, // injected for the .mode command in admin.js
+        setMode, // injected for .mode command in admin.js — AYOCODES
       };
 
       const timeoutPromise = new Promise((_, reject) =>

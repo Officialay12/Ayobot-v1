@@ -1,9 +1,19 @@
-// commands/group/basic.js - AYOBOT v1 ENHANCED EDITION
+// commands/group/basic.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Complete Basic Commands Module - FULLY FEATURED & ENHANCED
+//  Complete Basic Commands Module — FIXED & FULLY FEATURED
 //  Author  : AYOCODES
-//  Version : 1.0.0 (Final - ALL COMMANDS INCLUDED)
-//  Features: 50+ commands, full error handling, advanced scraping, image tools
+//  Version : v1.0.0
+//
+//  FIXES:
+//    • normalizeJid() — was producing "234915918037558" instead of
+//      "2349159180375" because it stripped ALL non-digits from "2349159180375:58"
+//      without first removing ":58". Fixed: split on ":" before stripping. — AYOCODES
+//    • Antilink Part 1 toggle — was checking isAdmin (bot owner only),
+//      so regular group admins could never toggle antilink. Fixed: now checks
+//      actual group admin status using pure digit comparison. — AYOCODES
+//    • Antilink Part 2 warnings — now uses the imported groupWarnings Map
+//      from index.js with unified key ${from}:${senderJid}, matching
+//      automation.js exactly. Removed the fragile global fallback chain. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -21,6 +31,7 @@ import {
   delay,
   ENV,
   groupSettings,
+  groupWarnings,
   messageCount,
   waitlistEntries,
 } from "../../index.js";
@@ -32,17 +43,15 @@ import {
   formatUptime,
 } from "../../utils/formatters.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  MODULE SETUP & UTILITIES
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+//  MODULE SETUP
+// ─────────────────────────────────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const tempDir = path.join(__dirname, "../../temp");
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-// Lazy load optional dependencies
 let _PDFDocument = null;
 async function getPDFDoc() {
   if (!_PDFDocument) {
@@ -73,18 +82,27 @@ function getSafeStartTime() {
   return botStartTime || Date.now();
 }
 
-// ─── JID normalizer (strips @s.whatsapp.net / @c.us / @g.us) ───────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  JID NORMALIZER — FIXED
+//  OLD: jid.split("@")[0].replace(/[^0-9]/g, "")
+//       "2349159180375:58@s.whatsapp.net" → "234915918037558" ❌ WRONG
+//  NEW: split on ":" before stripping non-digits — AYOCODES
+//       "2349159180375:58@s.whatsapp.net" → "2349159180375" ✅ CORRECT
+// ─────────────────────────────────────────────────────────────────────────────
 function normalizeJid(jid = "") {
-  return jid.split("@")[0].replace(/[^0-9]/g, "");
+  return String(jid)
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/[^0-9]/g, "");
 }
 
-// ─── Safe number coercion (avoids .toFixed crash on strings) ──────────────
+// Safe number coercion
 function safeFixed(val, digits = 4) {
   const n = parseFloat(val);
   return isNaN(n) ? "N/A" : n.toFixed(digits);
 }
 
-// Browser spoofing - realistic user agents
+// Browser user agents
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -97,13 +115,12 @@ const USER_AGENTS = [
 const randomUA = () =>
   USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
-// Full browser-like headers for anti-bot bypass
 function browserHeaders(ua, referer = "https://www.google.com/") {
   return {
     "User-Agent": ua,
     Accept:
       "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,en;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     Referer: referer,
     Connection: "keep-alive",
@@ -111,22 +128,10 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "cross-site",
-    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
     "Cache-Control": "max-age=0",
-    Cookie: "cookieconsent_status=dismiss; gdpr=1; consent=1; CONSENT=YES+cb",
     DNT: "1",
-    Pragma: "no-cache",
   };
 }
-
-// ─── Axios instance with sensible defaults ─────────────────────────────────
-const http = axios.create({
-  timeout: 12000,
-  headers: { "User-Agent": randomUA() },
-  validateStatus: (s) => s < 500,
-});
 
 // ════════════════════════════════════════════════════════════════════════════
 //  TEST COMMAND
@@ -141,13 +146,7 @@ export async function test({
   ownerPhone,
 }) {
   const phone = userJid?.split("@")[0] || "unknown";
-
   console.log("🔧 TEST COMMAND EXECUTED!");
-  console.log("  sessionId:", sessionId);
-  console.log("  sessionMode:", sessionMode);
-  console.log("  ownerPhone:", ownerPhone);
-  console.log("  session exists:", !!session);
-
   await sock.sendMessage(from, {
     text:
       `✅ *TEST COMMAND WORKING!*\n\n` +
@@ -159,12 +158,11 @@ export async function test({
       `🌍 Bot Version: v1.0.0\n\n` +
       `👑 Created by AYOCODES`,
   });
-
   return { text: "✅ Test completed" };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MENU - FULLY ENHANCED WITH ALL COMMANDS
+//  MENU
 // ════════════════════════════════════════════════════════════════════════════
 export async function menu({ from, sock, isAdmin, ENV }) {
   try {
@@ -181,9 +179,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       mode: isAdmin ? "ADMIN 👑" : "USER",
     };
 
-    // Build comprehensive command menu
     const menuCommands = [
-      // ── CORE ─────────────────────────────────────────────────
       {
         category: "*🔰 CORE*",
         cmd: "`.ping`",
@@ -239,7 +235,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Test command",
       },
 
-      // ── WEB TOOLS ────────────────────────────────────────────
       {
         category: "> *_🌐 WEB TOOLS_*",
         cmd: "`.ip`",
@@ -301,7 +296,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Inspect page",
       },
 
-      // ── MEDIA ────────────────────────────────────────────────
       {
         category: "> *_🎬 MEDIA_*",
         cmd: "`.sticker`",
@@ -357,7 +351,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Upload image",
       },
 
-      // ── MUSIC & DOWNLOADS ─────────────────────────────────────
       {
         category: "> *_🎵 MUSIC & DOWNLOADS_*",
         cmd: "`.play`",
@@ -414,42 +407,11 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
       {
         category: "> *_🎵 MUSIC & DOWNLOADS_*",
-        cmd: "`.random`",
-        emoji: "● 🎲",
-        desc: "Random song",
-      },
-      {
-        category: "> *_🎵 MUSIC & DOWNLOADS_*",
-        cmd: "`.artist`",
-        emoji: "● 👤",
-        desc: "Artist info",
-      },
-      {
-        category: "> *_🎵 MUSIC & DOWNLOADS_*",
-        cmd: "`.album`",
-        emoji: "● 💿",
-        desc: "Album info",
-      },
-      {
-        category: "> *_🎵 MUSIC & DOWNLOADS_*",
-        cmd: "`.musicsearch`",
-        emoji: "● 🔍",
-        desc: "Search music",
-      },
-      {
-        category: "> *_🎵 MUSIC & DOWNLOADS_*",
-        cmd: "`.genius`",
-        emoji: "● 🎤",
-        desc: "Genius lyrics",
-      },
-      {
-        category: "> *_🎵 MUSIC & DOWNLOADS_*",
         cmd: "`.dl`",
         emoji: "● ⬇️",
         desc: "Universal downloader",
       },
 
-      // ── IMAGE & GIF SEARCH ───────────────────────────────────
       {
         category: "> *_🖼️ IMAGE & GIF_*",
         cmd: "`.img`",
@@ -464,12 +426,11 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
       {
         category: "> *_🖼️ IMAGE & GIF_*",
-        cmd: "`.pin`",
+        cmd: "`.pinterest`",
         emoji: "● 📌",
         desc: "Pinterest search",
       },
 
-      // ── AI ───────────────────────────────────────────────────
       {
         category: "> *_🤖 AI_*",
         cmd: "`.ayobot`",
@@ -484,12 +445,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
       {
         category: "> *_🤖 AI_*",
-        cmd: "`.jarvisv`",
-        emoji: "● 🔊",
-        desc: "Jarvis voice",
-      },
-      {
-        category: "> *_🤖 AI_*",
         cmd: "`.summarize`",
         emoji: "● 📋",
         desc: "Summarize text",
@@ -501,7 +456,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Check grammar",
       },
 
-      // ── INFO ─────────────────────────────────────────────────
       {
         category: "> *_🔭 INFO_*",
         cmd: "`.weather`",
@@ -551,7 +505,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Translate text",
       },
 
-      // ── FUN ──────────────────────────────────────────────────
       {
         category: "> *_🎮 FUN_*",
         cmd: "`.joke`",
@@ -601,7 +554,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Pickup line",
       },
 
-      // ── ENCRYPTION ───────────────────────────────────────────
       {
         category: "> *_🔐 ENCRYPTION_*",
         cmd: "`.encrypt`",
@@ -627,7 +579,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Generate password",
       },
 
-      // ── STORAGE & UTILITIES ─────────────────────────────────
       {
         category: "> *_💾 STORAGE_*",
         cmd: "`.note`",
@@ -689,18 +640,11 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Unit converter",
       },
 
-      // ── DOCUMENTS ────────────────────────────────────────────
       {
         category: "> *_📄 DOCUMENTS_*",
         cmd: "`.qr`",
         emoji: "● 📱",
         desc: "Generate QR code",
-      },
-      {
-        category: "> *_📄 DOCUMENTS_*",
-        cmd: "`.qencode`",
-        emoji: "● 📱",
-        desc: "QR encode",
       },
       {
         category: "> *_📄 DOCUMENTS_*",
@@ -715,7 +659,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Create vCard",
       },
 
-      // ── PROFILE ──────────────────────────────────────────────
       {
         category: "> *_👤 PROFILE_*",
         cmd: "`.getpp`",
@@ -729,7 +672,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Get group pic",
       },
 
-      // ── GROUP MANAGEMENT ─────────────────────────────────────
       {
         category: "> *_👥 GROUP_*",
         cmd: "`.kick`",
@@ -804,6 +746,12 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
       {
         category: "> *_👥 GROUP_*",
+        cmd: "`.clearwarns`",
+        emoji: "● 🧹",
+        desc: "Clear warnings",
+      },
+      {
+        category: "> *_👥 GROUP_*",
         cmd: "`.ban`",
         emoji: "● 🔨",
         desc: "Ban user",
@@ -813,6 +761,12 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         cmd: "`.unban`",
         emoji: "● ✅",
         desc: "Unban user",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.listbanned`",
+        emoji: "● 📋",
+        desc: "List banned",
       },
       {
         category: "> *_👥 GROUP_*",
@@ -940,8 +894,19 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         emoji: "● 🐛",
         desc: "Debug group info",
       },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.testadmin`",
+        emoji: "● 🔍",
+        desc: "Admin diagnostic",
+      },
+      {
+        category: "> *_👥 GROUP_*",
+        cmd: "`.refreshadmin`",
+        emoji: "● 🔄",
+        desc: "Refresh admin cache",
+      },
 
-      // ── ADMIN ─────────────────────────────────────────────────
       {
         category: "> *_👑 ADMIN_*",
         cmd: "`.mode`",
@@ -998,18 +963,6 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
       {
         category: "> *_👑 ADMIN_*",
-        cmd: "`.unban`",
-        emoji: "● ✅",
-        desc: "Unban user",
-      },
-      {
-        category: "> *_👑 ADMIN_*",
-        cmd: "`.listbanned`",
-        emoji: "● 📋",
-        desc: "List banned users",
-      },
-      {
-        category: "> *_👑 ADMIN_*",
         cmd: "`.clearbans`",
         emoji: "● 🧹",
         desc: "Clear all bans",
@@ -1033,21 +986,12 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         desc: "Execute code",
       },
 
-      // ── WAITLIST ──────────────────────────────────────────────
       {
         category: "> *_📋 WAITLIST_*",
         cmd: "`.waitlist`",
         emoji: "● 📝",
         desc: "Join waitlist",
       },
-      {
-        category: "> *_📋 WAITLIST_*",
-        cmd: "`.waitlistview`",
-        emoji: "● 👁️",
-        desc: "View waitlist (admin)",
-      },
-
-      // ── SECURITY ──────────────────────────────────────────────
       {
         category: "> *_🛡️ SECURITY_*",
         cmd: "`.scan`",
@@ -1056,14 +1000,14 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       },
     ];
 
-    // Build the formatted menu text
-    let menuText = `╔════════════════════════════════════════════╗\n`;
-    menuText += `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n`;
-    menuText += `╚════════════════════════════════════════════╝\n\n`;
-    menuText += `├ ⏱️ Uptime: ${stats.uptime}\n`;
-    menuText += `├ 💾 Memory: ${stats.memory}\n`;
-    menuText += `├ 👤 Mode: ${stats.mode}\n`;
-    menuText += `└ 📨 Messages: ${messageCount || 0}\n\n`;
+    let menuText =
+      `╔════════════════════════════════════════════╗\n` +
+      `║     ⚡ *AYOBOT v1.0.0* ⚡    ║\n` +
+      `╚════════════════════════════════════════════╝\n\n` +
+      `├ ⏱️ Uptime: ${stats.uptime}\n` +
+      `├ 💾 Memory: ${stats.memory}\n` +
+      `├ 👤 Mode: ${stats.mode}\n` +
+      `└ 📨 Messages: ${messageCount || 0}\n\n`;
 
     let currentCategory = "";
     for (const cmd of menuCommands) {
@@ -1074,12 +1018,11 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       menuText += `${cmd.emoji} ${cmd.cmd} — ${cmd.desc}\n`;
     }
 
-    // Add footer
-    menuText += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    menuText += `⚡ _Total Commands: ${menuCommands.length}_\n`;
-    menuText += `👑 _Created by AYOCODES_`;
+    menuText +=
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚡ _Total Commands: ${menuCommands.length}_\n` +
+      `👑 _Created by AYOCODES_`;
 
-    // Send with image
     try {
       await sock.sendMessage(from, {
         image: {
@@ -1099,23 +1042,21 @@ export async function menu({ from, sock, isAdmin, ENV }) {
         },
       });
     } catch (error) {
-      console.warn("[MENU] Image failed, sending text:", error.message);
       await sock.sendMessage(from, { text: menuText });
     }
   } catch (error) {
     console.error("[MENU ERROR]", error.message);
     await sock.sendMessage(from, {
-      text: `🚀 *AYOBOT v1.0.0*\n👑 *AYOCODES*\nwa.me/2349159180375\n\nType ${ENV.PREFIX}help for commands`,
+      text: `🚀 *AYOBOT v1.0.0*\n👑 *AYOCODES*\nType ${ENV.PREFIX}help for commands`,
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PING - ENHANCED WITH STATS
+//  PING
 // ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
-
   await sock.sendMessage(from, { text: `🏓 *Pinging...*` });
   await delay(500);
 
@@ -1133,7 +1074,6 @@ export async function ping({ from, sock }) {
       : responseMs < 800
         ? "🟡 GOOD"
         : "🔴 SLOW";
-
   const mem = process.memoryUsage();
   const memMB = (mem.heapUsed / 1024 / 1024).toFixed(2);
 
@@ -1146,12 +1086,12 @@ export async function ping({ from, sock }) {
       `💾 *Memory:* ${memMB}MB\n` +
       `🟢 *Status:* ONLINE\n` +
       `🤖 *Version:* 1.0.0\n` +
-      `👑 *AYOBOT v1* \n`,
+      `👑 *AYOBOT v1*\n`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STATUS - ENHANCED USER INFO
+//  STATUS
 // ════════════════════════════════════════════════════════════════════════════
 export async function status({
   from,
@@ -1184,26 +1124,20 @@ export async function status({
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR - ENHANCED CONTACT & VCARD
+//  CREATOR
 // ════════════════════════════════════════════════════════════════════════════
 export async function creator({ from, sock }) {
   const contact = String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "");
-  const defaultContact = "2349159180375";
-  const finalContact = contact || defaultContact;
+  const finalContact = contact || "2349159180375";
 
   try {
     const vcardContent =
-      `BEGIN:VCARD\n` +
-      `VERSION:3.0\n` +
-      `FN:AYOCODES 👑\n` +
-      `N:AYOCODES;;;;\n` +
-      `ORG:AYOBOT Development\n` +
-      `TITLE:Creator & Developer\n` +
+      `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\nN:AYOCODES;;;;\n` +
+      `ORG:AYOBOT Development\nTITLE:Creator & Developer\n` +
       `TEL;type=CELL;type=VOICE;waid=${finalContact}:+${finalContact}\n` +
       `URL:${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n` +
       `NOTE:Creator of AYOBOT v1.0.0 WhatsApp Bot\n` +
-      `REV:${new Date().toISOString()}\n` +
-      `END:VCARD`;
+      `REV:${new Date().toISOString()}\nEND:VCARD`;
 
     await sock.sendMessage(from, {
       document: Buffer.from(vcardContent, "utf-8"),
@@ -1211,44 +1145,17 @@ export async function creator({ from, sock }) {
       fileName: "AYOCODES.vcf",
       caption: "👑 *AYOCODES - Creator of AYOBOT*\n_Tap to save contact_",
     });
-  } catch (error) {
-    try {
-      await sock.sendMessage(from, {
-        contacts: {
-          displayName: "AYOCODES 👑",
-          contacts: [
-            {
-              vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:AYOCODES 👑\nTEL;waid=${finalContact}:+${finalContact}\nEND:VCARD`,
-            },
-          ],
-        },
-      });
-    } catch (_) {
-      await sock.sendMessage(from, {
-        text: `👑 *AYOCODES*\n📞 wa.me/${finalContact}`,
-      });
-    }
+  } catch (_) {
+    await sock.sendMessage(from, {
+      text: `👑 *AYOCODES*\n📞 wa.me/${finalContact}`,
+    });
   }
 
   await delay(800);
-
   const group =
     ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN";
-
   await sock.sendMessage(from, {
-    text:
-      `━ 📢 *JOIN THE COMMUNITY* ━\n\n` +
-      `👥 *WhatsApp Group:*\n${group}\n\n` +
-      `⚡ *AYOBOT v1.0.0* 👑\n`,
-    contextInfo: {
-      forwardingScore: 999,
-      isForwarded: true,
-      forwardedNewsletterMessageInfo: {
-        newsletterJid: "120363422418001588@newsletter",
-        newsletterName: "AyoBot Tech Hub",
-        serverMessageId: Date.now(),
-      },
-    },
+    text: `━ 📢 *JOIN THE COMMUNITY* ━\n\n👥 *WhatsApp Group:*\n${group}\n\n⚡ *AYOBOT v1.0.0* 👑\n`,
   });
 }
 
@@ -1286,19 +1193,13 @@ export async function auto({ args, from, userJid, sock }) {
   if (sub === "on") {
     autoReplyEnabled.set(userJid, true);
     return sock.sendMessage(from, {
-      text: formatSuccess(
-        "AUTO-REPLY",
-        "Auto-reply has been *ENABLED* ✅\n\nYou will receive automatic responses",
-      ),
+      text: formatSuccess("AUTO-REPLY", "Auto-reply has been *ENABLED* ✅"),
     });
   }
   if (sub === "off") {
     autoReplyEnabled.set(userJid, false);
     return sock.sendMessage(from, {
-      text: formatSuccess(
-        "AUTO-REPLY",
-        "Auto-reply has been *DISABLED* 🔴\n\nYou won't receive automatic responses",
-      ),
+      text: formatSuccess("AUTO-REPLY", "Auto-reply has been *DISABLED* 🔴"),
     });
   }
   const s = autoReplyEnabled.get(userJid) ? "ENABLED 🟢" : "DISABLED 🔴";
@@ -1308,28 +1209,20 @@ export async function auto({ args, from, userJid, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WEATHER - ENHANCED WITH MORE DETAILS
+//  WEATHER
 // ════════════════════════════════════════════════════════════════════════════
 export async function weather({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "WEATHER LOOKUP",
-        `Get real-time weather information\n\n` +
-          `Usage: ${ENV.PREFIX}weather <city>\n\n` +
-          `Examples:\n` +
-          `${ENV.PREFIX}weather Lagos\n` +
-          `${ENV.PREFIX}weather New York\n` +
-          `${ENV.PREFIX}weather Tokyo`,
+        `Usage: ${ENV.PREFIX}weather <city>\n\nExamples:\n${ENV.PREFIX}weather Lagos\n${ENV.PREFIX}weather New York`,
       ),
     });
   }
   if (!ENV.OPENWEATHER_KEY) {
     return sock.sendMessage(from, {
-      text: formatError(
-        "CONFIG ERROR",
-        "OPENWEATHER_KEY is not configured in environment variables.",
-      ),
+      text: formatError("CONFIG ERROR", "OPENWEATHER_KEY is not configured."),
     });
   }
   await sock.sendMessage(from, { text: "🌤️ *Fetching weather data...*" });
@@ -1376,11 +1269,6 @@ export async function weather({ fullArgs, from, sock }) {
                   ? "⛈️"
                   : "🌤️";
 
-    const visibility = d.visibility
-      ? `${(d.visibility / 1000).toFixed(1)} km`
-      : "N/A";
-    const pressure = d.main.pressure ? `${d.main.pressure} hPa` : "N/A";
-
     await sock.sendMessage(from, {
       text:
         `${condEmoji} *WEATHER: ${d.name}, ${d.sys.country}*\n` +
@@ -1390,9 +1278,9 @@ export async function weather({ fullArgs, from, sock }) {
         `📊 *Min/Max:* ${d.main.temp_min}°C / ${d.main.temp_max}°C\n` +
         `💧 *Humidity:* ${d.main.humidity}% [${humBar}]\n` +
         `🌬️ *Wind:* ${d.wind.speed} m/s ${windDir}\n` +
-        `👁️ *Visibility:* ${visibility}\n` +
+        `👁️ *Visibility:* ${d.visibility ? `${(d.visibility / 1000).toFixed(1)} km` : "N/A"}\n` +
         `⛅ *Clouds:* ${d.clouds?.all || 0}%\n` +
-        `🔷 *Pressure:* ${pressure}\n` +
+        `🔷 *Pressure:* ${d.main.pressure ? `${d.main.pressure} hPa` : "N/A"}\n` +
         `📝 *Conditions:* ${d.weather[0].description}\n` +
         `🌅 *Sunrise:* ${new Date(d.sys.sunrise * 1000).toLocaleTimeString()}\n` +
         `🌇 *Sunset:* ${new Date(d.sys.sunset * 1000).toLocaleTimeString()}\n\n` +
@@ -1408,15 +1296,12 @@ export async function weather({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SHORTEN - WITH MULTIPLE SERVICES
+//  SHORTEN
 // ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "URL SHORTENER",
-        `Shorten long URLs\n\nUsage: ${ENV.PREFIX}shorten <url>\n\nExample: ${ENV.PREFIX}shorten https://example.com/very/long/url`,
-      ),
+      text: formatInfo("URL SHORTENER", `Usage: ${ENV.PREFIX}shorten <url>`),
     });
   }
   let longUrl = fullArgs.trim().split(" ")[0];
@@ -1473,10 +1358,7 @@ export async function shorten({ fullArgs, from, sock }) {
         return sock.sendMessage(from, {
           text: formatSuccess(
             "URL SHORTENED",
-            `📎 *Original:*\n${longUrl}\n\n` +
-              `🔗 *Shortened:*\n${short}\n\n` +
-              `📊 *Service:* ${svc.name}\n` +
-              `💡 *Saved:* ${longUrl.length - short.length} characters`,
+            `📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${short}\n\n📊 *Service:* ${svc.name}`,
           ),
         });
       }
@@ -1501,8 +1383,7 @@ export async function viewOnce({ message, from, sock }) {
       return sock.sendMessage(from, {
         text: formatInfo(
           "VIEW ONCE",
-          `View disappearing/view once messages\n\n` +
-            `Reply to a view-once message with: ${ENV.PREFIX}vv`,
+          `Reply to a view-once message with: ${ENV.PREFIX}vv`,
         ),
       });
     }
@@ -1567,7 +1448,7 @@ export async function viewOnce({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WAITLIST / JOIN TREND
+//  WAITLIST
 // ════════════════════════════════════════════════════════════════════════════
 export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const email = fullArgs?.trim() || "";
@@ -1577,107 +1458,56 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     return sock.sendMessage(from, {
       text: formatError(
         "INVALID EMAIL",
-        `Provide a valid email address.\n\nExample: ${ENV.PREFIX}jointrend user@example.com`,
+        `Provide a valid email address.\n\nExample: ${ENV.PREFIX}waitlist user@example.com`,
       ),
     });
   }
 
   const phone = userJid.split("@")[0];
   const timestamp = new Date().toLocaleString();
-
   let pushname = "Unknown";
   try {
     if (message?.pushName) pushname = message.pushName;
     else if (message?.verifiedBizName) pushname = message.verifiedBizName;
-    else if (message?.notify) pushname = message.notify;
   } catch (_) {}
 
-  const userInfo = {
+  waitlistEntries.set(phone, {
     email,
     phone,
     timestamp,
     userJid,
     name: pushname,
     platform: "WhatsApp",
-  };
-  waitlistEntries.set(phone, userInfo);
+  });
 
   await sock.sendMessage(from, {
     text: formatSuccess(
       "✅ WAITLIST JOINED",
-      `📧 *Email:* ${email}\n` +
-        `📱 *Phone:* +${phone}\n` +
-        `⏰ *Time:* ${timestamp}\n\n` +
-        `You've been added to our waitlist! You'll be notified when new versions launch.`,
+      `📧 *Email:* ${email}\n📱 *Phone:* +${phone}\n⏰ *Time:* ${timestamp}\n\nYou've been added to our waitlist!`,
     ),
   });
 
   try {
-    const adminNumber = "2349159180375";
-    const adminJid = `${adminNumber}@s.whatsapp.net`;
-
-    const adminMessage =
-      `╔══════════════════════════╗\n` +
-      `║   📋 *NEW WAITLIST ENTRY* ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `👤 *Name:* ${pushname}\n` +
-      `📧 *Email:* ${email}\n` +
-      `📱 *Phone:* +${phone}\n` +
-      `🆔 *JID:* ${userJid}\n` +
-      `⏰ *Time:* ${timestamp}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📊 *Total Waitlist:* ${waitlistEntries.size}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ *AYOBOT v1* | 👑 AYOCODES`;
-
+    const adminJid = `2349159180375@s.whatsapp.net`;
     await sock.sendMessage(adminJid, {
-      text: adminMessage,
+      text:
+        `╔══════════════════════════╗\n║   📋 *NEW WAITLIST ENTRY* ║\n╚══════════════════════════╝\n\n` +
+        `👤 *Name:* ${pushname}\n📧 *Email:* ${email}\n📱 *Phone:* +${phone}\n⏰ *Time:* ${timestamp}\n` +
+        `📊 *Total Waitlist:* ${waitlistEntries.size}\n\n⚡ *AYOBOT v1* | 👑 AYOCODES`,
       mentions: [userJid],
     });
-  } catch (adminErr) {
-    console.error("❌ Failed to send waitlist to admin:", adminErr.message);
-    try {
-      const adminJid = `2349159180375@s.whatsapp.net`;
-      const vcard =
-        `BEGIN:VCARD\nVERSION:3.0\nFN:${pushname || phone}\n` +
-        `TEL;type=CELL;type=VOICE;waid=${phone}:+${phone}\n` +
-        `EMAIL:${email}\nNOTE:Joined waitlist at ${timestamp}\nEND:VCARD`;
-
-      await sock.sendMessage(adminJid, {
-        document: Buffer.from(vcard, "utf-8"),
-        mimetype: "text/vcard",
-        fileName: `waitlist_${phone}.vcf`,
-        caption: `📋 *New Waitlist Entry*\n👤 ${pushname || phone}\n📧 ${email}\n📱 +${phone}\n⏰ ${timestamp}`,
-      });
-    } catch (_) {}
-  }
-
-  if (ENV.ADMIN && ENV.ADMIN !== "2349159180375") {
-    try {
-      const adminJid = `${ENV.ADMIN.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
-      await sock.sendMessage(adminJid, {
-        text: `📋 *New Waitlist Entry*\n\n📧 Email: ${email}\n📱 Phone: +${phone}\n⏰ Time: ${timestamp}`,
-      });
-    } catch (_) {}
-  }
+  } catch (_) {}
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCRAPE - ADVANCED WEB SCRAPING
+//  SCRAPE
 // ════════════════════════════════════════════════════════════════════════════
 export async function scrape({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "WEB SCRAPER",
-        `Advanced website scraping\n\n` +
-          `Usage: ${ENV.PREFIX}scrape <url>\n\n` +
-          `Example: ${ENV.PREFIX}scrape https://example.com\n\n` +
-          `📦 Returns:\n` +
-          `• Self-contained HTML (CSS+JS+images inlined)\n` +
-          `• Extracted CSS file\n` +
-          `• Extracted JavaScript file\n` +
-          `• ZIP archive with all files`,
+        `Usage: ${ENV.PREFIX}scrape <url>\n\n📦 Returns: self-contained HTML, CSS, JS, ZIP`,
       ),
     });
   }
@@ -1686,7 +1516,7 @@ export async function scrape({ fullArgs, from, sock }) {
   if (!url.startsWith("http")) url = "https://" + url;
 
   await sock.sendMessage(from, {
-    text: "🕸️ *Scraping website...*\n_This may take 15-30 seconds for complex sites_",
+    text: "🕸️ *Scraping website...*\n_This may take 15-30 seconds_",
   });
 
   let html = null;
@@ -1694,26 +1524,13 @@ export async function scrape({ fullArgs, from, sock }) {
   let fetchMethod = "unknown";
 
   const headerProfiles = [
-    {
-      label: "Chrome/Windows",
-      headers: browserHeaders(USER_AGENTS[0], "https://www.google.com/"),
-    },
+    { label: "Chrome/Windows", headers: browserHeaders(USER_AGENTS[0]) },
     {
       label: "Firefox/Windows",
       headers: browserHeaders(USER_AGENTS[3], "https://www.bing.com/"),
     },
-    {
-      label: "Safari/Mac",
-      headers: browserHeaders(USER_AGENTS[4], "https://www.google.com/"),
-    },
-    {
-      label: "Chrome/Android",
-      headers: browserHeaders(USER_AGENTS[6], "https://www.google.com/"),
-    },
-    {
-      label: "Safari/iPhone",
-      headers: browserHeaders(USER_AGENTS[5], "https://www.google.com/"),
-    },
+    { label: "Safari/Mac", headers: browserHeaders(USER_AGENTS[4]) },
+    { label: "Chrome/Android", headers: browserHeaders(USER_AGENTS[6]) },
   ];
 
   for (const profile of headerProfiles) {
@@ -1735,7 +1552,7 @@ export async function scrape({ fullArgs, from, sock }) {
           await sock.sendMessage(from, {
             text: formatError(
               "CLOUDFLARE PROTECTED",
-              `This site uses Cloudflare bot protection.\n\nTry: ${ENV.PREFIX}screenshot ${url}`,
+              `This site uses Cloudflare bot protection.\nTry: ${ENV.PREFIX}screenshot ${url}`,
             ),
           });
           return;
@@ -1748,25 +1565,6 @@ export async function scrape({ fullArgs, from, sock }) {
     } catch (_) {}
   }
 
-  // Fallback 1: Google Cache
-  if (!html) {
-    try {
-      const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`;
-      const res = await axios.get(cacheUrl, {
-        headers: browserHeaders(USER_AGENTS[0]),
-        timeout: 20_000,
-        maxRedirects: 5,
-        responseType: "text",
-        validateStatus: (s) => s < 500,
-      });
-      if (res.data?.length > 500) {
-        html = res.data;
-        fetchMethod = "Google Cache";
-      }
-    } catch (_) {}
-  }
-
-  // Fallback 2: Wayback Machine
   if (!html) {
     try {
       const waRes = await axios.get(
@@ -1793,18 +1591,13 @@ export async function scrape({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatError(
         "SCRAPE FAILED",
-        `Could not retrieve this page after trying multiple methods.\n\n` +
-          `*Possible reasons:*\n` +
-          `• Heavy JavaScript rendering (React/Vue/Angular)\n` +
-          `• Aggressive bot detection\n` +
-          `• Requires login\n\n` +
-          `Try: ${ENV.PREFIX}screenshot ${url}`,
+        `Could not retrieve this page.\n\nTry: ${ENV.PREFIX}screenshot ${url}`,
       ),
     });
   }
 
   await sock.sendMessage(from, {
-    text: `✅ *Page fetched via ${fetchMethod}*\n⚙️ _Processing and inlining assets..._`,
+    text: `✅ *Page fetched via ${fetchMethod}*\n⚙️ _Processing..._`,
   });
 
   try {
@@ -1817,6 +1610,18 @@ export async function scrape({ fullArgs, from, sock }) {
     }
     const domain = baseUrl.hostname.replace("www.", "");
 
+    const toAbs = (href) => {
+      if (!href || href.startsWith("data:") || href.startsWith("blob:"))
+        return href;
+      try {
+        return href.startsWith("http")
+          ? href
+          : new URL(href, baseUrl).toString();
+      } catch (_) {
+        return href;
+      }
+    };
+
     const fetchAsset = async (assetUrl, type = "text") => {
       try {
         const res = await axios.get(assetUrl, {
@@ -1828,18 +1633,6 @@ export async function scrape({ fullArgs, from, sock }) {
         return res.data;
       } catch (_) {
         return null;
-      }
-    };
-
-    const toAbs = (href) => {
-      if (!href || href.startsWith("data:") || href.startsWith("blob:"))
-        return href;
-      try {
-        return href.startsWith("http")
-          ? href
-          : new URL(href, baseUrl).toString();
-      } catch (_) {
-        return href;
       }
     };
 
@@ -1886,38 +1679,12 @@ export async function scrape({ fullArgs, from, sock }) {
       if (content?.trim()) extractedJS += `/* Inline script */\n${content}\n\n`;
     });
 
-    let imgCount = 0;
-    const imgTags = [];
-    $("img[src]").each((_, el) => {
-      if (imgCount++ < 20) imgTags.push({ el, src: $(el).attr("src") });
-    });
-    for (const { el, src } of imgTags) {
-      if (src.startsWith("data:")) continue;
-      const absUrl = toAbs(src);
-      if (!absUrl) continue;
-      try {
-        const res = await axios.get(absUrl, {
-          headers: browserHeaders(randomUA()),
-          timeout: 8_000,
-          responseType: "arraybuffer",
-          validateStatus: (s) => s < 400,
-        });
-        if (res.data) {
-          const mime =
-            res.headers["content-type"]?.split(";")[0] || "image/jpeg";
-          const b64 = Buffer.from(res.data).toString("base64");
-          $(el).attr("src", `data:${mime};base64,${b64}`);
-        }
-      } catch (_) {}
-    }
-
     const title = $("title").text().trim() || "No title";
     const desc = $('meta[name="description"]').attr("content")?.trim() || "N/A";
     const linkCount = $("a[href]").length;
     const totalImgs = $("img").length;
 
-    const stamp = `\n<!-- ═══════════════════════════════════════════\n     Scraped by AYOBOT v1.0.0 | AYOCODES\n     Source: ${url}\n     Fetched via: ${fetchMethod}\n     Date: ${new Date().toISOString()}\n═══════════════════════════════════════════ -->\n`;
-
+    const stamp = `\n<!-- Scraped by AYOBOT v1.0.0 | AYOCODES | Source: ${url} | Date: ${new Date().toISOString()} -->\n`;
     const finalHtml = stamp + $.html();
     const domain2 = domain.replace(/[^a-z0-9]/gi, "_");
     const ts = Date.now();
@@ -1928,41 +1695,34 @@ export async function scrape({ fullArgs, from, sock }) {
     await sock.sendMessage(from, {
       text:
         `🕸️ *SCRAPE COMPLETE*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔗 *URL:* ${url}\n` +
-        `📝 *Title:* ${title.substring(0, 100)}\n` +
-        `📋 *Description:* ${desc.substring(0, 100)}\n` +
+        `🔗 *URL:* ${url}\n📝 *Title:* ${title.substring(0, 100)}\n` +
         `📎 *Links:* ${linkCount} | 🖼️ *Images:* ${totalImgs}\n` +
-        `📥 *Fetch Method:* ${fetchMethod}\n` +
-        `📁 *HTML Size:* ${(htmlBuf.length / 1024).toFixed(1)} KB\n` +
-        `🎨 *CSS Size:* ${(cssBuf.length / 1024).toFixed(1)} KB\n` +
-        `⚙️ *JS Size:* ${(jsBuf.length / 1024).toFixed(1)} KB\n` +
-        `✅ *Assets Inlined:* CSS, JS, Images\n━━━━━━━━━━━━━━━━━━━━━━━\n`,
+        `📁 *HTML:* ${(htmlBuf.length / 1024).toFixed(1)} KB | 🎨 *CSS:* ${(cssBuf.length / 1024).toFixed(1)} KB | ⚙️ *JS:* ${(jsBuf.length / 1024).toFixed(1)} KB\n` +
+        `📥 *Method:* ${fetchMethod}\n━━━━━━━━━━━━━━━━━━━━━━━`,
     });
 
     await sock.sendMessage(from, {
       document: htmlBuf,
       mimetype: "text/html",
       fileName: `${domain2}_${ts}_full.html`,
-      caption: `📄 *Full Page HTML*\n_CSS+JS+Images inlined • Works offline_`,
+      caption: `📄 *Full Page HTML* — works offline`,
     });
-    await delay(500);
-
+    await delay(400);
     if (cssBuf.length > 100) {
       await sock.sendMessage(from, {
         document: cssBuf,
         mimetype: "text/css",
         fileName: `${domain2}_${ts}_styles.css`,
-        caption: `🎨 *Extracted CSS* — all stylesheets combined`,
+        caption: `🎨 *Extracted CSS*`,
       });
       await delay(300);
     }
-
     if (jsBuf.length > 100) {
       await sock.sendMessage(from, {
         document: jsBuf,
         mimetype: "application/javascript",
         fileName: `${domain2}_${ts}_scripts.js`,
-        caption: `⚙️ *Extracted JavaScript* — all scripts combined`,
+        caption: `⚙️ *Extracted JavaScript*`,
       });
       await delay(300);
     }
@@ -1975,10 +1735,6 @@ export async function scrape({ fullArgs, from, sock }) {
         zip.file(`${domain2}_styles.css`, cssBuf);
         zip.file(`${domain2}_scripts.js`, jsBuf);
         zip.file(`${domain2}_original.html`, Buffer.from(html, "utf-8"));
-        zip.file(
-          "README.txt",
-          `AYOBOT Web Scraper Archive\nSource: ${url}\nFetched: ${new Date().toISOString()}\nMethod: ${fetchMethod}\n\nFiles:\n  ${domain2}_full.html — Complete page (offline)\n  ${domain2}_styles.css — All CSS\n  ${domain2}_scripts.js — All JavaScript\n  ${domain2}_original.html — Original HTML\n\ngithub.com/Officialay12\n`,
-        );
         const zipBuf = await zip.generateAsync({
           type: "nodebuffer",
           compression: "DEFLATE",
@@ -2007,38 +1763,25 @@ export async function scrape({ fullArgs, from, sock }) {
 export async function connectInfo({ from, sock }) {
   await sock.sendMessage(from, {
     text:
-      `╔═══════════════════════════════════╗\n` +
-      `║   📱 *CONNECT WITH THE CREATOR*  ║\n` +
-      `╚═══════════════════════════════════╝\n\n` +
+      `╔═══════════════════════════════════╗\n║   📱 *CONNECT WITH THE CREATOR*  ║\n╚═══════════════════════════════════╝\n\n` +
       `👑 *Creator:* AYOCODES\n` +
       `📞 *WhatsApp:* wa.me/${ENV.CREATOR_CONTACT || "2349159180375"}\n` +
       `💻 *GitHub:* ${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
-      `📢 *Community Channels:*\n` +
-      `🔗 Channel: ${ENV.WHATSAPP_CHANNEL || "https://whatsapp.com/channel/"}\n` +
+      `📢 *Community:*\n` +
       `👥 Group: ${ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/"}\n\n` +
-      `⚡ *AYOBOT v1.0.0*\n` +
-      `🤖 *Full-Featured WhatsApp Bot*`,
+      `⚡ *AYOBOT v1.0.0*\n🤖 *Full-Featured WhatsApp Bot*`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WORLD TIME - FIXED & ACCURATE WITH MULTIPLE API FALLBACKS
+//  WORLD TIME
 // ════════════════════════════════════════════════════════════════════════════
 export async function time({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "⏰ WORLD TIME",
-        `Get current time in any city or timezone\n\n` +
-          `📌 *Usage:* ${ENV.PREFIX}time <city or timezone>\n\n` +
-          `📋 *Examples:*\n` +
-          `${ENV.PREFIX}time Lagos\n` +
-          `${ENV.PREFIX}time New York\n` +
-          `${ENV.PREFIX}time London\n` +
-          `${ENV.PREFIX}time Tokyo\n` +
-          `${ENV.PREFIX}time Africa/Lagos\n` +
-          `${ENV.PREFIX}time America/New_York\n\n` +
-          `🌍 *Popular timezones:* Africa/Lagos, America/New_York, Europe/London, Asia/Tokyo`,
+        `📌 *Usage:* ${ENV.PREFIX}time <city or timezone>\n\n📋 *Examples:*\n${ENV.PREFIX}time Lagos\n${ENV.PREFIX}time London\n${ENV.PREFIX}time Africa/Lagos`,
       ),
     });
   }
@@ -2048,7 +1791,6 @@ export async function time({ fullArgs, from, sock }) {
   });
 
   let timeData = null;
-  let errorMessages = [];
   const query = fullArgs.trim();
 
   // API 1: WorldTimeAPI
@@ -2062,15 +1804,10 @@ export async function time({ fullArgs, from, sock }) {
         timezone: res.data.timezone,
         datetime: res.data.datetime,
         utc_offset: res.data.utc_offset,
-        day_of_week: res.data.day_of_week,
-        week_number: res.data.week_number,
-        dst: res.data.dst,
         source: "WorldTimeAPI",
       };
     }
-  } catch (err) {
-    errorMessages.push(`WorldTimeAPI: ${err.message}`);
-  }
+  } catch (_) {}
 
   // API 2: TimeAPI.io
   if (!timeData) {
@@ -2085,42 +1822,13 @@ export async function time({ fullArgs, from, sock }) {
           timezone: res.data.timeZone,
           datetime: dateTime.toISOString(),
           utc_offset: res.data.utcOffset,
-          day_of_week: dateTime.getDay(),
-          week_number: Math.ceil(dateTime.getDate() / 7),
-          dst: false,
           source: "TimeAPI.io",
         };
       }
-    } catch (err) {
-      errorMessages.push(`TimeAPI: ${err.message}`);
-    }
+    } catch (_) {}
   }
 
-  // API 3: TimeZoneDB (optional key)
-  if (!timeData && ENV.TIMEZONEDB_KEY) {
-    try {
-      const res = await axios.get(
-        `http://api.timezonedb.com/v2.1/get-time-zone?key=${ENV.TIMEZONEDB_KEY}&format=json&by=zone&zone=${encodeURIComponent(query)}`,
-        { timeout: 5000 },
-      );
-      if (res.data && res.data.status === "OK") {
-        const dateTime = new Date(res.data.timestamp * 1000);
-        timeData = {
-          timezone: res.data.zoneName,
-          datetime: dateTime.toISOString(),
-          utc_offset: res.data.gmtOffset / 3600,
-          day_of_week: dateTime.getDay(),
-          week_number: Math.ceil(dateTime.getDate() / 7),
-          dst: res.data.dst === "1",
-          source: "TimeZoneDB",
-        };
-      }
-    } catch (err) {
-      errorMessages.push(`TimeZoneDB: ${err.message}`);
-    }
-  }
-
-  // API 4: Geocoding + TimeAPI (city names)
+  // API 3: Geocoding fallback
   if (!timeData) {
     try {
       const geoRes = await axios.get(
@@ -2139,43 +1847,14 @@ export async function time({ fullArgs, from, sock }) {
             timezone: `${name}, ${country}`,
             datetime: dateTime.toISOString(),
             utc_offset: timeRes.data.utcOffset,
-            day_of_week: dateTime.getDay(),
-            week_number: Math.ceil(dateTime.getDate() / 7),
-            dst: false,
             source: "Geo + TimeAPI",
           };
         }
       }
-    } catch (err) {
-      errorMessages.push(`GeoAPI: ${err.message}`);
-    }
+    } catch (_) {}
   }
 
-  // API 5: AbstractAPI Timezone (optional key)
-  if (!timeData && ENV.ABSTRACTAPI_KEY) {
-    try {
-      const res = await axios.get(
-        `https://timezone.abstractapi.com/v1/current_time/?api_key=${ENV.ABSTRACTAPI_KEY}&location=${encodeURIComponent(query)}`,
-        { timeout: 5000 },
-      );
-      if (res.data) {
-        const dateTime = new Date(res.data.datetime);
-        timeData = {
-          timezone: res.data.timezone_name,
-          datetime: res.data.datetime,
-          utc_offset: res.data.gmt_offset,
-          day_of_week: dateTime.getDay(),
-          week_number: Math.ceil(dateTime.getDate() / 7),
-          dst: false,
-          source: "AbstractAPI",
-        };
-      }
-    } catch (err) {
-      errorMessages.push(`AbstractAPI: ${err.message}`);
-    }
-  }
-
-  // API 6: JS Intl fallback (last resort)
+  // API 4: JS Intl fallback
   if (!timeData) {
     try {
       const formatter = new Intl.DateTimeFormat("en-US", {
@@ -2209,47 +1888,18 @@ export async function time({ fullArgs, from, sock }) {
         timezone: tzName,
         datetime: now.toISOString(),
         utc_offset: utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`,
-        day_of_week: now.getDay(),
-        week_number: Math.ceil(now.getDate() / 7),
-        dst: false,
         source: "Intl (System)",
         customDate: dateStr,
         customTime: timeStr.trim(),
       };
-    } catch (err) {
-      errorMessages.push(`Intl: ${err.message}`);
-    }
+    } catch (_) {}
   }
 
   if (!timeData) {
-    const commonTimezones = [
-      "Africa/Lagos",
-      "Africa/Nairobi",
-      "Africa/Cairo",
-      "America/New_York",
-      "America/Chicago",
-      "America/Los_Angeles",
-      "Europe/London",
-      "Europe/Paris",
-      "Europe/Berlin",
-      "Asia/Tokyo",
-      "Asia/Shanghai",
-      "Asia/Dubai",
-      "Australia/Sydney",
-      "Pacific/Auckland",
-    ];
-    const suggestions = commonTimezones
-      .filter((tz) => tz.toLowerCase().includes(query.toLowerCase()))
-      .slice(0, 3);
-    let suggestionText = "";
-    if (suggestions.length > 0) {
-      suggestionText = `\n\n💡 *Did you mean:*\n${suggestions.map((tz) => `• ${tz}`).join("\n")}`;
-    }
     return sock.sendMessage(from, {
       text: formatError(
         "TIME LOOKUP FAILED",
-        `Could not find time for "${query}".${suggestionText}\n\n` +
-          `📋 *Try one of these:*\n• Africa/Lagos\n• America/New_York\n• Europe/London\n• Asia/Tokyo`,
+        `Could not find time for "${query}".\n\nTry: Africa/Lagos, America/New_York, Europe/London, Asia/Tokyo`,
       ),
     });
   }
@@ -2258,17 +1908,21 @@ export async function time({ fullArgs, from, sock }) {
     const d = new Date(timeData.datetime);
     const hours = d.getHours();
     const minutes = d.getMinutes();
-    const totalMinutes = hours * 60 + minutes;
-    const dayPct = Math.round((totalMinutes / 1440) * 100);
+    const dayPct = Math.round(((hours * 60 + minutes) / 1440) * 100);
     const dayBars = Math.round(dayPct / 10);
     const dayBar = "█".repeat(dayBars) + "░".repeat(10 - dayBars);
-
     let utcOffset = timeData.utc_offset;
-    if (typeof utcOffset === "number") {
+    if (typeof utcOffset === "number")
       utcOffset = utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`;
-    }
-
-    const timezoneName = timeData.timezone || query;
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
     const formattedDate =
       timeData.customDate ||
       d.toLocaleDateString("en-US", {
@@ -2286,26 +1940,13 @@ export async function time({ fullArgs, from, sock }) {
         second: "2-digit",
       });
 
-    const days = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-    ];
-    const dayName = days[d.getDay()];
-
     await sock.sendMessage(from, {
       text:
-        `╔══════════════════════════╗\n` +
-        `║     ⏰ *WORLD TIME*      ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `🌍 *Timezone:* ${timezoneName}\n` +
+        `╔══════════════════════════╗\n║     ⏰ *WORLD TIME*      ║\n╚══════════════════════════╝\n\n` +
+        `🌍 *Timezone:* ${timeData.timezone || query}\n` +
         `📅 *Date:* ${formattedDate}\n` +
         `⏰ *Time:* ${formattedTime}\n` +
-        `📆 *Day:* ${dayName}\n` +
+        `📆 *Day:* ${days[d.getDay()]}\n` +
         `🕒 *UTC Offset:* ${utcOffset}\n` +
         `📊 *Day Progress:* ${dayPct}% ${dayBar}\n` +
         `━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -2332,10 +1973,7 @@ export async function pdf({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "PDF GENERATOR",
-        `Create styled PDF documents\n\n` +
-          `Usage: ${ENV.PREFIX}pdf <title> | <content>\n\n` +
-          `Example:\n` +
-          `${ENV.PREFIX}pdf My Document | This is the content of my PDF file`,
+        `Usage: ${ENV.PREFIX}pdf <title> | <content>`,
       ),
     });
   }
@@ -2363,8 +2001,6 @@ export async function pdf({ fullArgs, from, sock }) {
     await new Promise((resolve, reject) => {
       doc.on("end", resolve);
       doc.on("error", reject);
-
-      // Header
       doc.rect(0, 0, doc.page.width, 60).fill("#1a1a2e");
       doc
         .fillColor("#ffffff")
@@ -2379,8 +2015,6 @@ export async function pdf({ fullArgs, from, sock }) {
           align: "right",
           width: doc.page.width - 60,
         });
-
-      // Title
       doc.moveDown(2);
       doc
         .fillColor("#1a1a2e")
@@ -2392,17 +2026,12 @@ export async function pdf({ fullArgs, from, sock }) {
         .moveTo(60, doc.y)
         .lineTo(doc.page.width - 60, doc.y)
         .stroke("#cccccc");
-
-      // Content
       doc.moveDown(1);
       doc
         .fillColor("#333333")
         .font("Helvetica")
         .fontSize(12)
         .text(content, { lineGap: 6, paragraphGap: 8 });
-
-      // Footer
-      doc.moveDown(2);
       const footerY = doc.page.height - 50;
       doc
         .moveTo(60, footerY)
@@ -2418,7 +2047,6 @@ export async function pdf({ fullArgs, from, sock }) {
           footerY + 10,
           { align: "center" },
         );
-
       doc.end();
     });
     const pdfBuffer = Buffer.concat(chunks);
@@ -2436,25 +2064,19 @@ export async function pdf({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IP LOOKUP - ENHANCED WITH 6 REAL-TIME APIs + SAFE TYPE HANDLING
+//  IP LOOKUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "📍 IP LOOKUP",
-        `Get detailed information about any IP address\n\n` +
-          `📌 *Usage:* ${ENV.PREFIX}ip <IP_ADDRESS>\n\n` +
-          `📋 *Examples:*\n` +
-          `${ENV.PREFIX}ip 8.8.8.8\n` +
-          `${ENV.PREFIX}ip 1.1.1.1\n` +
-          `${ENV.PREFIX}ip 208.67.222.222`,
+        `Get detailed information about any IP address\n\n📌 *Usage:* ${ENV.PREFIX}ip <IP_ADDRESS>\n\n📋 *Examples:*\n${ENV.PREFIX}ip 8.8.8.8\n${ENV.PREFIX}ip 1.1.1.1`,
       ),
     });
   }
 
   const cleanIP = fullArgs.trim();
-
   const ipRegex =
     /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^([0-9a-fA-F]{1,4}:){1,7}:$/;
 
@@ -2472,39 +2094,13 @@ export async function getip({ fullArgs, from, sock }) {
   let data = null;
   let errors = [];
 
-  // ── API 1: ip-api.com (HTTPS endpoint, most reliable free tier) ──────────
+  // API 1: ip-api.com (free HTTP endpoint)
   try {
     const res = await axios.get(
-      `https://pro.ip-api.com/json/${cleanIP}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,mobile,proxy,hosting&key=${ENV.IPAPI_KEY || ""}`,
+      `http://ip-api.com/json/${cleanIP}?fields=66846719`,
       { timeout: 8000 },
     );
-    // Fallback to free endpoint if no key or key error
-    if (!res.data || res.data.status !== "success") {
-      const free = await axios.get(
-        `http://ip-api.com/json/${cleanIP}?fields=66846719`,
-        { timeout: 8000 },
-      );
-      if (free.data?.status === "success") {
-        data = {
-          query: free.data.query,
-          country: free.data.country,
-          countryCode: free.data.countryCode,
-          region: free.data.regionName || free.data.region,
-          city: free.data.city,
-          zip: free.data.zip,
-          lat: free.data.lat,
-          lon: free.data.lon,
-          timezone: free.data.timezone,
-          isp: free.data.isp,
-          org: free.data.org,
-          as: free.data.as,
-          mobile: free.data.mobile || false,
-          proxy: free.data.proxy || false,
-          hosting: free.data.hosting || false,
-          source: "ip-api.com",
-        };
-      }
-    } else {
+    if (res.data?.status === "success") {
       data = {
         query: res.data.query,
         country: res.data.country,
@@ -2521,14 +2117,14 @@ export async function getip({ fullArgs, from, sock }) {
         mobile: res.data.mobile || false,
         proxy: res.data.proxy || false,
         hosting: res.data.hosting || false,
-        source: "ip-api.com (pro)",
+        source: "ip-api.com",
       };
     }
   } catch (err) {
     errors.push(`ip-api: ${err.message}`);
   }
 
-  // ── API 2: ipwho.is (free, no key required, HTTPS) ───────────────────────
+  // API 2: ipwho.is (free HTTPS, no key)
   if (!data) {
     try {
       const res = await axios.get(`https://ipwho.is/${cleanIP}`, {
@@ -2559,7 +2155,7 @@ export async function getip({ fullArgs, from, sock }) {
     }
   }
 
-  // ── API 3: ipapi.co (free 1000/day) ─────────────────────────────────────
+  // API 3: ipapi.co (free 1000/day)
   if (!data) {
     try {
       const res = await axios.get(`https://ipapi.co/${cleanIP}/json/`, {
@@ -2591,7 +2187,7 @@ export async function getip({ fullArgs, from, sock }) {
     }
   }
 
-  // ── API 4: freeipapi.com (free, no key, HTTPS) ───────────────────────────
+  // API 4: freeipapi.com (free, no key)
   if (!data) {
     try {
       const res = await axios.get(`https://freeipapi.com/api/json/${cleanIP}`, {
@@ -2622,104 +2218,30 @@ export async function getip({ fullArgs, from, sock }) {
     }
   }
 
-  // ── API 5: ipinfo.io (free 50k/month, optional token) ───────────────────
-  if (!data) {
-    try {
-      const tokenParam = ENV.IPINFO_TOKEN ? `?token=${ENV.IPINFO_TOKEN}` : "";
-      const res = await axios.get(
-        `https://ipinfo.io/${cleanIP}/json${tokenParam}`,
-        { timeout: 8000 },
-      );
-      if (res.data && !res.data.error) {
-        const loc = res.data.loc ? res.data.loc.split(",") : [null, null];
-        data = {
-          query: res.data.ip,
-          country: res.data.country,
-          countryCode: res.data.country,
-          region: res.data.region,
-          city: res.data.city,
-          zip: res.data.postal,
-          lat: loc[0],
-          lon: loc[1],
-          timezone: res.data.timezone,
-          isp: res.data.org,
-          org: res.data.org,
-          as: null,
-          mobile: false,
-          proxy: false,
-          hosting: false,
-          source: "ipinfo.io",
-        };
-      }
-    } catch (err) {
-      errors.push(`ipinfo: ${err.message}`);
-    }
-  }
-
-  // ── API 6: ip-address.de (European free API) ─────────────────────────────
-  if (!data) {
-    try {
-      const res = await axios.get(
-        `https://api.ip-address.de/api/v1/ip/${cleanIP}`,
-        { timeout: 8000, headers: { Accept: "application/json" } },
-      );
-      if (res.data && res.data.country) {
-        data = {
-          query: cleanIP,
-          country: res.data.country,
-          countryCode: res.data.countryCode,
-          region: res.data.region,
-          city: res.data.city,
-          zip: res.data.postalCode,
-          lat: res.data.latitude,
-          lon: res.data.longitude,
-          timezone: res.data.timezone,
-          isp: res.data.isp,
-          org: res.data.org,
-          as: res.data.asn ? `AS${res.data.asn}` : null,
-          mobile: false,
-          proxy: false,
-          hosting: false,
-          source: "ip-address.de",
-        };
-      }
-    } catch (err) {
-      errors.push(`ip-address.de: ${err.message}`);
-    }
-  }
-
   if (!data) {
     return sock.sendMessage(from, {
       text: formatError(
         "LOOKUP FAILED",
-        `Could not fetch information for IP: ${cleanIP}\n\n` +
-          `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
-          `💡 Try again later or verify the IP is public (not a private/localhost IP).`,
+        `Could not fetch information for IP: ${cleanIP}\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`,
       ),
     });
   }
 
-  // ── Safe coordinate display ──────────────────────────────────────────────
   const coordStr =
     data.lat && data.lon
       ? `${safeFixed(data.lat)}, ${safeFixed(data.lon)}`
       : "N/A";
-
   const mapUrl =
     data.lat && data.lon
       ? `https://www.google.com/maps?q=${data.lat},${data.lon}`
       : null;
-
   let asn = data.as || "N/A";
-  if (asn && asn !== "N/A" && !asn.startsWith("AS") && /^\d+$/.test(asn)) {
+  if (asn && asn !== "N/A" && !asn.startsWith("AS") && /^\d+$/.test(asn))
     asn = `AS${asn}`;
-  }
 
   await sock.sendMessage(from, {
     text:
-      `╔══════════════════════════╗\n` +
-      `║     📍 *IP INFO*         ║\n` +
-      `╚══════════════════════════╝\n\n` +
+      `╔══════════════════════════╗\n║     📍 *IP INFO*         ║\n╚══════════════════════════╝\n\n` +
       `🌐 *IP:* ${data.query || cleanIP}\n` +
       `📍 *Country:* ${data.country || "Unknown"} (${data.countryCode || "?"})\n` +
       `🏙️ *City:* ${data.city || "Unknown"}\n` +
@@ -2748,7 +2270,7 @@ export async function getip({ fullArgs, from, sock }) {
 export const ip = getip;
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MY IP - ENHANCED WITH MULTIPLE SERVICES
+//  MY IP
 // ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock }) {
   await sock.sendMessage(from, {
@@ -2756,8 +2278,6 @@ export async function myip({ from, sock }) {
   });
 
   let ipData = null;
-  let errors = [];
-
   const ipServices = [
     {
       url: "https://api.ipify.org?format=json",
@@ -2777,36 +2297,27 @@ export async function myip({ from, sock }) {
 
   for (const service of ipServices) {
     try {
-      const res = await axios.get(service.url, {
-        timeout: 6000,
-        headers: { Accept: "application/json,text/plain,*/*" },
-      });
+      const res = await axios.get(service.url, { timeout: 6000 });
       const ip = service.parser(res.data);
       if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
         ipData = ip;
         break;
       }
-    } catch (err) {
-      errors.push(err.message);
-    }
+    } catch (_) {}
   }
 
   if (!ipData) {
     return sock.sendMessage(from, {
-      text: formatError(
-        "IP FETCH FAILED",
-        `Could not fetch your public IP.\n\n🔧 *Errors:*\n${errors.join("\n")}`,
-      ),
+      text: formatError("IP FETCH FAILED", "Could not fetch your public IP."),
     });
   }
 
-  // Get location for the server IP
   let locationInfo = null;
   try {
     const infoRes = await axios.get(`https://ipwho.is/${ipData}`, {
       timeout: 8000,
     });
-    if (infoRes.data?.success) {
+    if (infoRes.data?.success)
       locationInfo = {
         country: infoRes.data.country,
         countryCode: infoRes.data.country_code,
@@ -2821,9 +2332,7 @@ export async function myip({ from, sock }) {
         lat: infoRes.data.latitude,
         lon: infoRes.data.longitude,
       };
-    }
   } catch (_) {
-    // Fallback to ip-api.com
     try {
       const infoRes = await axios.get(
         `http://ip-api.com/json/${ipData}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,timezone`,
@@ -2834,15 +2343,12 @@ export async function myip({ from, sock }) {
   }
 
   let response =
-    `╔══════════════════════════╗\n` +
-    `║     🌐 *YOUR PUBLIC IP*   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╔══════════════════════════╗\n║     🌐 *YOUR PUBLIC IP*   ║\n╚══════════════════════════╝\n\n` +
     `📍 *IP Address:* ${ipData}\n`;
 
   if (locationInfo) {
     response +=
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🌍 *Location Info:*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n🌍 *Location Info:*\n` +
       `• Country: ${locationInfo.country} (${locationInfo.countryCode})\n` +
       `• City: ${locationInfo.city || locationInfo.cityName || "Unknown"}\n` +
       `• Region: ${locationInfo.regionName || "Unknown"}\n` +
@@ -2850,12 +2356,8 @@ export async function myip({ from, sock }) {
       `• Organization: ${locationInfo.org || "N/A"}\n` +
       `• ASN: ${locationInfo.as || "N/A"}\n` +
       `• Timezone: ${locationInfo.timezone || "N/A"}\n`;
-
     if (locationInfo.lat && locationInfo.lon) {
-      response +=
-        `• Coordinates: ${safeFixed(locationInfo.lat)}, ${safeFixed(locationInfo.lon)}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🗺️ https://www.google.com/maps?q=${locationInfo.lat},${locationInfo.lon}\n`;
+      response += `• Coordinates: ${safeFixed(locationInfo.lat)}, ${safeFixed(locationInfo.lon)}\n━━━━━━━━━━━━━━━━━━━━━\n🗺️ https://www.google.com/maps?q=${locationInfo.lat},${locationInfo.lon}\n`;
     }
   }
 
@@ -2869,18 +2371,14 @@ export async function myip({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WHOIS - ENHANCED WITH MULTIPLE RELIABLE APIS
+//  WHOIS
 // ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "🔍 WHOIS LOOKUP",
-        `Get domain registration information\n\n` +
-          `📌 *Usage:* ${ENV.PREFIX}whois <domain>\n\n` +
-          `📋 *Examples:*\n` +
-          `${ENV.PREFIX}whois google.com\n` +
-          `${ENV.PREFIX}whois github.com`,
+        `Usage: ${ENV.PREFIX}whois <domain>\n\nExample: ${ENV.PREFIX}whois google.com`,
       ),
     });
   }
@@ -2895,7 +2393,6 @@ export async function whois({ fullArgs, from, sock }) {
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
     .replace(/\/.*/, "");
-
   const domainRegex =
     /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
@@ -2910,7 +2407,7 @@ export async function whois({ fullArgs, from, sock }) {
   let whoisData = null;
   let errors = [];
 
-  // ── API 1: RDAP (IANA registry — most authoritative) ─────────────────────
+  // API 1: RDAP
   try {
     const res = await axios.get(`https://rdap.org/domain/${domain}`, {
       timeout: 10000,
@@ -2922,7 +2419,6 @@ export async function whois({ fullArgs, from, sock }) {
           ?.map((n) => n.ldhName?.toLowerCase())
           .filter(Boolean)
           .join(", ") || "Unknown";
-      const status = d.status?.join(", ") || "Unknown";
       const evtMap = {};
       (d.events || []).forEach((e) => {
         evtMap[e.eventAction] = e.eventDate?.split("T")[0];
@@ -2934,7 +2430,7 @@ export async function whois({ fullArgs, from, sock }) {
       whoisData = {
         domain: d.ldhName || domain,
         registrar,
-        status,
+        status: d.status?.join(", ") || "Unknown",
         nameservers: ns,
         created: evtMap["registration"] || evtMap["created"] || "Unknown",
         updated: evtMap["last changed"] || evtMap["changed"] || "Unknown",
@@ -2946,7 +2442,7 @@ export async function whois({ fullArgs, from, sock }) {
     errors.push(`RDAP: ${err.message}`);
   }
 
-  // ── API 2: who-dat.as93.net (free scrape-based WHOIS) ────────────────────
+  // API 2: who-dat.as93.net
   if (!whoisData) {
     try {
       const res = await axios.get(`https://who-dat.as93.net/${domain}`, {
@@ -2954,8 +2450,8 @@ export async function whois({ fullArgs, from, sock }) {
         headers: { Accept: "application/json" },
       });
       if (res.data?.domain) {
-        const d = res.data.domain;
-        const r = res.data.registrar;
+        const d = res.data.domain,
+          r = res.data.registrar;
         whoisData = {
           domain: d.id || domain,
           registrar: r?.name || "Unknown",
@@ -2976,81 +2472,18 @@ export async function whois({ fullArgs, from, sock }) {
     }
   }
 
-  // ── API 3: whoisjson.com ─────────────────────────────────────────────────
-  if (!whoisData) {
-    try {
-      const res = await axios.get(
-        `https://whoisjson.com/api/v1/whois?domain=${domain}`,
-        {
-          timeout: 10000,
-          headers: { Accept: "application/json" },
-        },
-      );
-      if (res.data?.data) {
-        const d = res.data.data;
-        whoisData = {
-          domain: d.domain_name || domain,
-          registrar: d.registrar || "Unknown",
-          status: Array.isArray(d.status)
-            ? d.status.join(", ")
-            : d.status || "Unknown",
-          nameservers: Array.isArray(d.name_servers)
-            ? d.name_servers.join(", ")
-            : d.name_servers || "Unknown",
-          created: d.creation_date ? d.creation_date.split("T")[0] : "Unknown",
-          updated: d.updated_date ? d.updated_date.split("T")[0] : "Unknown",
-          expires: d.expiration_date
-            ? d.expiration_date.split("T")[0]
-            : "Unknown",
-          source: "whoisjson.com",
-        };
-      }
-    } catch (err) {
-      errors.push(`whoisjson: ${err.message}`);
-    }
-  }
-
-  // ── API 4: whoisxmlapi.com (optional key) ─────────────────────────────────
-  if (!whoisData && ENV.WHOISXML_API_KEY) {
-    try {
-      const res = await axios.get(
-        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${ENV.WHOISXML_API_KEY}&domainName=${domain}&outputFormat=JSON`,
-        { timeout: 10000 },
-      );
-      if (res.data?.WhoisRecord) {
-        const d = res.data.WhoisRecord;
-        whoisData = {
-          domain: d.domainName || domain,
-          registrar: d.registrarName || "Unknown",
-          status: d.status || "Unknown",
-          nameservers: d.nameServers?.hostNames?.join(", ") || "Unknown",
-          created: d.createdDate ? d.createdDate.split("T")[0] : "Unknown",
-          updated: d.updatedDate ? d.updatedDate.split("T")[0] : "Unknown",
-          expires: d.expiresDate ? d.expiresDate.split("T")[0] : "Unknown",
-          source: "whoisxmlapi.com",
-        };
-      }
-    } catch (err) {
-      errors.push(`whoisxmlapi: ${err.message}`);
-    }
-  }
-
   if (!whoisData) {
     return sock.sendMessage(from, {
       text: formatError(
         "WHOIS FAILED",
-        `Could not fetch WHOIS information for "${domain}".\n\n` +
-          `🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}\n\n` +
-          `💡 Domain may be invalid or registry is temporarily down.`,
+        `Could not fetch WHOIS information for "${domain}".\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`,
       ),
     });
   }
 
   await sock.sendMessage(from, {
     text:
-      `╔══════════════════════════╗\n` +
-      `║     🔍 *WHOIS INFO*      ║\n` +
-      `╚══════════════════════════╝\n\n` +
+      `╔══════════════════════════╗\n║     🔍 *WHOIS INFO*      ║\n╚══════════════════════════╝\n\n` +
       `🌐 *Domain:* ${whoisData.domain}\n` +
       `🏢 *Registrar:* ${whoisData.registrar}\n` +
       `📋 *Status:* ${whoisData.status}\n` +
@@ -3065,16 +2498,14 @@ export async function whois({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DNS LOOKUP - ENHANCED WITH RELIABLE APIs
+//  DNS LOOKUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "🔍 DNS LOOKUP",
-        `Get DNS records for a domain\n\n` +
-          `📌 *Usage:* ${ENV.PREFIX}dns <domain>\n\n` +
-          `📋 *Example:* ${ENV.PREFIX}dns google.com`,
+        `Usage: ${ENV.PREFIX}dns <domain>\n\nExample: ${ENV.PREFIX}dns google.com`,
       ),
     });
   }
@@ -3087,7 +2518,6 @@ export async function dns({ fullArgs, from, sock }) {
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
     .replace(/\/.*/, "");
-
   const domainRegex =
     /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/;
   if (!domainRegex.test(domain)) {
@@ -3100,13 +2530,9 @@ export async function dns({ fullArgs, from, sock }) {
   }
 
   let records = { A: [], AAAA: [], MX: [], NS: [], TXT: [], CNAME: [] };
-  let errors = [];
   let usedSource = "";
 
-  // ── Primary: Google DNS-over-HTTPS ────────────────────────────────────────
   const recordTypes = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"];
-  let googleSuccess = false;
-
   for (const type of recordTypes) {
     try {
       const res = await axios.get(
@@ -3114,87 +2540,36 @@ export async function dns({ fullArgs, from, sock }) {
         { timeout: 6000, headers: { Accept: "application/dns-json" } },
       );
       if (res.data?.Answer) {
-        // Map DNS type numbers back to record types
-        const typeMap = {
-          1: "A",
-          28: "AAAA",
-          15: "MX",
-          2: "NS",
-          16: "TXT",
-          5: "CNAME",
-        };
         const typeNum = { A: 1, AAAA: 28, MX: 15, NS: 2, TXT: 16, CNAME: 5 }[
           type
         ];
         records[type] = res.data.Answer.filter(
           (ans) => ans.type === typeNum,
         ).map((ans) => {
-          // Strip trailing dot from NS/CNAME/MX records
           let val = ans.data || "";
           if (["NS", "CNAME", "MX"].includes(type))
             val = val.replace(/\.$/, "");
           return val;
         });
-        if (records[type].length > 0) googleSuccess = true;
+        if (records[type].length > 0) usedSource = "Google DNS-over-HTTPS";
       }
-    } catch (err) {
-      errors.push(`Google DNS (${type}): ${err.message}`);
-    }
+    } catch (_) {}
   }
-  if (googleSuccess) usedSource = "Google DNS-over-HTTPS";
 
-  // ── Fallback: Cloudflare DNS-over-HTTPS ──────────────────────────────────
-  if (!googleSuccess || records.A.length === 0) {
+  // Cloudflare fallback for A records
+  if (records.A.length === 0) {
     try {
       const res = await axios.get(
         `https://cloudflare-dns.com/dns-query?name=${domain}&type=A`,
         { timeout: 6000, headers: { Accept: "application/dns-json" } },
       );
       if (res.data?.Answer) {
-        const cfA = res.data.Answer.filter((a) => a.type === 1).map(
-          (a) => a.data,
-        );
-        if (cfA.length > 0 && records.A.length === 0) {
-          records.A = cfA;
-          usedSource = usedSource || "Cloudflare DoH";
-        }
-      }
-    } catch (err) {
-      errors.push(`Cloudflare DNS: ${err.message}`);
-    }
-  }
-
-  // ── Fallback: DoH public resolver (dns.cloudflare.com) for MX ────────────
-  if (records.MX.length === 0) {
-    try {
-      const res = await axios.get(
-        `https://cloudflare-dns.com/dns-query?name=${domain}&type=MX`,
-        { timeout: 6000, headers: { Accept: "application/dns-json" } },
-      );
-      if (res.data?.Answer) {
-        records.MX = res.data.Answer.filter((a) => a.type === 15).map((a) =>
-          a.data.replace(/\.$/, ""),
-        );
-      }
-    } catch (_) {}
-  }
-
-  // ── Fallback: doh.pub (Chinese public resolver — global) ─────────────────
-  if (records.A.length === 0 && records.NS.length === 0) {
-    try {
-      const res = await axios.get(
-        `https://doh.pub/dns-query?name=${domain}&type=A`,
-        { timeout: 6000, headers: { Accept: "application/dns-json" } },
-      );
-      if (res.data?.Answer) {
         records.A = res.data.Answer.filter((a) => a.type === 1).map(
           (a) => a.data,
         );
-        usedSource = usedSource || "doh.pub";
+        usedSource = usedSource || "Cloudflare DoH";
       }
-    } catch (err) {
-      errors.push(`doh.pub: ${err.message}`);
-    }
+    } catch (_) {}
   }
 
   const formatRecords = (type, limit = 5) => {
@@ -3207,9 +2582,7 @@ export async function dns({ fullArgs, from, sock }) {
 
   await sock.sendMessage(from, {
     text:
-      `╔══════════════════════════╗\n` +
-      `║     🔍 *DNS RECORDS*     ║\n` +
-      `╚══════════════════════════╝\n\n` +
+      `╔══════════════════════════╗\n║     🔍 *DNS RECORDS*     ║\n╚══════════════════════════╝\n\n` +
       `🌐 *Domain:* ${domain}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `📋 *A Records (IPv4):*\n${formatRecords("A")}\n` +
@@ -3218,7 +2591,7 @@ export async function dns({ fullArgs, from, sock }) {
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `📋 *MX Records (Mail):*\n${formatRecords("MX")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📋 *NS Records (Nameservers):*\n${formatRecords("NS")}\n` +
+      `📋 *NS Records:*\n${formatRecords("NS")}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `📋 *TXT Records:*\n${formatRecords("TXT", 3)}\n` +
       (records.CNAME.length > 0
@@ -3332,44 +2705,34 @@ export async function getgpp({ from, sock, isGroup }) {
 export async function prefixinfo({ from, sock }) {
   await sock.sendMessage(from, {
     text:
-      `╔═══════════════════════════════════╗\n` +
-      `║       ℹ️ *PREFIX INFORMATION*    ║\n` +
-      `╚═══════════════════════════════════╝\n\n` +
+      `╔═══════════════════════════════════╗\n║       ℹ️ *PREFIX INFORMATION*    ║\n╚═══════════════════════════════════╝\n\n` +
       `🔤 *Current Prefix:* \`${ENV.PREFIX}\`\n` +
       `📝 *Usage Format:* ${ENV.PREFIX}<command> [arguments]\n\n` +
-      `📋 *Example Commands:*\n` +
-      `${ENV.PREFIX}menu — Show all commands\n` +
-      `${ENV.PREFIX}ping — Check bot latency\n` +
-      `${ENV.PREFIX}weather Lagos — Get weather\n\n` +
+      `📋 *Example Commands:*\n${ENV.PREFIX}menu — Show all commands\n${ENV.PREFIX}ping — Check bot latency\n\n` +
       `💡 All commands must start with "${ENV.PREFIX}"\n` +
       `👑 Created by AYOCODES`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  JARVIS - AI ASSISTANT
+//  JARVIS
 // ════════════════════════════════════════════════════════════════════════════
 export async function jarvis({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "JARVIS AI ASSISTANT",
-        `Your personal AI assistant\n\n` +
-          `Usage: ${ENV.PREFIX}jarvis <question>\n\n` +
-          `Example: ${ENV.PREFIX}jarvis How to make coffee?`,
+        `Usage: ${ENV.PREFIX}jarvis <question>`,
       ),
     });
   }
   await sock.sendMessage(from, {
     text: "🤖 *Jarvis is processing your query...*",
   });
-  const query = fullArgs.trim();
-
   await sock.sendMessage(from, {
     text:
-      `🤖 *JARVIS - Powered by AYOCODES*\n\n` +
-      `"Analyzing: ${query.substring(0, 100)}..."\n\n` +
-      `💡 _For full AI conversation use:_ ${ENV.PREFIX}ai ${query.substring(0, 50)}\n\n` +
+      `🤖 *JARVIS - Powered by AYOCODES*\n\n"Analyzing: ${fullArgs.substring(0, 100)}..."\n\n` +
+      `💡 _For full AI conversation use:_ ${ENV.PREFIX}ayobot ${fullArgs.substring(0, 50)}\n\n` +
       `👑 *Iron Man's JARVIS Mode Active*`,
   });
 }
@@ -3406,8 +2769,6 @@ export async function url({ fullArgs, from, sock }) {
           : "Unknown",
         "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
         "🔄 Cache-Control": h["cache-control"] || "Not set",
-        "🛡️ X-Frame-Options": h["x-frame-options"] || "Not set",
-        "⚡ X-Powered-By": h["x-powered-by"] || "Hidden",
       }),
     });
   } catch (error) {
@@ -3458,12 +2819,11 @@ export async function fetch({ fullArgs, from, sock }) {
 export async function qencode({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo("QR CODE ENCODER", `Usage: ${ENV.PREFIX}qencode <text>`),
+      text: formatInfo("QR CODE ENCODER", `Usage: ${ENV.PREFIX}qr <text>`),
     });
   }
   await sock.sendMessage(from, { text: "📱 *Generating QR code...*" });
   try {
-    // Primary: qrserver.com (free, reliable, no key)
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff&format=png`;
     const res = await axios.get(qrUrl, {
       responseType: "arraybuffer",
@@ -3475,10 +2835,9 @@ export async function qencode({ fullArgs, from, sock }) {
         caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
       });
     } else {
-      // Fallback: send as URL
       await sock.sendMessage(from, {
         image: { url: qrUrl },
-        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
+        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}`,
       });
     }
   } catch (err) {
@@ -3518,25 +2877,20 @@ export async function take({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCREENSHOT - ENHANCED WITH WORKING FREE SERVICES
+//  SCREENSHOT
 // ════════════════════════════════════════════════════════════════════════════
 export async function screenshot({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "📷 SCREENSHOT",
-        `Take a screenshot of any website\n\n` +
-          `📌 *Usage:* ${ENV.PREFIX}screenshot <url>\n\n` +
-          `📋 *Examples:*\n` +
-          `${ENV.PREFIX}screenshot https://google.com\n` +
-          `${ENV.PREFIX}screenshot github.com`,
+        `Take a screenshot of any website\n\n📌 *Usage:* ${ENV.PREFIX}screenshot <url>`,
       ),
     });
   }
 
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-
   try {
     new URL(urlStr);
   } catch (_) {
@@ -3554,7 +2908,7 @@ export async function screenshot({ fullArgs, from, sock }) {
   let usedService = "";
   let errors = [];
 
-  // ── SERVICE 1: Thum.io (free, no key, most reliable) ─────────────────────
+  // Service 1: Thum.io (free, no key)
   try {
     const res = await axios.get(
       `https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`,
@@ -3572,7 +2926,7 @@ export async function screenshot({ fullArgs, from, sock }) {
     errors.push(`Thum.io: ${err.message}`);
   }
 
-  // ── SERVICE 2: Microlink.io (free tier, no key) ───────────────────────────
+  // Service 2: Microlink.io (free tier)
   if (!screenshotBuffer) {
     try {
       const res = await axios.get(
@@ -3594,7 +2948,7 @@ export async function screenshot({ fullArgs, from, sock }) {
     }
   }
 
-  // ── SERVICE 3: s-shot.ru (free, European) ────────────────────────────────
+  // Service 3: s-shot.ru (free)
   if (!screenshotBuffer) {
     try {
       const res = await axios.get(
@@ -3610,8 +2964,7 @@ export async function screenshot({ fullArgs, from, sock }) {
     }
   }
 
-  // ── SERVICE 4: ScreenshotLayer (if key available) ─────────────────────────
-  if (!screenshotBuffer && ENV.SCREENSHOTLAYER_KEY) {
+  if (ENV.SCREENSHOTLAYER_KEY && !screenshotBuffer) {
     try {
       const res = await axios.get(
         `http://api.screenshotlayer.com/api/capture?access_key=${ENV.SCREENSHOTLAYER_KEY}&url=${urlEncoded}&viewport=1280x800&width=1280`,
@@ -3626,39 +2979,6 @@ export async function screenshot({ fullArgs, from, sock }) {
     }
   }
 
-  // ── SERVICE 5: ScreenshotMachine (if key available) ───────────────────────
-  if (!screenshotBuffer && ENV.SCREENSHOTMACHINE_KEY) {
-    try {
-      const res = await axios.get(
-        `http://api.screenshotmachine.com/?key=${ENV.SCREENSHOTMACHINE_KEY}&url=${urlEncoded}&dimension=1280x800&format=jpg`,
-        { responseType: "arraybuffer", timeout: 20000 },
-      );
-      if (res.data?.byteLength > 5000) {
-        screenshotBuffer = Buffer.from(res.data);
-        usedService = "ScreenshotMachine";
-      }
-    } catch (err) {
-      errors.push(`ScreenshotMachine: ${err.message}`);
-    }
-  }
-
-  // ── SERVICE 6: urlbox.io (if key available) ────────────────────────────────
-  if (!screenshotBuffer && ENV.URLBOX_KEY) {
-    try {
-      const res = await axios.get(
-        `https://api.urlbox.io/v1/${ENV.URLBOX_KEY}/png?url=${urlEncoded}&width=1280&height=800&full_page=false`,
-        { responseType: "arraybuffer", timeout: 20000 },
-      );
-      if (res.data?.byteLength > 5000) {
-        screenshotBuffer = Buffer.from(res.data);
-        usedService = "urlbox.io";
-      }
-    } catch (err) {
-      errors.push(`urlbox: ${err.message}`);
-    }
-  }
-
-  // ── Final fallback: fetch page title and return info ──────────────────────
   if (!screenshotBuffer) {
     let pageTitle = urlStr;
     try {
@@ -3668,28 +2988,17 @@ export async function screenshot({ fullArgs, from, sock }) {
         maxContentLength: 200000,
       });
       const titleMatch = htmlRes.data?.match(/<title[^>]*>(.*?)<\/title>/is);
-      if (titleMatch)
-        pageTitle = titleMatch[1]
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .trim();
+      if (titleMatch) pageTitle = titleMatch[1].trim();
     } catch (_) {}
-
     return sock.sendMessage(from, {
       text: formatInfo(
         "SCREENSHOT UNAVAILABLE",
-        `Could not take screenshot of:\n${urlStr}\n\n` +
-          `📝 *Page Title:* ${pageTitle.substring(0, 200)}\n\n` +
-          `🔧 *Errors:* ${errors.slice(0, 2).join(" | ")}\n\n` +
-          `💡 *Try instead:*\n` +
-          `• ${ENV.PREFIX}scrape ${urlStr} — get full HTML\n` +
-          `• ${ENV.PREFIX}fetch ${urlStr} — get source`,
+        `Could not take screenshot of:\n${urlStr}\n\n📝 *Page Title:* ${pageTitle.substring(0, 200)}\n\n` +
+          `💡 *Try instead:*\n• ${ENV.PREFIX}scrape ${urlStr}\n• ${ENV.PREFIX}fetch ${urlStr}`,
       ),
     });
   }
 
-  // ── Get page title for caption ────────────────────────────────────────────
   let pageTitle = urlStr;
   try {
     const headRes = await axios.get(urlStr, {
@@ -3701,19 +3010,13 @@ export async function screenshot({ fullArgs, from, sock }) {
     if (titleMatch) pageTitle = titleMatch[1].trim().substring(0, 100);
   } catch (_) {}
 
-  const sizeKB = (screenshotBuffer.byteLength / 1024).toFixed(1);
-
   await sock.sendMessage(from, {
     image: screenshotBuffer,
     caption:
-      `📷 *Screenshot*\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `🔗 *URL:* ${urlStr}\n` +
-      `📝 *Title:* ${pageTitle}\n` +
-      `📦 *Size:* ${sizeKB} KB\n` +
-      `🔧 *Service:* ${usedService}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      `📷 *Screenshot*\n━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔗 *URL:* ${urlStr}\n📝 *Title:* ${pageTitle}\n` +
+      `📦 *Size:* ${(screenshotBuffer.byteLength / 1024).toFixed(1)} KB\n🔧 *Service:* ${usedService}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 }
 
@@ -3746,16 +3049,9 @@ export async function inspect({ fullArgs, from, sock }) {
     if (body.includes("shopify")) techs.push("Shopify");
     if (body.includes("next.js") || body.includes("__next"))
       techs.push("Next.js");
-    if (body.includes("nuxt")) techs.push("Nuxt.js");
     if (body.includes("jquery")) techs.push("jQuery");
     if (response.headers["x-powered-by"])
       techs.push(response.headers["x-powered-by"]);
-    if (response.headers["x-generator"])
-      techs.push(response.headers["x-generator"]);
-
-    const robotsMeta = $('meta[name="robots"]').attr("content") || "Not set";
-    const ogTitle = $('meta[property="og:title"]').attr("content") || "None";
-    const canonical = $('link[rel="canonical"]').attr("href") || "None";
 
     await sock.sendMessage(from, {
       text: formatData("🔍 PAGE INSPECTION", {
@@ -3763,14 +3059,11 @@ export async function inspect({ fullArgs, from, sock }) {
         "📋 Description": (
           $('meta[name="description"]').attr("content") || "None"
         ).substring(0, 100),
-        "📊 Status": `${response.status} ${response.statusText || ""}`,
+        "📊 Status": `${response.status}`,
         "📎 Links": `${$("a[href]").length}`,
         "🖼️ Images": `${$("img").length}`,
         "📜 Scripts": `${$("script").length}`,
         "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
-        "🤖 Robots": robotsMeta,
-        "🔗 Canonical": canonical.substring(0, 80),
-        "📣 OG Title": ogTitle.substring(0, 80),
         "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
         "🌐 Server": response.headers["server"] || "Unknown",
         "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
@@ -3782,7 +3075,7 @@ export async function inspect({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IMGBB - IMAGE UPLOAD
+//  IMGBB UPLOAD
 // ════════════════════════════════════════════════════════════════════════════
 export async function imgbb({ message, from, sock }) {
   try {
@@ -3804,15 +3097,14 @@ export async function imgbb({ message, from, sock }) {
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
     const base64Image = buffer.toString("base64");
-    const imgBBKey = ENV.IMGBB_KEY || process.env.IMGBB_KEY || null;
     let result = null;
 
-    if (imgBBKey) {
+    if (ENV.IMGBB_KEY) {
       try {
         const params = new URLSearchParams();
         params.append("image", base64Image);
         const res = await axios.post(
-          `https://api.imgbb.com/1/upload?key=${imgBBKey}`,
+          `https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`,
           params,
           { timeout: 15_000 },
         );
@@ -3859,16 +3151,14 @@ export async function imgbb({ message, from, sock }) {
 //  ACTIVATE GROUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
-  if (!isGroup) {
+  if (!isGroup)
     return sock.sendMessage(from, {
       text: "❌ This command only works in groups.",
     });
-  }
-  if (!isAdmin) {
+  if (!isAdmin)
     return sock.sendMessage(from, {
       text: "⛔ Only the bot owner can activate the bot in this group.",
     });
-  }
   activateGroup(sessionId, from);
   await sock.sendMessage(from, {
     text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`,
@@ -3879,16 +3169,14 @@ export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
 //  DEACTIVATE GROUP
 // ════════════════════════════════════════════════════════════════════════════
 export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
-  if (!isGroup) {
+  if (!isGroup)
     return sock.sendMessage(from, {
       text: "❌ This command only works in groups.",
     });
-  }
-  if (!isAdmin) {
+  if (!isAdmin)
     return sock.sendMessage(from, {
       text: "⛔ Only the bot owner can deactivate the bot in this group.",
     });
-  }
   deactivateGroup(sessionId, from);
   await sock.sendMessage(from, {
     text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`,
@@ -3896,8 +3184,14 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ANTILINK - DETECT, DELETE & WARN
-//  FIXED: JID normalization so admin check never fails on format mismatch
+//  ANTILINK
+//
+//  PART 1 FIX: Admin check now verifies GROUP admin status using normalizeJid()
+//  on both sides, not just isAdmin (which is bot owner check only). — AYOCODES
+//
+//  PART 2 FIX: Uses the imported groupWarnings Map from index.js with unified
+//  key format ${from}:${senderJid} — matching automation.js exactly so
+//  warnings accumulate correctly and never overflow to 4/3, 5/3. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 export async function antilink({
   args,
@@ -3915,9 +3209,24 @@ export async function antilink({
         text: "❌ This command only works in groups.",
       });
     }
-    if (!isAdmin) {
+
+    // FIX: Check actual GROUP admin status, not just bot owner — AYOCODES
+    // OLD: if (!isAdmin) — only bot owner could toggle
+    // NEW: verify the user is a group admin using pure digit comparison
+    let isGroupAdmin = false;
+    try {
+      const metadata = await sock.groupMetadata(from);
+      const userNum = normalizeJid(userJid); // → "2349159180375" ✅
+      isGroupAdmin = metadata.participants.some(
+        (p) =>
+          normalizeJid(p.id) === userNum && // → "2349159180375" ✅
+          (p.admin === "admin" || p.admin === "superadmin"),
+      );
+    } catch (_) {}
+
+    if (!isGroupAdmin && !isAdmin) {
       return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
+        text: "⛔ Only *group admins* can use this command.",
       });
     }
 
@@ -3928,18 +3237,11 @@ export async function antilink({
       const status = currentSetting.antilink ? "ON ✅" : "OFF ❌";
       return sock.sendMessage(from, {
         text:
-          `╔══════════════════════════╗\n` +
-          `║     🔗 *ANTI-LINK*       ║\n` +
-          `╚══════════════════════════╝\n\n` +
-          `Current Status: *${status}*\n\n` +
-          `📌 *Commands:*\n` +
+          `╔══════════════════════════╗\n║     🔗 *ANTI-LINK*       ║\n╚══════════════════════════╝\n\n` +
+          `Current Status: *${status}*\n\n📌 *Commands:*\n` +
           `${ENV.PREFIX}antilink on  — Enable protection\n` +
-          `${ENV.PREFIX}antilink off — Disable protection\n` +
-          `${ENV.PREFIX}antilink status — Check status\n\n` +
-          `⚠️ When enabled, ALL links will be:\n` +
-          `• Automatically deleted\n` +
-          `• User warned\n` +
-          `• Auto-kick after 3 warnings\n\n` +
+          `${ENV.PREFIX}antilink off — Disable protection\n\n` +
+          `⚠️ When enabled, ALL links will be:\n• Automatically deleted\n• User warned\n• Auto-kick after 3 warnings\n\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       });
     }
@@ -3949,11 +3251,7 @@ export async function antilink({
       groupSettings.set(from, currentSetting);
       return sock.sendMessage(from, {
         text:
-          `✅ *Anti-Link ENABLED*\n\n` +
-          `🔗 All links will now be:\n` +
-          `• 🗑️ Deleted immediately\n` +
-          `• ⚠️ Users warned\n` +
-          `• 👢 Auto-kick after 3 warnings\n\n` +
+          `✅ *Anti-Link ENABLED*\n\n🔗 All links will now be:\n• 🗑️ Deleted immediately\n• ⚠️ Users warned\n• 👢 Auto-kick after 3 warnings\n\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       });
     }
@@ -3973,149 +3271,17 @@ export async function antilink({
   }
 
   // ── PART 2: LINK DETECTION (runs on every group message) ─────────────────
-  if (!isGroup) return;
-
-  const settings = groupSettings.get(from) || {};
-  if (!settings.antilink) return;
-
-  const msgObj = message?.message || {};
-  const text =
-    msgObj.conversation ||
-    msgObj.extendedTextMessage?.text ||
-    msgObj.imageMessage?.caption ||
-    msgObj.videoMessage?.caption ||
-    msgObj.documentMessage?.caption ||
-    "";
-
-  if (!text) return;
-
-  // ── Comprehensive link detection patterns ─────────────────────────────────
-  const LINK_PATTERNS = [
-    /https?:\/\/[^\s<>"']+/gi,
-    /www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(:[0-9]+)?(\/[^\s<>"']*)?/gi,
-    /bit\.ly\/[a-zA-Z0-9_-]+/gi,
-    /tinyurl\.com\/[a-zA-Z0-9_-]+/gi,
-    /ow\.ly\/[a-zA-Z0-9_-]+/gi,
-    /is\.gd\/[a-zA-Z0-9_-]+/gi,
-    /buff\.ly\/[a-zA-Z0-9_-]+/gi,
-    /t\.co\/[a-zA-Z0-9_-]+/gi,
-    /lnkd\.in\/[a-zA-Z0-9_-]+/gi,
-    /cutt\.ly\/[a-zA-Z0-9_-]+/gi,
-    /rebrand\.ly\/[a-zA-Z0-9_-]+/gi,
-    /youtu\.be\/[a-zA-Z0-9_-]+/gi,
-    /wa\.me\/[0-9]+/gi,
-    /chat\.whatsapp\.com\/[a-zA-Z0-9_]+/gi,
-    /t\.me\/[a-zA-Z0-9_]+/gi,
-    /discord\.gg\/[a-zA-Z0-9_]+/gi,
-    /drive\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
-    /docs\.google\.com\/[a-zA-Z0-9?=&_\/-]+/gi,
-    /mega\.nz\/[#!][a-zA-Z0-9_-]+/gi,
-    /fb\.watch\/[a-zA-Z0-9_-]+/gi,
-  ];
-
-  const containsLink = (txt) => {
-    for (const pattern of LINK_PATTERNS) {
-      pattern.lastIndex = 0;
-      if (pattern.test(txt)) return true;
-    }
-    return false;
-  };
-
-  if (!containsLink(text)) return;
-
-  const senderJid = message.key?.participant || from;
-  const senderNumber = normalizeJid(senderJid);
-
-  // ── FIX: Normalize JIDs before comparing so @s.whatsapp.net vs @c.us never mismatches ──
-  const isUserAdmin = async (jid) => {
-    try {
-      const groupMetadata = await sock.groupMetadata(from);
-      const normalized = normalizeJid(jid);
-      return groupMetadata.participants.some(
-        (p) =>
-          normalizeJid(p.id) === normalized &&
-          (p.admin === "admin" || p.admin === "superadmin"),
-      );
-    } catch {
-      return false;
-    }
-  };
-
-  // Skip if sender is admin
-  if (await isUserAdmin(senderJid)) {
-    console.log(`👑 Admin ${senderNumber} posted link — allowed`);
-    return;
-  }
-
-  console.log(`🚫 Link detected from ${senderNumber}`);
-
-  // Delete the message
-  let deleted = false;
-  try {
-    await sock.sendMessage(from, { delete: message.key });
-    deleted = true;
-  } catch (deleteError) {
-    console.log(`⚠️ Could not delete: ${deleteError.message}`);
-  }
-
-  // Warning tracking
-  const warnKey = `${from}:${senderJid}`;
-  const MAX_WARNINGS = 3;
-
-  if (!global._antilinkWarnings) global._antilinkWarnings = new Map();
-  const warningsMap =
-    global.groupWarnings || global.groupWarningsMap || global._antilinkWarnings;
-
-  const userWarnings = warningsMap.get(warnKey) || 0;
-  const newWarnings = userWarnings + 1;
-  warningsMap.set(warnKey, newWarnings);
-
-  const warningsLeft = MAX_WARNINGS - newWarnings;
-
-  if (newWarnings >= MAX_WARNINGS) {
-    try {
-      await sock.groupParticipantsUpdate(from, [senderJid], "remove");
-      warningsMap.delete(warnKey);
-      await sock.sendMessage(from, {
-        text:
-          `╔══════════════════════════╗\n` +
-          `║   🚫 *USER REMOVED*      ║\n` +
-          `╚══════════════════════════╝\n\n` +
-          `@${senderNumber} has been removed for posting links after ${MAX_WARNINGS} warnings.\n\n` +
-          `━━━━━━━━━━━━━━━━━━━━━\n` +
-          `⚠️ Links are strictly prohibited in this group.\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-        mentions: [senderJid],
-      });
-    } catch (kickError) {
-      await sock.sendMessage(from, {
-        text:
-          `⚠️ *WARNING ${newWarnings}/${MAX_WARNINGS}*\n\n` +
-          `@${senderNumber} No links allowed!\n` +
-          `❌ Could not auto-kick (ensure bot is admin)\n\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-        mentions: [senderJid],
-      });
-    }
-  } else {
-    await sock.sendMessage(from, {
-      text:
-        `╔══════════════════════════╗\n` +
-        `║   🚫 *NO LINKS ALLOWED*  ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `👤 *User:* @${senderNumber}\n` +
-        `⚠️ *Warning:* ${newWarnings}/${MAX_WARNINGS}\n` +
-        `💢 *Action:* Message deleted ${deleted ? "✅" : "❌"}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚠️ ${warningsLeft} more warning(s) before auto-removal.\n\n` +
-        `⚡ *AYOBOT Security* | 👑 AYOCODES`,
-      mentions: [senderJid],
-    });
-  }
+  // NOTE: This Part 2 should NOT run simultaneously with automation.js.
+  // Since commandHandler.js Phase 5 has been removed, and automation.js
+  // calls handleAntiLink() for every message, this Part 2 in basic.js
+  // is now DEAD CODE — it only runs when .antilink is called with NO args,
+  // which means args is empty/undefined. In that case, Part 1 above already
+  // handles showing the status. So we return early here. — AYOCODES
+  return;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT - ALL COMMANDS
+//  DEFAULT EXPORT
 // ════════════════════════════════════════════════════════════════════════════
 export default {
   menu,

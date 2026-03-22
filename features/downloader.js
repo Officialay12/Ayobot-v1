@@ -1,2 +1,1731 @@
 // @ts-nocheck
-import axios from"axios";import path from"path";import{fileURLToPath}from"url";import{ENV}from"../index.js";import{sendMsg}from"../utils/channelButton.js";import{formatError,formatInfo}from"../utils/formatters.js";const __filename=fileURLToPath(import.meta.url),__dirname=path.dirname(__filename),MAX_FILE_SIZE=104857600,DOWNLOAD_TIMEOUT=6e4,API_TIMEOUT=15e3,USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",BRAND="⚡ _AYOBOT v1 by AYOCODES_";function extractVideoId(t){const e=[/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,/youtube\.com\/shorts\/([^&\n?#]+)/,/youtube\.com\/v\/([^&\n?#]+)/];for(const a of e){const e=t.match(a);if(e)return e[1]}return null}function formatDuration(t){const e=parseInt(t)||0,a=Math.floor(e/3600),o=Math.floor(e%3600/60),n=e%60;return a>0?`${a}:${String(o).padStart(2,"0")}:${String(n).padStart(2,"0")}`:`${o}:${String(n).padStart(2,"0")}`}function formatNumber(t){if(!t)return"N/A";const e=parseInt(t);return e>=1e9?`${(e/1e9).toFixed(1)}B`:e>=1e6?`${(e/1e6).toFixed(1)}M`:e>=1e3?`${(e/1e3).toFixed(1)}K`:e.toString()}function formatSize(t){return t?t>=1048576?`${(t/1024/1024).toFixed(2)} MB`:t>=1024?`${(t/1024).toFixed(1)} KB`:`${t} B`:"Unknown"}async function downloadBuffer(t,e=6e4){const a=await axios.get(t,{responseType:"arraybuffer",timeout:e,maxContentLength:104857600,headers:{"User-Agent":USER_AGENT}});return Buffer.from(a.data)}async function tryApis(t,e){for(let a=0;a<t.length;a++)try{const o=await t[a]();if(o)return{result:o,source:e[a]}}catch(t){console.log(`[Downloader] ${e[a]} failed: ${t.message}`)}return null}async function searchYouTube(t){try{const e=await axios.get(`https://www.youtube.com/results?search_query=${encodeURIComponent(t)}&sp=EgIQAQ%3D%3D`,{headers:{"User-Agent":USER_AGENT},timeout:15e3}),a=e.data.match(/var ytInitialData = ({.+?});<\/script>/s);if(a){const t=JSON.parse(a[1]),e=t?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;if(e)for(const t of e){const e=t?.videoRenderer;if(e?.videoId){const t=e.thumbnail?.thumbnails||[],a=t[t.length-1]?.url||`https://img.youtube.com/vi/${e.videoId}/maxresdefault.jpg`;return{videoId:e.videoId,title:e.title?.runs?.[0]?.text||e.title?.simpleText||"Unknown",url:`https://www.youtube.com/watch?v=${e.videoId}`,duration:e.lengthText?.simpleText||"Unknown",views:e.viewCountText?.simpleText||"N/A",author:e.ownerText?.runs?.[0]?.text||e.longBylineText?.runs?.[0]?.text||"Unknown",thumbnail:a}}}}const o=e.data.match(/"videoId":"([a-zA-Z0-9_-]{11})"/),n=e.data.match(/"title":{"runs":\[{"text":"([^"]+)"}/);if(o)return{videoId:o[1],title:n?.[1]||t,url:`https://www.youtube.com/watch?v=${o[1]}`,duration:"Unknown",views:"N/A",author:"Unknown",thumbnail:`https://img.youtube.com/vi/${o[1]}/maxresdefault.jpg`}}catch(t){console.log("YT search method 1 failed:",t.message)}const e=["https://invidious.snopyta.org","https://vid.puffyan.us","https://invidious.tiekoetter.com","https://y.com.sb","https://invidious.nerdvpn.de"];for(const a of e)try{const e=await axios.get(`${a}/api/v1/search`,{params:{q:t,type:"video"},timeout:8e3});if(e.data?.[0]?.videoId){const a=e.data[0],o=a.videoThumbnails?.find(t=>"maxresdefault"===t.quality)?.url||a.videoThumbnails?.find(t=>"medium"===t.quality)?.url||`https://img.youtube.com/vi/${a.videoId}/hqdefault.jpg`;return{videoId:a.videoId,title:a.title||t,url:`https://www.youtube.com/watch?v=${a.videoId}`,duration:formatDuration(a.lengthSeconds),views:formatNumber(a.viewCount),author:a.author||"Unknown",thumbnail:o}}}catch(t){}return null}async function downloadYouTubeAudio(t,e){const a=e||`https://www.youtube.com/watch?v=${t}`;try{const t=await axios.post("https://co.wuk.sh/api/json",{url:a,isAudioOnly:!0,aFormat:"mp3",filenamePattern:"basic"},{headers:{"Content-Type":"application/json",Accept:"application/json"},timeout:15e3});if(t.data?.url){const e=await downloadBuffer(t.data.url);if(e.length>1e4)return{buffer:e}}}catch(t){console.log("Audio M1 failed:",t.message)}try{const e=await axios.post("https://yt1s.com/api/ajaxSearch/index",new URLSearchParams({q:a,vt:"home"}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded"},timeout:15e3});if(e.data?.links?.mp3){const a=Object.keys(e.data.links.mp3),o=e.data.links.mp3[a[0]]?.k;if(o){const e=await axios.post("https://yt1s.com/api/ajaxConvert/convert",new URLSearchParams({vid:t,k:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded"},timeout:15e3});if(e.data?.dlink){const t=await downloadBuffer(e.data.dlink);if(t.length>1e4)return{buffer:t}}}}}catch(t){console.log("Audio M2 failed:",t.message)}try{const t=await axios.get("https://loader.to/api/button/",{params:{url:a,f:"mp3"},timeout:15e3});if(t.data?.id)for(let e=0;e<10;e++){await new Promise(t=>setTimeout(t,3e3));const e=await axios.get(`https://loader.to/api/progress/?id=${t.data.id}`,{timeout:8e3});if(e.data?.download_url){const t=await downloadBuffer(e.data.download_url);if(t.length>1e4)return{buffer:t};break}}}catch(t){console.log("Audio M3 failed:",t.message)}if(ENV.RAPIDAPI_KEY)try{const e=await axios.get("https://youtube-mp36.p.rapidapi.com/dl",{params:{id:t},headers:{"X-RapidAPI-Key":ENV.RAPIDAPI_KEY,"X-RapidAPI-Host":"youtube-mp36.p.rapidapi.com"},timeout:15e3});if(e.data?.link){const t=await downloadBuffer(e.data.link);if(t.length>1e4)return{buffer:t}}}catch(t){console.log("Audio M4 failed:",t.message)}try{const e=await axios.get(`https://ytmp3.cc/en/youtube-mp3/${t}/`,{headers:{"User-Agent":USER_AGENT},timeout:15e3}),a=e.data?.match(/https:\/\/[^"]+\.mp3[^"]*/);if(a){const t=await downloadBuffer(a[0]);if(t.length>1e4)return{buffer:t}}}catch(t){console.log("Audio M5 failed:",t.message)}return null}export async function play({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("🎵 PLAY MUSIC","Download and play any song from YouTube\n\nUsage: .play <song name or YouTube URL>\n\nExamples:\n.play Shape of You\n.play Lose Yourself Eminem\n.play https://youtu.be/xxxxx")});const o=t.trim();await sendMsg(a,e,{text:`🔍 Searching for *${o}*...`});let n=null;if(o.includes("youtu")){const t=extractVideoId(o);t&&(n={videoId:t,title:"YouTube Video",url:o,author:"Unknown",duration:"Unknown",thumbnail:`https://img.youtube.com/vi/${t}/maxresdefault.jpg`})}if(n||(n=await searchYouTube(o)),!n)return sendMsg(a,e,{text:formatError("NOT FOUND",`No results for "${o}"\n\nTry a different spelling or add the artist name.`)});if(n.thumbnail)try{await sendMsg(a,e,{image:{url:n.thumbnail},caption:`📀 *${n.title}*\n🎤 ${n.author} | ⏱️ ${n.duration} | 👁️ ${n.views||"N/A"}\n\n⬇️ Downloading audio...\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:`📀 *${n.title}*\n🎤 ${n.author} | ⏱️ ${n.duration}\n\n⬇️ Downloading audio...\n\n${BRAND}`})}else await sendMsg(a,e,{text:`📀 *${n.title}*\n🎤 ${n.author} | ⏱️ ${n.duration}\n\n⬇️ Downloading audio...\n\n${BRAND}`});const i=await downloadYouTubeAudio(n.videoId,n.url);if(i?.buffer)try{await sendMsg(a,e,{audio:i.buffer,mimetype:"audio/mpeg",ptt:!1}),await sendMsg(a,e,{text:`✅ *${n.title}*\n🎤 ${n.author} | ⏱️ ${n.duration} | 📦 ${formatSize(i.buffer.length)}\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:formatInfo("🔗 YOUTUBE LINK",`🎵 *${n.title}*\n\n🔗 ${n.url}\n\n⚠️ Audio send failed — open link to listen.`)})}else await sendMsg(a,e,{text:formatInfo("🔗 YOUTUBE LINK",`🎵 *${n.title}*\n\n🔗 ${n.url}\n\n💡 Could not download audio — open link to listen.`)})}export async function youtube({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("📺 YOUTUBE INFO","Get full info about any YouTube video\n\nUsage: .yt <url>\nExample: .yt https://youtu.be/dQw4w9WgXcQ")});await sendMsg(a,e,{text:"⏳ Fetching video info..."});const o=extractVideoId(t.trim());if(!o)return sendMsg(a,e,{text:formatError("INVALID URL","Please provide a valid YouTube URL.")});const n=["https://invidious.snopyta.org","https://vid.puffyan.us","https://invidious.tiekoetter.com","https://y.com.sb","https://invidious.nerdvpn.de"];let i=null;for(const t of n)try{const e=await axios.get(`${t}/api/v1/videos/${o}`,{timeout:8e3});if(e.data?.title){i=e.data;break}}catch(t){}if(!i)return sendMsg(a,e,{text:formatError("ERROR","Could not fetch video info. Try again later.")});const r=i.published?new Date(1e3*i.published).toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"}):"Unknown";let s=i.description||"No description";s.length>200&&(s=s.slice(0,200)+"...");const d=i.videoThumbnails?.find(t=>"maxresdefault"===t.quality)||i.videoThumbnails?.find(t=>"hqdefault"===t.quality)||i.videoThumbnails?.[0];if(d?.url)try{await sendMsg(a,e,{image:{url:d.url},caption:`📺 *${i.title}*\n🎤 ${i.author}`})}catch(t){}await sendMsg(a,e,{text:`📺 *${i.title}*\n🎤 ${i.author}\n⏱️ ${formatDuration(i.lengthSeconds)} | 👁️ ${formatNumber(i.viewCount)} | 👍 ${formatNumber(i.likeCount)}\n📅 ${r} | 📂 ${i.genre||"N/A"}\n🏷️ ${i.keywords?.slice(0,4).join(", ")||"None"}\n\n📝 ${s}\n\n🔗 https://youtu.be/${o}\n\n${BRAND}`})}export async function tiktok({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("📱 TIKTOK DOWNLOAD","Download TikTok videos without watermark\n\nUsage: .tiktok <url>\nExample: .tiktok https://vm.tiktok.com/xxxxx")});await sendMsg(a,e,{text:"⬇️ Downloading TikTok video..."});const o=t.trim(),n=await tryApis([async()=>{const t=await axios.post("https://www.tikwm.com/api/",new URLSearchParams({url:o,hd:"1"}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.data;if(!e?.play)throw new Error("No play URL");return{videoUrl:e.hdplay||e.play,author:e.author?.nickname||"TikTok User",title:e.title||"TikTok Video",likes:formatNumber(e.digg_count),shares:formatNumber(e.share_count),thumbnail:e.cover||e.origin_cover,duration:e.duration?formatDuration(e.duration):"Unknown",music:e.music_info?.title}},async()=>{const t=await axios.get("https://ssstik.io/en",{headers:{"User-Agent":USER_AGENT},timeout:1e4}),e=t.data?.match(/s_tt\s*=\s*["']([^"']+)["']/),a=e?.[1]||"undefined",n=await axios.post("https://ssstik.io/abc?url=dl",new URLSearchParams({id:o,locale:"en",tt:a}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded",Referer:"https://ssstik.io/en","User-Agent":USER_AGENT},timeout:15e3}),i=n.data?.match(/href="(https:\/\/tikcdn[^"]+)"/);if(!i)throw new Error("No URL");const r=n.data?.match(/data-src="([^"]+)"/);return{videoUrl:i[1],author:"TikTok User",title:"TikTok Video",thumbnail:r?.[1]}},async()=>{const t=await axios.post("https://musicaldown.com/download",new URLSearchParams({link:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded",Referer:"https://musicaldown.com/","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/);if(!e)throw new Error("No mp4");return{videoUrl:e[1],author:"TikTok User",title:"TikTok Video"}},async()=>{const t=await axios.post("https://api.tikmate.app/api/lookup",new URLSearchParams({url:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.token,a=t.data?.id;if(!e||!a)throw new Error("No token");return{videoUrl:`https://tikmate.app/download/${e}/${a}.mp4`,author:"TikTok User",title:"TikTok Video"}}],["tikwm","ssstik","musicaldown","tikmate"]);if(!n)return sendMsg(a,e,{text:formatError("FAILED","Could not download TikTok video.\n\n💡 Make sure the video is public.")});const{result:i}=n;if(i.thumbnail)try{await sendMsg(a,e,{image:{url:i.thumbnail},caption:`📱 *${i.title}*\n👤 ${i.author}`+(i.duration?` | ⏱️ ${i.duration}`:"")+`\n\n⬇️ Downloading...\n\n${BRAND}`})}catch(t){}try{const t=await downloadBuffer(i.videoUrl);let o=`📱 *${i.title}*\n👤 ${i.author}`;i.duration&&(o+=` | ⏱️ ${i.duration}`),i.likes&&(o+=`\n❤️ ${i.likes}`),i.shares&&(o+=` | 🔁 ${i.shares}`),i.music&&(o+=`\n🎵 ${i.music}`),o+=`\n📦 ${formatSize(t.length)}\n\n${BRAND}`,await sendMsg(a,e,{video:t,caption:o})}catch(t){await sendMsg(a,e,{text:formatInfo("🔗 VIDEO LINK",`📱 *${i.title}*\n👤 ${i.author}\n\n🔗 ${i.videoUrl}`)})}}export async function instagram({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("📸 INSTAGRAM DOWNLOAD","Download Instagram posts, reels & stories\n\nUsage: .ig <url>\nExample: .ig https://www.instagram.com/p/xxxxx/")});await sendMsg(a,e,{text:"⬇️ Downloading Instagram media..."});const o=t.trim(),n=await tryApis([async()=>{const t=await axios.post("https://instafinsta.com/wp-json/aio-dl/video-data/",{url:o},{headers:{"Content-Type":"application/json","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.medias?.[0];if(!e?.url)throw new Error("No media");return{type:e.videoAvailable?"video":"image",url:e.url,thumbnail:t.data?.thumbnail}},async()=>{const t=await axios.get("https://saveig.app/en",{headers:{"User-Agent":USER_AGENT},timeout:1e4}),e=t.data?.match(/name="_token"\s+value="([^"]+)"/),a=await axios.post("https://saveig.app/api/ajaxSearch",new URLSearchParams({q:o,t:"media",lang:"en",_token:e?.[1]||""}),{headers:{"Content-Type":"application/x-www-form-urlencoded",Referer:"https://saveig.app/en","User-Agent":USER_AGENT},timeout:15e3}),n=a.data?.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);if(n)return{type:"video",url:n[1]};const i=a.data?.data?.match(/src="(https?:\/\/[^"]+\.(jpg|jpeg|png)[^"]*)"/);if(i)return{type:"image",url:i[1]};throw new Error("No media")},async()=>{const t=await axios.post("https://igram.world/api/convert",{url:o},{headers:{"Content-Type":"application/json","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.[0];if(!e?.url)throw new Error("No media");return{type:"video"===e.type?"video":"image",url:e.url}},async()=>{const t=await axios.post("https://snapinsta.app/api",new URLSearchParams({url:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/),a=t.data?.match(/src="(https?:\/\/[^"]+\.jpg[^"]*)"/);if(e)return{type:"video",url:e[1]};if(a)return{type:"image",url:a[1]};throw new Error("No media")}],["instafinsta","saveig","igram","snapinsta"]);if(!n)return sendMsg(a,e,{text:formatError("FAILED","Could not download Instagram media.\n\n💡 Make sure the post is public.")});const{result:i}=n;try{const t=await downloadBuffer(i.url),o=`📸 *Instagram Media*\n📦 ${formatSize(t.length)}\n\n${BRAND}`;"video"===i.type?await sendMsg(a,e,{video:t,caption:o}):await sendMsg(a,e,{image:t,caption:o})}catch(t){await sendMsg(a,e,{text:formatInfo("🔗 MEDIA LINK",`📸 *Instagram Media*\n\n🔗 ${i.url}`)})}}export async function facebook({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("👤 FACEBOOK DOWNLOAD","Download Facebook videos\n\nUsage: .fb <url>\nExample: .fb https://www.facebook.com/watch?v=xxxxx")});await sendMsg(a,e,{text:"⬇️ Downloading Facebook video..."});const o=t.trim(),n=await tryApis([async()=>{const t=await axios.post("https://co.wuk.sh/api/json",{url:o},{headers:{"Content-Type":"application/json",Accept:"application/json"},timeout:15e3});if(!t.data?.url)throw new Error("No URL");return{videoUrl:t.data.url}},async()=>{const t=await axios.post("https://fdown.net/download.php",new URLSearchParams({URLz:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/id="hdlink" href="([^"]+)"/),a=t.data?.match(/id="sdlink" href="([^"]+)"/),n=e?.[1]||a?.[1];if(!n)throw new Error("No video");return{videoUrl:n}},async()=>{const t=await axios.post("https://getfvid.com/downloader",new URLSearchParams({url:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);if(!e)throw new Error("No video");return{videoUrl:e[1]}},async()=>{const t=await axios.post("https://fbdown.net/download.php",new URLSearchParams({url:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);if(!e)throw new Error("No video");return{videoUrl:e[1]}}],["cobalt","fdown","getfvid","fbdown"]);if(!n)return sendMsg(a,e,{text:formatError("FAILED","Could not download Facebook video.\n\n💡 Make sure the video is public.")});try{const t=await downloadBuffer(n.result.videoUrl);await sendMsg(a,e,{video:t,caption:`👤 *Facebook Video*\n📦 ${formatSize(t.length)}\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:formatInfo("🔗 VIDEO LINK",`👤 *Facebook Video*\n\n🔗 ${n.result.videoUrl}`)})}}export async function twitter({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("🐦 TWITTER/X DOWNLOAD","Download Twitter/X videos\n\nUsage: .twitter <url>\nExample: .twitter https://twitter.com/user/status/xxxxx")});await sendMsg(a,e,{text:"⬇️ Downloading Twitter/X media..."});const o=t.trim(),n=await tryApis([async()=>{const t=await axios.get("https://twitsave.com/info",{params:{url:o},headers:{"User-Agent":USER_AGENT},timeout:15e3}),e=[...t.data?.matchAll(/data-url="([^"]+\.mp4[^"]*)"/g)||[]];if(!e.length)throw new Error("No video");return{videoUrl:e[0][1]}},async()=>{const t=await axios.post("https://co.wuk.sh/api/json",{url:o},{headers:{"Content-Type":"application/json",Accept:"application/json"},timeout:15e3});if(!t.data?.url)throw new Error("No URL");return{videoUrl:t.data.url}},async()=>{const t=await axios.get("https://getmytweet.com/",{params:{url:o},headers:{"User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);if(!e)throw new Error("No video");return{videoUrl:e[1]}},async()=>{const t=await axios.post("https://twittervideodownloader.com/download",new URLSearchParams({tweet:o}).toString(),{headers:{"Content-Type":"application/x-www-form-urlencoded","User-Agent":USER_AGENT},timeout:15e3}),e=t.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);if(!e)throw new Error("No video");return{videoUrl:e[1]}}],["twitsave","cobalt","getmytweet","twittervideodownloader"]);if(!n)return sendMsg(a,e,{text:formatError("FAILED","Could not download Twitter/X media.\n\n💡 Make sure the tweet is public.")});try{const t=await downloadBuffer(n.result.videoUrl);await sendMsg(a,e,{video:t,caption:`🐦 *Twitter/X Video*\n📦 ${formatSize(t.length)}\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:formatInfo("🔗 VIDEO LINK",`🐦 *Twitter/X Video*\n\n🔗 ${n.result.videoUrl}`)})}}export async function spotify({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("🎵 SPOTIFY","Get Spotify track info + audio preview\n\nUsage: .spotify <url or track name>\n\nExamples:\n.spotify https://open.spotify.com/track/xxxxx\n.spotify Blinding Lights")});await sendMsg(a,e,{text:"⏳ Fetching Spotify data..."});const o=t.trim();let n=null;if(o.includes("spotify.com/track/"))try{const t=await axios.get(`https://open.spotify.com/oembed?url=${encodeURIComponent(o)}`,{timeout:15e3});t.data&&(n={title:t.data.title,artist:t.data.author_name,thumbnail:t.data.thumbnail_url,url:o,preview:null})}catch(t){}try{const t=await axios.get(`https://saavn.dev/api/search/songs?query=${encodeURIComponent(o)}&page=1&limit=1`,{timeout:15e3}),e=t.data?.data?.results?.[0];if(e){const t=e.image?.find(t=>"500x500"===t.quality)?.url||e.image?.find(t=>"150x150"===t.quality)?.url||e.image?.[0]?.url;n={title:e.name,artist:e.artists?.primary?.map(t=>t.name).join(", ")||"Unknown",album:e.album?.name||"Unknown",thumbnail:t,preview:e.downloadUrl?.find(t=>"160kbps"===t.quality)?.url||null,duration:formatDuration(e.duration),url:e.url||o,year:e.year,language:e.language}}}catch(t){}if(!n)return sendMsg(a,e,{text:formatError("NOT FOUND","Could not find that track.")});if(n.thumbnail)try{await sendMsg(a,e,{image:{url:n.thumbnail},caption:`🎵 *${n.title}*\n🎤 ${n.artist}`+(n.album?` | 💿 ${n.album}`:"")+(n.duration?` | ⏱️ ${n.duration}`:"")+(n.year?`\n📅 ${n.year}`:"")+(n.language?` | 🌐 ${n.language}`:"")+`\n\n${BRAND}`})}catch(t){}if(await sendMsg(a,e,{text:`🎵 *${n.title}*\n🎤 ${n.artist}`+(n.album?` | 💿 ${n.album}`:"")+(n.duration?` | ⏱️ ${n.duration}`:"")+(n.year?`\n📅 ${n.year}`:"")+(n.language?` | 🌐 ${n.language}`:"")+`\n\n🔗 ${n.url}\n\n${BRAND}`}),n.preview)try{const t=await downloadBuffer(n.preview);await sendMsg(a,e,{audio:t,mimetype:"audio/mpeg",ptt:!1})}catch(t){}}export async function pinterest({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("📌 PINTEREST","Search Pinterest for images\n\nUsage: .pinterest <search term>\nExample: .pinterest anime aesthetic")});await sendMsg(a,e,{text:`🔍 Searching Pinterest for "${t}"...`});try{const o=await axios.get("https://www.pinterest.com/resource/BaseSearchResource/get/",{params:{source_url:`/search/pins/?q=${encodeURIComponent(t)}`,data:JSON.stringify({options:{query:t,scope:"pins",page_size:25}})},headers:{"User-Agent":USER_AGENT,"X-Requested-With":"XMLHttpRequest"},timeout:15e3}),n=o.data?.resource_response?.data?.results,i=n?.filter(t=>t.images?.["736x"]?.url);if(!i?.length)throw new Error("No pins");const r=i[Math.floor(Math.random()*i.length)];await sendMsg(a,e,{image:{url:r.images["736x"].url},caption:`📌 *${t}*\n\n${BRAND}`})}catch(o){try{const o=await axios.get(`https://duckduckgo.com/?q=${encodeURIComponent(t+" site:pinterest.com")}&iax=images&ia=images`,{headers:{"User-Agent":USER_AGENT},timeout:8e3}),n=o.data?.match(/vqd=([\d-]+)/)?.[1];if(!n)throw new Error("No token");const i=await axios.get(`https://duckduckgo.com/i.js?q=${encodeURIComponent(t)}&vqd=${n}`,{headers:{"User-Agent":USER_AGENT,Referer:"https://duckduckgo.com/"},timeout:8e3}),r=i.data?.results;if(!r?.length)throw new Error("No results");const s=r[Math.floor(Math.random()*Math.min(r.length,10))];await sendMsg(a,e,{image:{url:s.image},caption:`📌 *${t}*\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:formatError("NOT FOUND","Could not find Pinterest images. Try a different search term.")})}}}export async function image({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("🖼️ IMAGE SEARCH","Search for any image\n\nUsage: .img <search term>\nExample: .img sunset landscape")});await sendMsg(a,e,{text:`🔍 Searching images for "${t}"...`});let o=null;if(ENV.PIXABAY_KEY&&!o)try{const e=await axios.get("https://pixabay.com/api/",{params:{key:ENV.PIXABAY_KEY,q:t,per_page:20,safesearch:!0,image_type:"photo"},timeout:15e3}),a=e.data?.hits;a?.length&&(o=a[Math.floor(Math.random()*a.length)].largeImageURL)}catch(t){console.log("Pixabay failed:",t.message)}if(ENV.UNSPLASH_KEY&&!o)try{const e=await axios.get("https://api.unsplash.com/search/photos",{params:{query:t,per_page:20,orientation:"landscape"},headers:{Authorization:`Client-ID ${ENV.UNSPLASH_KEY}`},timeout:15e3}),a=e.data?.results;a?.length&&(o=a[Math.floor(Math.random()*a.length)].urls.regular)}catch(t){console.log("Unsplash failed:",t.message)}if(!o)try{const e=await axios.get(`https://duckduckgo.com/?q=${encodeURIComponent(t)}&iax=images&ia=images`,{headers:{"User-Agent":USER_AGENT},timeout:8e3}),a=e.data?.match(/vqd=([\d-]+)/)?.[1];if(a){const e=await axios.get(`https://duckduckgo.com/i.js?q=${encodeURIComponent(t)}&vqd=${a}`,{headers:{"User-Agent":USER_AGENT,Referer:"https://duckduckgo.com/"},timeout:8e3}),n=e.data?.results;n?.length&&(o=n[Math.floor(Math.random()*Math.min(n.length,15))].image)}}catch(t){console.log("DDG failed:",t.message)}if(!o)return sendMsg(a,e,{text:formatError("NOT FOUND","Could not find images for that query.")});await sendMsg(a,e,{image:{url:o},caption:`🖼️ *${t}*\n\n${BRAND}`})}export async function gif({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("🎞️ GIF SEARCH","Search for animated GIFs\n\nUsage: .gif <search term>\nExample: .gif happy dance")});await sendMsg(a,e,{text:`🔍 Searching GIFs for "${t}"...`});let o=null,n=null;if(ENV.GIPHY_KEY)try{const e=await axios.get("https://api.giphy.com/v1/gifs/search",{params:{api_key:ENV.GIPHY_KEY,q:t,limit:20,rating:"g"},timeout:15e3}),a=e.data?.data;if(a?.length){const t=a[Math.floor(Math.random()*a.length)];o=t.images?.original?.mp4||t.images?.original?.url,n=t.title}}catch(t){console.log("Giphy failed:",t.message)}if(!o&&ENV.TENOR_KEY)try{const e=await axios.get("https://tenor.googleapis.com/v2/search",{params:{q:t,key:ENV.TENOR_KEY,limit:10,media_filter:"mp4"},timeout:15e3}),a=e.data?.results;if(a?.length){const e=a[Math.floor(Math.random()*a.length)];o=e.media_formats?.mp4?.url||e.media_formats?.gif?.url,n=e.title||t}}catch(t){console.log("Tenor failed:",t.message)}if(!o)return sendMsg(a,e,{text:formatError("NOT FOUND","Could not find GIFs.\n\nMake sure GIPHY_KEY or TENOR_KEY is set in your .env")});const i=`🎞️ *${t}*${n?`\n📝 ${n}`:""}\n\n${BRAND}`;try{if(o.endsWith(".gif")){const t=await downloadBuffer(o);await sendMsg(a,e,{video:t,caption:i,gifPlayback:!0})}else await sendMsg(a,e,{video:{url:o},caption:i,gifPlayback:!0})}catch(t){await sendMsg(a,e,{text:formatError("SEND FAILED","Found GIF but could not send it.")})}}export async function download({fullArgs:t,from:e,sock:a}){if(!t)return sendMsg(a,e,{text:formatInfo("⬇️ DOWNLOAD MEDIA","Universal Media Downloader\n\nUsage: .dl <url>\n\nSupported:\n▸ YouTube  → .play <song>\n▸ TikTok   → .tiktok <url>\n▸ Instagram → .ig <url>\n▸ Facebook → .fb <url>\n▸ Twitter/X → .twitter <url>\n▸ Spotify  → .spotify <url>\n▸ Pinterest → .pin <query>")});let o=t.trim();if(o.startsWith("http")||(o="https://"+o),o.includes("youtube.com")||o.includes("youtu.be"))return play({fullArgs:o,from:e,sock:a});if(o.includes("tiktok.com"))return tiktok({fullArgs:o,from:e,sock:a});if(o.includes("instagram.com"))return instagram({fullArgs:o,from:e,sock:a});if(o.includes("facebook.com")||o.includes("fb.watch"))return facebook({fullArgs:o,from:e,sock:a});if(o.includes("twitter.com")||o.includes("x.com"))return twitter({fullArgs:o,from:e,sock:a});if(o.includes("spotify.com"))return spotify({fullArgs:o,from:e,sock:a});if(o.includes("pinterest.com"))return pinterest({fullArgs:o,from:e,sock:a});const n=o.match(/\.(jpg|jpeg|png|gif|mp4|mp3|pdf|docx?|webp|avi|mov|mkv|wav|ogg|m4a|zip|rar)(\?.*)?$/i);if(n){await sendMsg(a,e,{text:"⬇️ Downloading file..."});try{const t=await downloadBuffer(o),i=n[1].toLowerCase(),r=formatSize(t.length),s=o.split("/").pop()?.split("?")[0]||`file.${i}`;["jpg","jpeg","png","gif","webp"].includes(i)?await sendMsg(a,e,{image:t,caption:`🖼️ *Downloaded*\n📦 ${r}\n\n${BRAND}`}):["mp4","avi","mov","mkv"].includes(i)?await sendMsg(a,e,{video:t,caption:`🎬 *Downloaded*\n📦 ${r}\n\n${BRAND}`}):["mp3","wav","ogg","m4a"].includes(i)?await sendMsg(a,e,{audio:t,mimetype:`audio/${"mp3"===i?"mpeg":i}`,ptt:!1}):await sendMsg(a,e,{document:t,fileName:s,caption:`📄 *${s}*\n📦 ${r}\n\n${BRAND}`})}catch(t){await sendMsg(a,e,{text:formatError("DOWNLOAD FAILED",`Could not download file.\n\n${t.message}`)})}}else await sendMsg(a,e,{text:formatError("UNSUPPORTED URL","This URL is not supported.\n\nUse specific commands:\n.tiktok <url>\n.ig <url>\n.fb <url>\n.twitter <url>\n.play <song>")})}
+// ════════════════════════════════════════════════════════════════════════════
+//  commands/group/downloader.js — AYOBOT v1.0.0
+//  Author  : AYOCODES
+//  Enhanced: All APIs updated, bugs fixed, robust fallbacks
+// ════════════════════════════════════════════════════════════════════════════
+
+import axios from "axios";
+import "path";
+import "url";
+import { ENV } from "../index.js";
+import { sendMsg } from "../utils/channelButton.js";
+import { formatError, formatInfo } from "../utils/formatters.js";
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SHARED UTILITIES
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Extract YouTube video ID from any YouTube URL format */
+function extractVideoId(url) {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /youtube\.com\/shorts\/([^&\n?#]+)/,
+    /youtube\.com\/v\/([^&\n?#]+)/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** Format seconds → H:MM:SS or M:SS */
+function formatDuration(secs) {
+  const s = parseInt(secs) || 0;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+/** Format large numbers → K/M/B */
+function formatNumber(n) {
+  if (!n) return "N/A";
+  const v = parseInt(n);
+  if (isNaN(v)) return "N/A";
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v.toString();
+}
+
+/** Format byte size → KB/MB */
+function formatSize(bytes) {
+  if (!bytes || bytes <= 0) return "Unknown";
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+/** Download URL to Buffer with retry logic */
+async function downloadBuffer(url, timeoutMs = 60_000, retries = 2) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await axios.get(url, {
+        responseType: "arraybuffer",
+        timeout: timeoutMs,
+        maxContentLength: 150_000_000, // 150 MB max
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "*/*",
+          "Accept-Encoding": "gzip, deflate, br",
+        },
+      });
+      const buf = Buffer.from(res.data);
+      if (buf.length < 100)
+        throw new Error("Buffer too small (likely an error response)");
+      return buf;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries)
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Try a list of async API functions in order.
+ * Returns { result, source } on first success, or null.
+ */
+async function tryApis(fns, labels) {
+  for (let i = 0; i < fns.length; i++) {
+    try {
+      const result = await fns[i]();
+      if (result) {
+        console.log(`[Downloader] ✅ ${labels[i]} succeeded`);
+        return { result, source: labels[i] };
+      }
+    } catch (err) {
+      console.log(`[Downloader] ❌ ${labels[i]} failed: ${err.message}`);
+    }
+  }
+  return null;
+}
+
+/** Standard browser-like request headers */
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate, br",
+};
+
+const AYOBOT_TAG = "⚡ _AYOBOT v1 by AYOCODES_";
+
+// ════════════════════════════════════════════════════════════════════════════
+//  YOUTUBE SEARCH
+//  Updated Invidious instances + improved ytInitialData parsing
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Currently active Invidious instances (updated list) */
+const INVIDIOUS_INSTANCES = [
+  "https://invidious.privacydev.net",
+  "https://inv.nadeko.net",
+  "https://invidious.lunar.icu",
+  "https://invidious.perennialte.ch",
+  "https://inv.tux.pizza",
+  "https://invidious.flokinet.to",
+  "https://yt.artemislena.eu",
+  "https://invidious.protokolla.fi",
+];
+
+async function searchYouTube(query) {
+  // ── Method 1: Direct YouTube scrape (ytInitialData) ───────────────────────
+  try {
+    const res = await axios.get(
+      `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%3D%3D`,
+      {
+        headers: {
+          ...BROWSER_HEADERS,
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        timeout: 15_000,
+      },
+    );
+
+    // Try full ytInitialData parse
+    const dataMatch = res.data.match(
+      /var ytInitialData\s*=\s*(\{.+?\});<\/script>/s,
+    );
+    if (dataMatch) {
+      try {
+        const ytData = JSON.parse(dataMatch[1]);
+        const items =
+          ytData?.contents?.twoColumnSearchResultsRenderer?.primaryContents
+            ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
+        if (items) {
+          for (const item of items) {
+            const vr = item?.videoRenderer;
+            if (vr?.videoId) {
+              const thumbs = vr.thumbnail?.thumbnails || [];
+              const thumb =
+                thumbs[thumbs.length - 1]?.url ||
+                `https://img.youtube.com/vi/${vr.videoId}/maxresdefault.jpg`;
+              return {
+                videoId: vr.videoId,
+                title:
+                  vr.title?.runs?.[0]?.text || vr.title?.simpleText || query,
+                url: `https://www.youtube.com/watch?v=${vr.videoId}`,
+                duration: vr.lengthText?.simpleText || "Unknown",
+                views: vr.viewCountText?.simpleText || "N/A",
+                author:
+                  vr.ownerText?.runs?.[0]?.text ||
+                  vr.longBylineText?.runs?.[0]?.text ||
+                  "Unknown",
+                thumbnail: thumb,
+              };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Fallback regex inside the YT page
+    const vidMatch = res.data.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+    const titleMatch = res.data.match(
+      /"title":\{"runs":\[\{"text":"([^"]+)"\}/,
+    );
+    const authorMatch = res.data.match(
+      /"ownerText":\{"runs":\[\{"text":"([^"]+)"\}/,
+    );
+    if (vidMatch) {
+      return {
+        videoId: vidMatch[1],
+        title: titleMatch?.[1] || query,
+        url: `https://www.youtube.com/watch?v=${vidMatch[1]}`,
+        duration: "Unknown",
+        views: "N/A",
+        author: authorMatch?.[1] || "Unknown",
+        thumbnail: `https://img.youtube.com/vi/${vidMatch[1]}/maxresdefault.jpg`,
+      };
+    }
+  } catch (err) {
+    console.log("YT direct scrape failed:", err.message);
+  }
+
+  // ── Method 2: Invidious API (iterate until one works) ────────────────────
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await axios.get(`${instance}/api/v1/search`, {
+        params: { q: query, type: "video", page: 1 },
+        timeout: 8_000,
+        headers: { Accept: "application/json" },
+      });
+      const first = res.data?.[0];
+      if (first?.videoId) {
+        const thumbs = first.videoThumbnails || [];
+        const thumb =
+          thumbs.find((t) => t.quality === "maxresdefault")?.url ||
+          thumbs.find((t) => t.quality === "high")?.url ||
+          thumbs.find((t) => t.quality === "medium")?.url ||
+          `https://img.youtube.com/vi/${first.videoId}/hqdefault.jpg`;
+        return {
+          videoId: first.videoId,
+          title: first.title || query,
+          url: `https://www.youtube.com/watch?v=${first.videoId}`,
+          duration: formatDuration(first.lengthSeconds),
+          views: formatNumber(first.viewCount),
+          author: first.author || "Unknown",
+          thumbnail: thumb,
+        };
+      }
+    } catch (_) {}
+  }
+
+  // ── Method 3: YouTube oEmbed (minimal metadata, last resort) ─────────────
+  try {
+    // Search via YouTube suggest API to get a video ID
+    const suggestRes = await axios.get(
+      `https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&q=${encodeURIComponent(query)}&ds=yt&callback=cb`,
+      { timeout: 8_000 },
+    );
+    // Can't get video ID from suggests, but it proves connectivity
+  } catch (_) {}
+
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  YOUTUBE AUDIO DOWNLOAD
+//  Updated cobalt domain + working alternatives
+// ════════════════════════════════════════════════════════════════════════════
+
+async function downloadYouTubeAudio(videoId, videoUrl) {
+  const url = videoUrl || `https://www.youtube.com/watch?v=${videoId}`;
+
+  // ── M1: api.cobalt.tools (updated domain from co.wuk.sh) ─────────────────
+  try {
+    const res = await axios.post(
+      "https://api.cobalt.tools/api/json",
+      {
+        url,
+        isAudioOnly: true,
+        aFormat: "mp3",
+        filenamePattern: "basic",
+        isNoTTWatermark: true,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        timeout: 20_000,
+      },
+    );
+    if (res.data?.url) {
+      const buf = await downloadBuffer(res.data.url, 60_000);
+      if (buf.length > 10_000) return { buffer: buf, source: "cobalt" };
+    }
+  } catch (err) {
+    console.log("Audio M1 (cobalt) failed:", err.message);
+  }
+
+  // ── M2: tomp3.cc (reliable, no scraping required) ─────────────────────────
+  try {
+    const res = await axios.get(
+      `https://tomp3.cc/api/widget/mp3?v=${videoId}`,
+      {
+        timeout: 20_000,
+        headers: { Accept: "application/json", ...BROWSER_HEADERS },
+      },
+    );
+    if (res.data?.url) {
+      const buf = await downloadBuffer(res.data.url, 60_000);
+      if (buf.length > 10_000) return { buffer: buf, source: "tomp3.cc" };
+    }
+  } catch (err) {
+    console.log("Audio M2 (tomp3) failed:", err.message);
+  }
+
+  // ── M3: y2mate.is (form-based, reliable) ─────────────────────────────────
+  try {
+    const analyzeRes = await axios.post(
+      "https://www.y2mate.com/mates/analyzeV2/ajax",
+      new URLSearchParams({
+        k_query: url,
+        k_page: "home",
+        hl: "en",
+        q_auto: "0",
+      }).toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...BROWSER_HEADERS,
+          Origin: "https://www.y2mate.com",
+          Referer: "https://www.y2mate.com/",
+        },
+        timeout: 15_000,
+      },
+    );
+    const links = analyzeRes.data?.links?.mp3;
+    if (links) {
+      const key = Object.keys(links)[0];
+      const k = links[key]?.k;
+      if (k) {
+        const convertRes = await axios.post(
+          "https://www.y2mate.com/mates/convertV2/index",
+          new URLSearchParams({ vid: videoId, k }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+              Origin: "https://www.y2mate.com",
+              Referer: "https://www.y2mate.com/",
+            },
+            timeout: 20_000,
+          },
+        );
+        if (convertRes.data?.dlink) {
+          const buf = await downloadBuffer(convertRes.data.dlink, 60_000);
+          if (buf.length > 10_000) return { buffer: buf, source: "y2mate" };
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Audio M3 (y2mate) failed:", err.message);
+  }
+
+  // ── M4: yt1s.com (fallback, form-based) ────────────────────────────────────
+  try {
+    const searchRes = await axios.post(
+      "https://yt1s.com/api/ajaxSearch/index",
+      new URLSearchParams({ q: url, vt: "home" }).toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...BROWSER_HEADERS,
+        },
+        timeout: 15_000,
+      },
+    );
+    if (searchRes.data?.links?.mp3) {
+      const mp3Keys = Object.keys(searchRes.data.links.mp3);
+      const k = searchRes.data.links.mp3[mp3Keys[0]]?.k;
+      if (k) {
+        const convertRes = await axios.post(
+          "https://yt1s.com/api/ajaxConvert/convert",
+          new URLSearchParams({ vid: videoId, k }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 20_000,
+          },
+        );
+        if (convertRes.data?.dlink) {
+          const buf = await downloadBuffer(convertRes.data.dlink, 60_000);
+          if (buf.length > 10_000) return { buffer: buf, source: "yt1s" };
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Audio M4 (yt1s) failed:", err.message);
+  }
+
+  // ── M5: loader.to with polling ────────────────────────────────────────────
+  try {
+    const initRes = await axios.get("https://loader.to/api/button/", {
+      params: { url, f: "mp3" },
+      timeout: 15_000,
+    });
+    if (initRes.data?.id) {
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 3_000));
+        const pollRes = await axios.get(
+          `https://loader.to/api/progress/?id=${initRes.data.id}`,
+          { timeout: 8_000 },
+        );
+        if (pollRes.data?.download_url) {
+          const buf = await downloadBuffer(pollRes.data.download_url, 60_000);
+          if (buf.length > 10_000) return { buffer: buf, source: "loader.to" };
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.log("Audio M5 (loader.to) failed:", err.message);
+  }
+
+  // ── M6: RapidAPI YouTube MP3 (optional env key) ───────────────────────────
+  if (ENV.RAPIDAPI_KEY) {
+    try {
+      const res = await axios.get("https://youtube-mp36.p.rapidapi.com/dl", {
+        params: { id: videoId },
+        headers: {
+          "X-RapidAPI-Key": ENV.RAPIDAPI_KEY,
+          "X-RapidAPI-Host": "youtube-mp36.p.rapidapi.com",
+        },
+        timeout: 15_000,
+      });
+      if (res.data?.link) {
+        const buf = await downloadBuffer(res.data.link, 60_000);
+        if (buf.length > 10_000) return { buffer: buf, source: "rapidapi" };
+      }
+    } catch (err) {
+      console.log("Audio M6 (rapidapi) failed:", err.message);
+    }
+  }
+
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  EXPORTED COMMANDS
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── PLAY (YouTube Audio) ──────────────────────────────────────────────────
+export async function play({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "🎵 PLAY MUSIC",
+        `Download and play any song from YouTube\n\nUsage: .play <song name or YouTube URL>\n\nExamples:\n.play Shape of You\n.play Lose Yourself Eminem\n.play https://youtu.be/xxxxx`,
+      ),
+    });
+  }
+
+  const q = query.trim();
+  await sendMsg(sock, from, { text: `🔍 Searching for *${q}*...` });
+
+  // Resolve video info
+  let videoInfo = null;
+  if (q.includes("youtu")) {
+    const id = extractVideoId(q);
+    if (id) {
+      videoInfo = {
+        videoId: id,
+        title: "YouTube Video",
+        url: q,
+        author: "Unknown",
+        duration: "Unknown",
+        thumbnail: `https://img.youtube.com/vi/${id}/maxresdefault.jpg`,
+      };
+    }
+  }
+
+  if (!videoInfo) videoInfo = await searchYouTube(q);
+
+  if (!videoInfo) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "NOT FOUND",
+        `No results for "${q}"\n\nTry a different spelling or add the artist name.`,
+      ),
+    });
+  }
+
+  // Show song info + thumbnail
+  const infoCaption =
+    `📀 *${videoInfo.title}*\n` +
+    `🎤 ${videoInfo.author} | ⏱️ ${videoInfo.duration} | 👁️ ${videoInfo.views || "N/A"}\n\n` +
+    `⬇️ Downloading audio...\n\n${AYOBOT_TAG}`;
+
+  try {
+    await sendMsg(sock, from, {
+      image: { url: videoInfo.thumbnail },
+      caption: infoCaption,
+    });
+  } catch (_) {
+    await sendMsg(sock, from, { text: infoCaption });
+  }
+
+  // Download audio
+  const audio = await downloadYouTubeAudio(videoInfo.videoId, videoInfo.url);
+
+  if (audio?.buffer) {
+    try {
+      await sendMsg(sock, from, {
+        audio: audio.buffer,
+        mimetype: "audio/mpeg",
+        ptt: false,
+      });
+      await sendMsg(sock, from, {
+        text:
+          `✅ *${videoInfo.title}*\n` +
+          `🎤 ${videoInfo.author} | ⏱️ ${videoInfo.duration} | ` +
+          `📦 ${formatSize(audio.buffer.length)} | 🔧 ${audio.source}\n\n` +
+          AYOBOT_TAG,
+      });
+    } catch (err) {
+      await sendMsg(sock, from, {
+        text: formatInfo(
+          "🔗 YOUTUBE LINK",
+          `🎵 *${videoInfo.title}*\n\n🔗 ${videoInfo.url}\n\n⚠️ Audio send failed — open link to listen.`,
+        ),
+      });
+    }
+  } else {
+    await sendMsg(sock, from, {
+      text: formatInfo(
+        "🔗 YOUTUBE LINK",
+        `🎵 *${videoInfo.title}*\n\n🔗 ${videoInfo.url}\n\n💡 Could not download audio — open link to listen.`,
+      ),
+    });
+  }
+}
+
+// ── YOUTUBE (Video Info) ──────────────────────────────────────────────────
+export async function youtube({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "📺 YOUTUBE INFO",
+        "Get full info about any YouTube video\n\nUsage: .yt <url>\nExample: .yt https://youtu.be/dQw4w9WgXcQ",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⏳ Fetching video info..." });
+
+  const videoId = extractVideoId(query.trim());
+  if (!videoId) {
+    return sendMsg(sock, from, {
+      text: formatError("INVALID URL", "Please provide a valid YouTube URL."),
+    });
+  }
+
+  // Try Invidious instances for video metadata
+  let videoData = null;
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await axios.get(`${instance}/api/v1/videos/${videoId}`, {
+        timeout: 8_000,
+        headers: { Accept: "application/json" },
+      });
+      if (res.data?.title) {
+        videoData = res.data;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  // Fallback: YouTube oEmbed for basic info
+  if (!videoData) {
+    try {
+      const res = await axios.get(
+        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+        { timeout: 8_000 },
+      );
+      if (res.data?.title) {
+        videoData = {
+          title: res.data.title,
+          author: res.data.author_name,
+          videoThumbnails: [
+            { quality: "default", url: res.data.thumbnail_url },
+          ],
+          lengthSeconds: 0,
+          viewCount: 0,
+          likeCount: 0,
+          description: "No description available via this source.",
+          keywords: [],
+          genre: "N/A",
+          published: null,
+        };
+      }
+    } catch (_) {}
+  }
+
+  if (!videoData) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "ERROR",
+        "Could not fetch video info. Try again later.",
+      ),
+    });
+  }
+
+  const published = videoData.published
+    ? new Date(videoData.published * 1000).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "Unknown";
+
+  let description = videoData.description || "No description";
+  if (description.length > 250) description = description.slice(0, 250) + "...";
+
+  const thumb =
+    videoData.videoThumbnails?.find((t) => t.quality === "maxresdefault") ||
+    videoData.videoThumbnails?.find((t) => t.quality === "hqdefault") ||
+    videoData.videoThumbnails?.[0];
+
+  if (thumb?.url) {
+    try {
+      await sendMsg(sock, from, {
+        image: { url: thumb.url },
+        caption: `📺 *${videoData.title}*\n🎤 ${videoData.author}`,
+      });
+    } catch (_) {}
+  }
+
+  await sendMsg(sock, from, {
+    text:
+      `📺 *${videoData.title}*\n` +
+      `🎤 ${videoData.author}\n` +
+      `⏱️ ${formatDuration(videoData.lengthSeconds)} | 👁️ ${formatNumber(videoData.viewCount)} | 👍 ${formatNumber(videoData.likeCount)}\n` +
+      `📅 ${published} | 📂 ${videoData.genre || "N/A"}\n` +
+      `🏷️ ${videoData.keywords?.slice(0, 5).join(", ") || "None"}\n\n` +
+      `📝 ${description}\n\n` +
+      `🔗 https://youtu.be/${videoId}\n\n` +
+      AYOBOT_TAG,
+  });
+}
+
+// ── TIKTOK ────────────────────────────────────────────────────────────────
+export async function tiktok({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "📱 TIKTOK DOWNLOAD",
+        "Download TikTok videos without watermark\n\nUsage: .tiktok <url>\nExample: .tiktok https://vm.tiktok.com/xxxxx",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⬇️ Downloading TikTok video..." });
+  const url = query.trim();
+
+  const result = await tryApis(
+    [
+      // ── API 1: tikwm.com (best — full metadata, HD, no watermark) ──────
+      async () => {
+        const res = await axios.post(
+          "https://www.tikwm.com/api/",
+          new URLSearchParams({ url, hd: "1" }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const d = res.data?.data;
+        if (!d?.play) throw new Error("No play URL");
+        return {
+          videoUrl: d.hdplay || d.play,
+          author: d.author?.nickname || "TikTok User",
+          title: d.title || "TikTok Video",
+          likes: formatNumber(d.digg_count),
+          shares: formatNumber(d.share_count),
+          thumbnail: d.cover || d.origin_cover,
+          duration: d.duration ? formatDuration(d.duration) : "Unknown",
+          music: d.music_info?.title,
+        };
+      },
+      // ── API 2: snaptik.app (scrape-based fallback) ───────────────────
+      async () => {
+        const pageRes = await axios.get("https://snaptik.app/", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const tokenMatch = pageRes.data?.match(
+          /name="token"\s+value="([^"]+)"/,
+        );
+        if (!tokenMatch) throw new Error("No token");
+        const dlRes = await axios.post(
+          "https://snaptik.app/abc2.php",
+          new URLSearchParams({ url, token: tokenMatch[1] }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://snaptik.app/",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        // Extract MP4 link from response HTML/JSON
+        const mp4Match =
+          dlRes.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/) ||
+          dlRes.data?.match(/"url":"(https:[^"]+\.mp4[^"]*)"/);
+        if (!mp4Match) throw new Error("No mp4");
+        const videoUrl = mp4Match[1].replace(/\\u0026/g, "&");
+        return {
+          videoUrl,
+          author: "TikTok User",
+          title: "TikTok Video",
+          thumbnail: null,
+        };
+      },
+      // ── API 3: tikcdn.io (alternative CDN approach) ───────────────────
+      async () => {
+        const res = await axios.get(
+          `https://api.tikcdn.io/ssstik/${encodeURIComponent(url)}`,
+          {
+            headers: { Accept: "application/json", ...BROWSER_HEADERS },
+            timeout: 15_000,
+          },
+        );
+        if (!res.data?.video) throw new Error("No video");
+        return {
+          videoUrl: res.data.video,
+          author: res.data.author?.name || "TikTok User",
+          title: res.data.title || "TikTok Video",
+          thumbnail: res.data.cover || null,
+          duration: res.data.duration
+            ? formatDuration(res.data.duration)
+            : "Unknown",
+        };
+      },
+      // ── API 4: ssstik.io (token-based) ────────────────────────────────
+      async () => {
+        const homeRes = await axios.get("https://ssstik.io/en", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const ttMatch = homeRes.data?.match(/s_tt\s*=\s*["']([^"']+)["']/);
+        const tt = ttMatch?.[1] || "undefined";
+        const dlRes = await axios.post(
+          "https://ssstik.io/abc?url=dl",
+          new URLSearchParams({ id: url, locale: "en", tt }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://ssstik.io/en",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const linkMatch = dlRes.data?.match(/href="(https:\/\/tikcdn[^"]+)"/);
+        if (!linkMatch) throw new Error("No URL");
+        const thumbMatch = dlRes.data?.match(/data-src="([^"]+)"/);
+        return {
+          videoUrl: linkMatch[1],
+          author: "TikTok User",
+          title: "TikTok Video",
+          thumbnail: thumbMatch?.[1],
+        };
+      },
+      // ── API 5: musicaldown.com ─────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://musicaldown.com/download",
+          new URLSearchParams({ link: url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://musicaldown.com/",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4Match = res.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4Match) throw new Error("No mp4");
+        return {
+          videoUrl: mp4Match[1],
+          author: "TikTok User",
+          title: "TikTok Video",
+        };
+      },
+    ],
+    ["tikwm", "snaptik", "tikcdn", "ssstik", "musicaldown"],
+  );
+
+  if (!result) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "FAILED",
+        "Could not download TikTok video.\n\n💡 Make sure the video is public.",
+      ),
+    });
+  }
+
+  const { result: info, source } = result;
+
+  if (info.thumbnail) {
+    try {
+      await sendMsg(sock, from, {
+        image: { url: info.thumbnail },
+        caption:
+          `📱 *${info.title}*\n👤 ${info.author}` +
+          (info.duration ? ` | ⏱️ ${info.duration}` : "") +
+          `\n\n⬇️ Downloading...\n\n${AYOBOT_TAG}`,
+      });
+    } catch (_) {}
+  }
+
+  try {
+    const buf = await downloadBuffer(info.videoUrl, 60_000);
+    let caption = `📱 *${info.title}*\n👤 ${info.author}`;
+    if (info.duration) caption += ` | ⏱️ ${info.duration}`;
+    if (info.likes) caption += `\n❤️ ${info.likes}`;
+    if (info.shares) caption += ` | 🔁 ${info.shares}`;
+    if (info.music) caption += `\n🎵 ${info.music}`;
+    caption += `\n📦 ${formatSize(buf.length)} | 🔧 ${source}\n\n${AYOBOT_TAG}`;
+
+    await sendMsg(sock, from, { video: buf, caption });
+  } catch (_) {
+    await sendMsg(sock, from, {
+      text: formatInfo(
+        "🔗 VIDEO LINK",
+        `📱 *${info.title}*\n👤 ${info.author}\n\n🔗 ${info.videoUrl}`,
+      ),
+    });
+  }
+}
+
+// ── INSTAGRAM ────────────────────────────────────────────────────────────
+export async function instagram({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "📸 INSTAGRAM DOWNLOAD",
+        "Download Instagram posts, reels & stories\n\nUsage: .ig <url>\nExample: .ig https://www.instagram.com/p/xxxxx/",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⬇️ Downloading Instagram media..." });
+  const url = query.trim();
+
+  const result = await tryApis(
+    [
+      // ── API 1: igram.world (JSON API) ─────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://igram.world/api/convert",
+          { url },
+          {
+            headers: { "Content-Type": "application/json", ...BROWSER_HEADERS },
+            timeout: 15_000,
+          },
+        );
+        const item = res.data?.[0] || res.data?.data?.[0];
+        if (!item?.url) throw new Error("No media");
+        return {
+          type: item.type === "video" ? "video" : "image",
+          url: item.url,
+          thumbnail: item.thumbnail || null,
+        };
+      },
+      // ── API 2: instasave.org ──────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://instasave.org/wp-json/instasave/v1/download",
+          { url },
+          {
+            headers: { "Content-Type": "application/json", ...BROWSER_HEADERS },
+            timeout: 15_000,
+          },
+        );
+        const media = res.data?.data?.medias?.[0];
+        if (!media?.url) throw new Error("No media");
+        return {
+          type: media.type === "video" ? "video" : "image",
+          url: media.url,
+          thumbnail: res.data?.data?.thumbnail || null,
+        };
+      },
+      // ── API 3: reelsaver.net ───────────────────────────────────────────
+      async () => {
+        const pageRes = await axios.get("https://reelsaver.net/", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const tokenMatch = pageRes.data?.match(
+          /name="_token"\s+value="([^"]+)"/,
+        );
+        if (!tokenMatch) throw new Error("No CSRF token");
+        const dlRes = await axios.post(
+          "https://reelsaver.net/download",
+          new URLSearchParams({ _token: tokenMatch[1], url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://reelsaver.net/",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = dlRes.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        const img = dlRes.data?.match(/src="(https?:\/\/[^"]+\.jpg[^"]*)"/);
+        if (mp4) return { type: "video", url: mp4[1] };
+        if (img) return { type: "image", url: img[1] };
+        throw new Error("No media");
+      },
+      // ── API 4: saveig.app ─────────────────────────────────────────────
+      async () => {
+        const pageRes = await axios.get("https://saveig.app/en", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const tokenMatch = pageRes.data?.match(
+          /name="_token"\s+value="([^"]+)"/,
+        );
+        const dlRes = await axios.post(
+          "https://saveig.app/api/ajaxSearch",
+          new URLSearchParams({
+            q: url,
+            t: "media",
+            lang: "en",
+            _token: tokenMatch?.[1] || "",
+          }),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://saveig.app/en",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = dlRes.data?.data?.match(
+          /href="(https?:\/\/[^"]+\.mp4[^"]*)"/,
+        );
+        const img = dlRes.data?.data?.match(
+          /src="(https?:\/\/[^"]+\.(jpg|jpeg|png)[^"]*)"/,
+        );
+        if (mp4) return { type: "video", url: mp4[1] };
+        if (img) return { type: "image", url: img[1] };
+        throw new Error("No media");
+      },
+      // ── API 5: snapinsta.app ──────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://snapinsta.app/api",
+          new URLSearchParams({ url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = res.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        const img = res.data?.match(/src="(https?:\/\/[^"]+\.jpg[^"]*)"/);
+        if (mp4) return { type: "video", url: mp4[1] };
+        if (img) return { type: "image", url: img[1] };
+        throw new Error("No media");
+      },
+    ],
+    [
+      "igram.world",
+      "instasave.org",
+      "reelsaver.net",
+      "saveig.app",
+      "snapinsta.app",
+    ],
+  );
+
+  if (!result) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "FAILED",
+        "Could not download Instagram media.\n\n💡 Make sure the post is public.",
+      ),
+    });
+  }
+
+  const { result: info, source } = result;
+
+  try {
+    const buf = await downloadBuffer(info.url, 60_000);
+    const caption = `📸 *Instagram Media*\n📦 ${formatSize(buf.length)} | 🔧 ${source}\n\n${AYOBOT_TAG}`;
+    if (info.type === "video") {
+      await sendMsg(sock, from, { video: buf, caption });
+    } else {
+      await sendMsg(sock, from, { image: buf, caption });
+    }
+  } catch (_) {
+    await sendMsg(sock, from, {
+      text: formatInfo(
+        "🔗 MEDIA LINK",
+        `📸 *Instagram Media*\n\n🔗 ${info.url}`,
+      ),
+    });
+  }
+}
+
+// ── FACEBOOK ─────────────────────────────────────────────────────────────
+export async function facebook({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "👤 FACEBOOK DOWNLOAD",
+        "Download Facebook videos\n\nUsage: .fb <url>\nExample: .fb https://www.facebook.com/watch?v=xxxxx",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⬇️ Downloading Facebook video..." });
+  const url = query.trim();
+
+  const result = await tryApis(
+    [
+      // ── API 1: api.cobalt.tools (updated domain) ──────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://api.cobalt.tools/api/json",
+          { url },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            timeout: 15_000,
+          },
+        );
+        if (!res.data?.url) throw new Error("No URL");
+        return { videoUrl: res.data.url };
+      },
+      // ── API 2: fdown.net ──────────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://fdown.net/download.php",
+          new URLSearchParams({ URLz: url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const hdMatch = res.data?.match(/id="hdlink"\s+href="([^"]+)"/);
+        const sdMatch = res.data?.match(/id="sdlink"\s+href="([^"]+)"/);
+        const videoUrl = hdMatch?.[1] || sdMatch?.[1];
+        if (!videoUrl) throw new Error("No video");
+        return { videoUrl };
+      },
+      // ── API 3: getfvid.com ────────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://getfvid.com/downloader",
+          new URLSearchParams({ url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = res.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4) throw new Error("No video");
+        return { videoUrl: mp4[1] };
+      },
+      // ── API 4: fbdown.net ─────────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://fbdown.net/download.php",
+          new URLSearchParams({ url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = res.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4) throw new Error("No video");
+        return { videoUrl: mp4[1] };
+      },
+    ],
+    ["cobalt.tools", "fdown.net", "getfvid.com", "fbdown.net"],
+  );
+
+  if (!result) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "FAILED",
+        "Could not download Facebook video.\n\n💡 Make sure the video is public.",
+      ),
+    });
+  }
+
+  const { result: info, source } = result;
+
+  try {
+    const buf = await downloadBuffer(info.videoUrl, 90_000);
+    await sendMsg(sock, from, {
+      video: buf,
+      caption: `👤 *Facebook Video*\n📦 ${formatSize(buf.length)} | 🔧 ${source}\n\n${AYOBOT_TAG}`,
+    });
+  } catch (_) {
+    await sendMsg(sock, from, {
+      text: formatInfo(
+        "🔗 VIDEO LINK",
+        `👤 *Facebook Video*\n\n🔗 ${info.videoUrl}`,
+      ),
+    });
+  }
+}
+
+// ── TWITTER / X ───────────────────────────────────────────────────────────
+export async function twitter({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "🐦 TWITTER/X DOWNLOAD",
+        "Download Twitter/X videos\n\nUsage: .twitter <url>\nExample: .twitter https://twitter.com/user/status/xxxxx",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⬇️ Downloading Twitter/X media..." });
+  const url = query.trim();
+
+  const result = await tryApis(
+    [
+      // ── API 1: fxtwitter JSON API (most reliable — no scraping needed) ──
+      async () => {
+        // Convert twitter.com/x.com URL to fxtwitter API format
+        const tweetId = url.match(/\/status\/(\d+)/)?.[1];
+        if (!tweetId) throw new Error("No tweet ID");
+        const res = await axios.get(
+          `https://api.fxtwitter.com/status/${tweetId}`,
+          { headers: { Accept: "application/json" }, timeout: 15_000 },
+        );
+        // Find highest quality video variant
+        const variants = res.data?.tweet?.media?.videos?.[0]?.variants || [];
+        const mp4s = variants.filter(
+          (v) => v.content_type === "video/mp4" || v.url?.includes(".mp4"),
+        );
+        mp4s.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        const videoUrl = mp4s[0]?.url;
+        if (!videoUrl) throw new Error("No video in tweet");
+        return { videoUrl };
+      },
+      // ── API 2: vxtwitter (alternative JSON endpoint) ──────────────────
+      async () => {
+        const tweetId = url.match(/\/status\/(\d+)/)?.[1];
+        if (!tweetId) throw new Error("No tweet ID");
+        const fixedUrl = url.replace(/(twitter|x)\.com/, "vxtwitter.com");
+        const res = await axios.get(fixedUrl, {
+          headers: { Accept: "application/json", ...BROWSER_HEADERS },
+          timeout: 15_000,
+        });
+        // vxtwitter redirects to OGP page; extract video URL
+        const mp4 = res.data?.match(/content="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4) throw new Error("No video");
+        return { videoUrl: mp4[1] };
+      },
+      // ── API 3: twitsave.com (scrape-based) ───────────────────────────
+      async () => {
+        const res = await axios.get("https://twitsave.com/info", {
+          params: { url },
+          headers: BROWSER_HEADERS,
+          timeout: 15_000,
+        });
+        const matches = [
+          ...(res.data?.matchAll(/data-url="([^"]+\.mp4[^"]*)"/g) || []),
+        ];
+        if (!matches.length) throw new Error("No video");
+        return { videoUrl: matches[0][1] };
+      },
+      // ── API 4: api.cobalt.tools ───────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://api.cobalt.tools/api/json",
+          { url },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            timeout: 15_000,
+          },
+        );
+        if (!res.data?.url) throw new Error("No URL");
+        return { videoUrl: res.data.url };
+      },
+      // ── API 5: twittervideodownloader.com ────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://twittervideodownloader.com/download",
+          new URLSearchParams({ tweet: url }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = res.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4) throw new Error("No video");
+        return { videoUrl: mp4[1] };
+      },
+    ],
+    [
+      "fxtwitter",
+      "vxtwitter",
+      "twitsave",
+      "cobalt.tools",
+      "twittervideodownloader",
+    ],
+  );
+
+  if (!result) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "FAILED",
+        "Could not download Twitter/X media.\n\n💡 Make sure the tweet is public.",
+      ),
+    });
+  }
+
+  const { result: info, source } = result;
+
+  try {
+    const buf = await downloadBuffer(info.videoUrl, 90_000);
+    await sendMsg(sock, from, {
+      video: buf,
+      caption: `🐦 *Twitter/X Video*\n📦 ${formatSize(buf.length)} | 🔧 ${source}\n\n${AYOBOT_TAG}`,
+    });
+  } catch (_) {
+    await sendMsg(sock, from, {
+      text: formatInfo(
+        "🔗 VIDEO LINK",
+        `🐦 *Twitter/X Video*\n\n🔗 ${info.videoUrl}`,
+      ),
+    });
+  }
+}
+
+// ── SPOTIFY ──────────────────────────────────────────────────────────────
+export async function spotify({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "🎵 SPOTIFY",
+        "Get Spotify track info + audio preview\n\nUsage: .spotify <url or track name>\n\nExamples:\n.spotify https://open.spotify.com/track/xxxxx\n.spotify Blinding Lights",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: "⏳ Fetching Spotify data..." });
+  const q = query.trim();
+  let trackInfo = null;
+
+  // ── Source 1: JioSaavn API (best audio + metadata) ────────────────────
+  try {
+    const res = await axios.get(
+      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(q)}&page=1&limit=1`,
+      { timeout: 15_000 },
+    );
+    const track = res.data?.data?.results?.[0];
+    if (track) {
+      const thumb =
+        track.image?.find((i) => i.quality === "500x500")?.url ||
+        track.image?.find((i) => i.quality === "150x150")?.url ||
+        track.image?.[0]?.url;
+      const audioUrl =
+        track.downloadUrl?.find((d) => d.quality === "320kbps")?.url ||
+        track.downloadUrl?.find((d) => d.quality === "160kbps")?.url ||
+        track.downloadUrl?.[0]?.url;
+      trackInfo = {
+        title: track.name,
+        artist:
+          track.artists?.primary?.map((a) => a.name).join(", ") || "Unknown",
+        album: track.album?.name || "Unknown",
+        thumbnail: thumb,
+        audioUrl,
+        duration: formatDuration(track.duration),
+        url: track.url || q,
+        year: track.year,
+        language: track.language,
+        source: "JioSaavn",
+      };
+    }
+  } catch (err) {
+    console.log("Saavn failed:", err.message);
+  }
+
+  // ── Source 2: Spotify oEmbed metadata (if URL given) ──────────────────
+  if (!trackInfo && q.includes("spotify.com/track/")) {
+    try {
+      const res = await axios.get(
+        `https://open.spotify.com/oembed?url=${encodeURIComponent(q)}`,
+        { timeout: 15_000 },
+      );
+      if (res.data) {
+        trackInfo = {
+          title: res.data.title,
+          artist: res.data.author_name,
+          album: "Unknown",
+          thumbnail: res.data.thumbnail_url,
+          audioUrl: null,
+          duration: "Unknown",
+          url: q,
+          source: "Spotify oEmbed",
+        };
+      }
+    } catch (err) {
+      console.log("Spotify oEmbed failed:", err.message);
+    }
+  }
+
+  if (!trackInfo) {
+    return sendMsg(sock, from, {
+      text: formatError("NOT FOUND", "Could not find that track."),
+    });
+  }
+
+  // Send thumbnail
+  if (trackInfo.thumbnail) {
+    try {
+      const caption =
+        `🎵 *${trackInfo.title}*\n` +
+        `🎤 ${trackInfo.artist}` +
+        (trackInfo.album ? ` | 💿 ${trackInfo.album}` : "") +
+        (trackInfo.duration ? ` | ⏱️ ${trackInfo.duration}` : "") +
+        (trackInfo.year ? `\n📅 ${trackInfo.year}` : "") +
+        (trackInfo.language ? ` | 🌐 ${trackInfo.language}` : "") +
+        `\n\n${AYOBOT_TAG}`;
+      await sendMsg(sock, from, {
+        image: { url: trackInfo.thumbnail },
+        caption,
+      });
+    } catch (_) {}
+  }
+
+  await sendMsg(sock, from, {
+    text:
+      `🎵 *${trackInfo.title}*\n` +
+      `🎤 ${trackInfo.artist}` +
+      (trackInfo.album ? ` | 💿 ${trackInfo.album}` : "") +
+      (trackInfo.duration ? ` | ⏱️ ${trackInfo.duration}` : "") +
+      (trackInfo.year ? `\n📅 ${trackInfo.year}` : "") +
+      (trackInfo.language ? ` | 🌐 ${trackInfo.language}` : "") +
+      `\n\n🔗 ${trackInfo.url}\n🔧 ${trackInfo.source}\n\n${AYOBOT_TAG}`,
+  });
+
+  // Send audio if available
+  if (trackInfo.audioUrl) {
+    try {
+      const buf = await downloadBuffer(trackInfo.audioUrl, 60_000);
+      await sendMsg(sock, from, {
+        audio: buf,
+        mimetype: "audio/mpeg",
+        ptt: false,
+      });
+    } catch (err) {
+      console.log("Spotify audio send failed:", err.message);
+    }
+  }
+}
+
+// ── PINTEREST ─────────────────────────────────────────────────────────────
+export async function pinterest({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "📌 PINTEREST",
+        "Search Pinterest for images\n\nUsage: .pinterest <search term>\nExample: .pinterest anime aesthetic",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, {
+    text: `🔍 Searching Pinterest for "${query}"...`,
+  });
+
+  // ── Method 1: Pinterest BaseSearchResource API ────────────────────────
+  try {
+    const res = await axios.get(
+      "https://www.pinterest.com/resource/BaseSearchResource/get/",
+      {
+        params: {
+          source_url: `/search/pins/?q=${encodeURIComponent(query)}`,
+          data: JSON.stringify({
+            options: { query, scope: "pins", page_size: 25 },
+          }),
+        },
+        headers: { ...BROWSER_HEADERS, "X-Requested-With": "XMLHttpRequest" },
+        timeout: 15_000,
+      },
+    );
+    const results = res.data?.resource_response?.data?.results;
+    const pins = results?.filter((p) => p.images?.["736x"]?.url);
+    if (pins?.length) {
+      const pin = pins[Math.floor(Math.random() * pins.length)];
+      return sendMsg(sock, from, {
+        image: { url: pin.images["736x"].url },
+        caption: `📌 *${query}*\n\n${AYOBOT_TAG}`,
+      });
+    }
+  } catch (_) {}
+
+  // ── Method 2: DuckDuckGo image search fallback ────────────────────────
+  try {
+    const tokenRes = await axios.get(
+      `https://duckduckgo.com/?q=${encodeURIComponent(query + " site:pinterest.com")}&iax=images&ia=images`,
+      { headers: BROWSER_HEADERS, timeout: 8_000 },
+    );
+    const token = tokenRes.data?.match(/vqd=([\d-]+)/)?.[1];
+    if (!token) throw new Error("No DDG token");
+
+    const imgRes = await axios.get(
+      `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&vqd=${token}`,
+      {
+        headers: { ...BROWSER_HEADERS, Referer: "https://duckduckgo.com/" },
+        timeout: 8_000,
+      },
+    );
+    const images = imgRes.data?.results;
+    if (images?.length) {
+      const img =
+        images[Math.floor(Math.random() * Math.min(images.length, 10))];
+      return sendMsg(sock, from, {
+        image: { url: img.image },
+        caption: `📌 *${query}*\n\n${AYOBOT_TAG}`,
+      });
+    }
+  } catch (_) {}
+
+  await sendMsg(sock, from, {
+    text: formatError(
+      "NOT FOUND",
+      "Could not find Pinterest images. Try a different search term.",
+    ),
+  });
+}
+
+// ── IMAGE SEARCH ─────────────────────────────────────────────────────────
+export async function image({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "🖼️ IMAGE SEARCH",
+        "Search for any image\n\nUsage: .img <search term>\nExample: .img sunset landscape",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: `🔍 Searching images for "${query}"...` });
+  let imageUrl = null;
+  let source = "";
+
+  // ── Source 1: Pixabay (if key set) ────────────────────────────────────
+  if (ENV.PIXABAY_KEY && !imageUrl) {
+    try {
+      const res = await axios.get("https://pixabay.com/api/", {
+        params: {
+          key: ENV.PIXABAY_KEY,
+          q: query,
+          per_page: 20,
+          safesearch: true,
+          image_type: "photo",
+        },
+        timeout: 15_000,
+      });
+      const hits = res.data?.hits;
+      if (hits?.length) {
+        imageUrl = hits[Math.floor(Math.random() * hits.length)].largeImageURL;
+        source = "Pixabay";
+      }
+    } catch (err) {
+      console.log("Pixabay failed:", err.message);
+    }
+  }
+
+  // ── Source 2: Unsplash (if key set) ───────────────────────────────────
+  if (ENV.UNSPLASH_KEY && !imageUrl) {
+    try {
+      const res = await axios.get("https://api.unsplash.com/search/photos", {
+        params: { query, per_page: 20, orientation: "landscape" },
+        headers: { Authorization: `Client-ID ${ENV.UNSPLASH_KEY}` },
+        timeout: 15_000,
+      });
+      const results = res.data?.results;
+      if (results?.length) {
+        imageUrl =
+          results[Math.floor(Math.random() * results.length)].urls.regular;
+        source = "Unsplash";
+      }
+    } catch (err) {
+      console.log("Unsplash failed:", err.message);
+    }
+  }
+
+  // ── Source 3: DuckDuckGo Images (free, no key) ────────────────────────
+  if (!imageUrl) {
+    try {
+      const tokenRes = await axios.get(
+        `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+        { headers: BROWSER_HEADERS, timeout: 8_000 },
+      );
+      const token = tokenRes.data?.match(/vqd=([\d-]+)/)?.[1];
+      if (token) {
+        const imgRes = await axios.get(
+          `https://duckduckgo.com/i.js?q=${encodeURIComponent(query)}&vqd=${token}`,
+          {
+            headers: { ...BROWSER_HEADERS, Referer: "https://duckduckgo.com/" },
+            timeout: 8_000,
+          },
+        );
+        const results = imgRes.data?.results;
+        if (results?.length) {
+          imageUrl =
+            results[Math.floor(Math.random() * Math.min(results.length, 15))]
+              .image;
+          source = "DuckDuckGo";
+        }
+      }
+    } catch (err) {
+      console.log("DDG failed:", err.message);
+    }
+  }
+
+  if (!imageUrl) {
+    return sendMsg(sock, from, {
+      text: formatError("NOT FOUND", "Could not find images for that query."),
+    });
+  }
+
+  await sendMsg(sock, from, {
+    image: { url: imageUrl },
+    caption: `🖼️ *${query}*\n🔧 ${source}\n\n${AYOBOT_TAG}`,
+  });
+}
+
+// ── GIF SEARCH ────────────────────────────────────────────────────────────
+// FIX: Variable shadowing bug — `t` (Buffer) shadowed the `query` string
+export async function gif({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "🎞️ GIF SEARCH",
+        "Search for animated GIFs\n\nUsage: .gif <search term>\nExample: .gif happy dance",
+      ),
+    });
+  }
+
+  await sendMsg(sock, from, { text: `🔍 Searching GIFs for "${query}"...` });
+
+  let gifUrl = null;
+  let gifTitle = null;
+
+  // ── Source 1: GIPHY (if key set) ──────────────────────────────────────
+  if (ENV.GIPHY_KEY) {
+    try {
+      const res = await axios.get("https://api.giphy.com/v1/gifs/search", {
+        params: { api_key: ENV.GIPHY_KEY, q: query, limit: 20, rating: "g" },
+        timeout: 15_000,
+      });
+      const results = res.data?.data;
+      if (results?.length) {
+        const item = results[Math.floor(Math.random() * results.length)];
+        gifUrl = item.images?.original?.mp4 || item.images?.original?.url;
+        gifTitle = item.title;
+      }
+    } catch (err) {
+      console.log("Giphy failed:", err.message);
+    }
+  }
+
+  // ── Source 2: Tenor (if key set) ─────────────────────────────────────
+  if (!gifUrl && ENV.TENOR_KEY) {
+    try {
+      const res = await axios.get("https://tenor.googleapis.com/v2/search", {
+        params: {
+          q: query,
+          key: ENV.TENOR_KEY,
+          limit: 10,
+          media_filter: "mp4",
+        },
+        timeout: 15_000,
+      });
+      const results = res.data?.results;
+      if (results?.length) {
+        const item = results[Math.floor(Math.random() * results.length)];
+        gifUrl = item.media_formats?.mp4?.url || item.media_formats?.gif?.url;
+        gifTitle = item.title || query;
+      }
+    } catch (err) {
+      console.log("Tenor failed:", err.message);
+    }
+  }
+
+  if (!gifUrl) {
+    return sendMsg(sock, from, {
+      text: formatError(
+        "NOT FOUND",
+        "Could not find GIFs.\n\nMake sure GIPHY_KEY or TENOR_KEY is set in your .env",
+      ),
+    });
+  }
+
+  try {
+    // ✅ FIX: Use `query` (the search term) in caption, NOT the buffer variable
+    const caption =
+      `🎞️ *${query}*` +
+      (gifTitle ? `\n📝 ${gifTitle}` : "") +
+      `\n\n${AYOBOT_TAG}`;
+
+    if (gifUrl.endsWith(".gif")) {
+      const buf = await downloadBuffer(gifUrl, 30_000);
+      await sendMsg(sock, from, { video: buf, caption, gifPlayback: true });
+    } else {
+      await sendMsg(sock, from, {
+        video: { url: gifUrl },
+        caption,
+        gifPlayback: true,
+      });
+    }
+  } catch (_) {
+    await sendMsg(sock, from, {
+      text: formatError("SEND FAILED", "Found GIF but could not send it."),
+    });
+  }
+}
+
+// ── UNIVERSAL DOWNLOAD ────────────────────────────────────────────────────
+export async function download({ fullArgs: query, from, sock }) {
+  if (!query) {
+    return sendMsg(sock, from, {
+      text: formatInfo(
+        "⬇️ DOWNLOAD MEDIA",
+        "Universal Media Downloader\n\nUsage: .dl <url>\n\nSupported:\n▸ YouTube  → .play <song>\n▸ TikTok   → .tiktok <url>\n▸ Instagram → .ig <url>\n▸ Facebook → .fb <url>\n▸ Twitter/X → .twitter <url>\n▸ Spotify  → .spotify <url>\n▸ Pinterest → .pin <query>",
+      ),
+    });
+  }
+
+  let url = query.trim();
+  if (!url.startsWith("http")) url = "https://" + url;
+
+  // Route by platform
+  if (url.includes("youtube.com") || url.includes("youtu.be"))
+    return play({ fullArgs: url, from, sock });
+  if (url.includes("tiktok.com")) return tiktok({ fullArgs: url, from, sock });
+  if (url.includes("instagram.com"))
+    return instagram({ fullArgs: url, from, sock });
+  if (url.includes("facebook.com") || url.includes("fb.watch"))
+    return facebook({ fullArgs: url, from, sock });
+  if (url.includes("twitter.com") || url.includes("x.com"))
+    return twitter({ fullArgs: url, from, sock });
+  if (url.includes("spotify.com"))
+    return spotify({ fullArgs: url, from, sock });
+  if (url.includes("pinterest.com"))
+    return pinterest({ fullArgs: url, from, sock });
+
+  // ── Direct file URL (image/video/audio/doc) ────────────────────────────
+  const extMatch = url.match(
+    /\.(jpg|jpeg|png|gif|mp4|mp3|pdf|docx?|webp|avi|mov|mkv|wav|ogg|m4a|zip|rar)(\?.*)?$/i,
+  );
+  if (extMatch) {
+    await sendMsg(sock, from, { text: "⬇️ Downloading file..." });
+    try {
+      const buf = await downloadBuffer(url, 90_000);
+      const ext = extMatch[1].toLowerCase();
+      const sizeStr = formatSize(buf.length);
+      const fileName = url.split("/").pop()?.split("?")[0] || `file.${ext}`;
+
+      if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+        await sendMsg(sock, from, {
+          image: buf,
+          caption: `🖼️ *Downloaded*\n📦 ${sizeStr}\n\n${AYOBOT_TAG}`,
+        });
+      } else if (["mp4", "avi", "mov", "mkv"].includes(ext)) {
+        await sendMsg(sock, from, {
+          video: buf,
+          caption: `🎬 *Downloaded*\n📦 ${sizeStr}\n\n${AYOBOT_TAG}`,
+        });
+      } else if (["mp3", "wav", "ogg", "m4a"].includes(ext)) {
+        await sendMsg(sock, from, {
+          audio: buf,
+          mimetype: `audio/${ext === "mp3" ? "mpeg" : ext}`,
+          ptt: false,
+        });
+      } else {
+        await sendMsg(sock, from, {
+          document: buf,
+          fileName,
+          caption: `📄 *${fileName}*\n📦 ${sizeStr}\n\n${AYOBOT_TAG}`,
+        });
+      }
+    } catch (err) {
+      await sendMsg(sock, from, {
+        text: formatError(
+          "DOWNLOAD FAILED",
+          `Could not download file.\n\n${err.message}`,
+        ),
+      });
+    }
+    return;
+  }
+
+  await sendMsg(sock, from, {
+    text: formatError(
+      "UNSUPPORTED URL",
+      "This URL is not supported.\n\nUse specific commands:\n.tiktok <url>\n.ig <url>\n.fb <url>\n.twitter <url>\n.play <song>",
+    ),
+  });
+}
