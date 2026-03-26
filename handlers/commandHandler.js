@@ -529,11 +529,6 @@ export function registerAllCommands() {
     aliases: ["sp", "spotifydl", "spotifymp3", "spotifydown", "spdl"],
   });
 
-  if (dl.play) safeRegister("play", dl.play, {
-    category: "dl", description: "Play music",
-    aliases: ["mp3", "music", "song", "audio", "playmusic", "playsong"],
-  });
-
   if (dl.instagram) safeRegister("instagram", dl.instagram, {
     category: "dl", description: "Download Instagram",
     aliases: ["ig", "insta", "igdl", "igreels", "instadl", "instagramdl"],

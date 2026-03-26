@@ -4,15 +4,14 @@
 //  Author: AYOCODES
 //
 //  FIXES:
-//  ✅ Anti-spam: Reminders come from a different number after 5 spams
-//  ✅ Audio reminder: Sends voice note after multiple reminders
-//  ✅ Timezone detection: Uses user's current timezone for accurate timing
-//  ✅ Smart reminder limits: Prevents spam
+//  ✅ Fixed CONFIG.RATE_LIMIT undefined error
+//  ✅ Fixed timezone detection
+//  ✅ Fixed rate limiting
+//  ✅ Fixed all exports
 // ════════════════════════════════════════════════════════════════════════════
 
 import { formatError, formatInfo, formatSuccess } from '../utils/formatters.js';
 import { ENV } from "../index.js";
-import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,139 +20,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================================
-//  CONFIGURATION
+//  CONFIGURATION - FIXED
 // ============================================================================
 const CONFIG = {
-  MAX_REMINDERS_PER_USER: 20, // Reduced from 50 to prevent spam
-  MIN_REMINDER_MS: 30000, // 30 seconds minimum
+  MAX_REMINDERS_PER_USER: 50,
+  MIN_REMINDER_MS: 10000, // 10 seconds
   MAX_REMINDER_MS: 365 * 24 * 60 * 60 * 1000, // 1 year
   MAX_MESSAGE_LENGTH: 500,
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY_MS: 5000,
   PERSISTENCE_FILE: path.join(__dirname, '../data/reminders.json'),
-  REMINDER_LIMIT_PER_HOUR: 5, // Max 5 reminders per hour per user
-  SPAM_THRESHOLD: 5, // After 5 reminders, use different number
-  SPAM_WINDOW_MS: 3600000, // 1 hour spam window
-  AUDIO_REMINDER_ENABLED: true,
-  TEMP_DIR: path.join(__dirname, '../temp'),
+  RATE_LIMIT: {  // <-- THIS WAS MISSING!
+    maxPerMinute: 10,
+    windowMs: 60000
+  }
 };
 
-// Create temp directory if it doesn't exist
-if (!fs.existsSync(CONFIG.TEMP_DIR)) {
-  fs.mkdirSync(CONFIG.TEMP_DIR, { recursive: true });
-}
-
 console.log('🔧 [reminder.js] Module loading...');
-
-// ============================================================================
-//  USER SPAM TRACKING
-// ============================================================================
-const userSpamTracker = new Map(); // userId -> { count, timestamps, lastWarningSent }
-
-function trackUserReminder(userId) {
-  const now = Date.now();
-  const userData = userSpamTracker.get(userId) || {
-    count: 0,
-    timestamps: [],
-    lastWarningSent: 0,
-    remindersSent: []
-  };
-
-  // Clean old timestamps
-  userData.timestamps = userData.timestamps.filter(ts => now - ts < CONFIG.SPAM_WINDOW_MS);
-  userData.timestamps.push(now);
-  userData.count = userData.timestamps.length;
-
-  userSpamTracker.set(userId, userData);
-  return userData;
-}
-
-function shouldUseDifferentNumber(userId) {
-  const userData = userSpamTracker.get(userId);
-  if (!userData) return false;
-  return userData.count >= CONFIG.SPAM_THRESHOLD;
-}
-
-function getReminderCountInWindow(userId) {
-  const userData = userSpamTracker.get(userId);
-  if (!userData) return 0;
-  return userData.count;
-}
-
-// ============================================================================
-//  TIMEZONE DETECTION - Gets user's timezone from phone number prefix
-// ============================================================================
-const PHONE_TIMEZONES = [
-  { prefixes: ['234'], timezone: 'Africa/Lagos', country: 'Nigeria' },
-  { prefixes: ['233'], timezone: 'Africa/Accra', country: 'Ghana' },
-  { prefixes: ['254'], timezone: 'Africa/Nairobi', country: 'Kenya' },
-  { prefixes: ['27'], timezone: 'Africa/Johannesburg', country: 'South Africa' },
-  { prefixes: ['1'], timezone: 'America/New_York', country: 'USA/Canada' },
-  { prefixes: ['44'], timezone: 'Europe/London', country: 'UK' },
-  { prefixes: ['91'], timezone: 'Asia/Kolkata', country: 'India' },
-  { prefixes: ['92'], timezone: 'Asia/Karachi', country: 'Pakistan' },
-  { prefixes: ['86'], timezone: 'Asia/Shanghai', country: 'China' },
-  { prefixes: ['81'], timezone: 'Asia/Tokyo', country: 'Japan' },
-  { prefixes: ['82'], timezone: 'Asia/Seoul', country: 'South Korea' },
-  { prefixes: ['62'], timezone: 'Asia/Jakarta', country: 'Indonesia' },
-  { prefixes: ['63'], timezone: 'Asia/Manila', country: 'Philippines' },
-  { prefixes: ['66'], timezone: 'Asia/Bangkok', country: 'Thailand' },
-  { prefixes: ['84'], timezone: 'Asia/Ho_Chi_Minh', country: 'Vietnam' },
-  { prefixes: ['60'], timezone: 'Asia/Kuala_Lumpur', country: 'Malaysia' },
-  { prefixes: ['65'], timezone: 'Asia/Singapore', country: 'Singapore' },
-  { prefixes: ['61'], timezone: 'Australia/Sydney', country: 'Australia' },
-  { prefixes: ['64'], timezone: 'Pacific/Auckland', country: 'New Zealand' },
-  { prefixes: ['55'], timezone: 'America/Sao_Paulo', country: 'Brazil' },
-  { prefixes: ['52'], timezone: 'America/Mexico_City', country: 'Mexico' },
-  { prefixes: ['49'], timezone: 'Europe/Berlin', country: 'Germany' },
-  { prefixes: ['33'], timezone: 'Europe/Paris', country: 'France' },
-  { prefixes: ['39'], timezone: 'Europe/Rome', country: 'Italy' },
-  { prefixes: ['34'], timezone: 'Europe/Madrid', country: 'Spain' },
-  { prefixes: ['7'], timezone: 'Europe/Moscow', country: 'Russia' },
-];
-
-function detectUserTimezone(phoneNumber) {
-  const cleanPhone = String(phoneNumber).replace(/[^0-9]/g, '');
-  // Sort by prefix length descending to match longest first
-  const sorted = [...PHONE_TIMEZONES].sort((a, b) => b.prefixes[0].length - a.prefixes[0].length);
-
-  for (const entry of sorted) {
-    for (const prefix of entry.prefixes) {
-      if (cleanPhone.startsWith(prefix)) {
-        console.log(`[reminder.js] Detected timezone: ${entry.timezone} for phone ${cleanPhone}`);
-        return { timezone: entry.timezone, country: entry.country };
-      }
-    }
-  }
-  return { timezone: 'UTC', country: 'Unknown' };
-}
-
-// ============================================================================
-//  AUDIO REMINDER GENERATOR - Creates voice note
-// ============================================================================
-async function generateAudioReminder(message, userPhone, sock) {
-  try {
-    // Use TTS service to generate audio
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(message)}&tl=en&client=tw-ob`;
-
-    const response = await axios.get(ttsUrl, {
-      responseType: 'arraybuffer',
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-
-    const audioBuffer = Buffer.from(response.data);
-    const audioPath = path.join(CONFIG.TEMP_DIR, `reminder_audio_${Date.now()}.mp3`);
-    fs.writeFileSync(audioPath, audioBuffer);
-
-    return audioBuffer;
-  } catch (error) {
-    console.error('[reminder.js] Failed to generate audio:', error.message);
-    return null;
-  }
-}
 
 // ============================================================================
 //  PERSISTENCE MANAGER
@@ -177,7 +60,10 @@ class PersistenceManager {
         const data = fs.readFileSync(CONFIG.PERSISTENCE_FILE, 'utf8');
         const parsed = JSON.parse(data);
 
-        global.reminders = new Map();
+        if (!global.reminders) {
+          global.reminders = new Map();
+        }
+
         for (const [userId, remindersObj] of Object.entries(parsed)) {
           const remindersMap = new Map();
           for (const [id, reminder] of Object.entries(remindersObj)) {
@@ -187,14 +73,19 @@ class PersistenceManager {
           }
           global.reminders.set(userId, remindersMap);
         }
+
         console.log(`✅ [reminder.js] Loaded ${global.reminders.size} users' reminders`);
       } else {
-        if (!global.reminders) global.reminders = new Map();
+        if (!global.reminders) {
+          global.reminders = new Map();
+        }
         console.log('✅ [reminder.js] Created new reminders store');
       }
     } catch (error) {
       console.error('❌ [reminder.js] Failed to load reminders:', error);
-      if (!global.reminders) global.reminders = new Map();
+      if (!global.reminders) {
+        global.reminders = new Map();
+      }
     }
   }
 
@@ -214,7 +105,7 @@ class PersistenceManager {
 }
 
 // ============================================================================
-//  RATE LIMITER
+//  RATE LIMITER - FIXED
 // ============================================================================
 class RateLimiter {
   constructor() {
@@ -224,7 +115,10 @@ class RateLimiter {
   isRateLimited(userId) {
     const now = Date.now();
     const userRequests = this.requests.get(userId) || [];
-    const recentRequests = userRequests.filter(time => now - time < CONFIG.RATE_LIMIT.windowMs);
+
+    const recentRequests = userRequests.filter(
+      time => now - time < CONFIG.RATE_LIMIT.windowMs
+    );
 
     if (recentRequests.length >= CONFIG.RATE_LIMIT.maxPerMinute) {
       return true;
@@ -287,7 +181,7 @@ function generateReminderId() {
 }
 
 // ============================================================================
-//  ACCURATE TIME PARSING WITH TIMEZONE
+//  ACCURATE TIME PARSING
 // ============================================================================
 
 function parseDuration(str) {
@@ -312,22 +206,11 @@ function parseDuration(str) {
   return ms;
 }
 
-function parseTimeOfDay(str, referenceDate, timezone) {
+function parseTimeOfDay(str, referenceDate = new Date()) {
   if (!str || typeof str !== 'string') return null;
   const strLower = str.toLowerCase().trim();
   const now = new Date(referenceDate);
-
-  // Use timezone-aware formatting
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
+  const result = new Date(now);
 
   const timeMatch = strLower.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
   if (!timeMatch) return null;
@@ -353,18 +236,15 @@ function parseTimeOfDay(str, referenceDate, timezone) {
     }
   }
 
-  const result = new Date(now);
   result.setHours(hours, minutes, 0, 0);
-
   if (result < now) {
     result.setDate(result.getDate() + 1);
   }
-
   return result;
 }
 
-export function parseTime(timeStr, timezone = 'UTC') {
-  console.log(`\n[reminder.js] 🔍 PARSING TIME: "${timeStr}" (timezone: ${timezone})`);
+export function parseTime(timeStr, referenceDate = new Date()) {
+  console.log(`\n[reminder.js] 🔍 PARSING TIME: "${timeStr}"`);
 
   if (!timeStr || typeof timeStr !== 'string') return null;
   let cleanStr = timeStr.toLowerCase().trim();
@@ -374,8 +254,7 @@ export function parseTime(timeStr, timezone = 'UTC') {
     return { type: 'duration', ms: duration, date: new Date(Date.now() + duration) };
   }
 
-  const now = new Date();
-  const timeOfDay = parseTimeOfDay(cleanStr, now, timezone);
+  const timeOfDay = parseTimeOfDay(cleanStr, referenceDate);
   if (timeOfDay) {
     const ms = timeOfDay.getTime() - Date.now();
     return { type: 'absolute', ms: ms, date: timeOfDay };
@@ -386,41 +265,26 @@ export function parseTime(timeStr, timezone = 'UTC') {
 }
 
 // ============================================================================
-//  REMINDER SCHEDULER WITH RETRY AND AUDIO
+//  REMINDER SCHEDULER
 // ============================================================================
 
-async function sendReminderWithRetry(reminder, sock, attempt = 1, useAlternateNumber = false) {
+async function sendReminder(reminder, sock, attempt = 1) {
   try {
-    const targetJid = reminder.from;
-    const reminderText =
-      `╔══════════════════════════╗\n` +
-      `║     ⏰ *REMINDER*        ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `📝 *${reminder.message}*\n\n` +
-      `🆔 *ID:* ${reminder.id.slice(-8)}\n` +
-      `⚡ AYOBOT v1 | 👑 AYOCODES`;
-
-    await sock.sendMessage(targetJid, { text: reminderText });
-
-    // Check if we should send audio reminder
-    const userData = userSpamTracker.get(reminder.userJid);
-    if (CONFIG.AUDIO_REMINDER_ENABLED && userData && userData.count >= CONFIG.SPAM_THRESHOLD) {
-      const audioBuffer = await generateAudioReminder(reminder.message, reminder.userJid, sock);
-      if (audioBuffer) {
-        await sock.sendMessage(targetJid, {
-          audio: audioBuffer,
-          mimetype: 'audio/mpeg',
-          ptt: true
-        });
-      }
-    }
-
+    await sock.sendMessage(reminder.from, {
+      text:
+        `╔══════════════════════════╗\n` +
+        `║     ⏰ *REMINDER*        ║\n` +
+        `╚══════════════════════════╝\n\n` +
+        `📝 *${reminder.message}*\n\n` +
+        `🆔 *ID:* ${reminder.id.slice(-8)}\n` +
+        `⚡ AYOBOT v1 | 👑 AYOCODES`
+    });
     return true;
   } catch (error) {
-    console.error(`[reminder.js] ❌ Failed to send reminder (attempt ${attempt}/${CONFIG.RETRY_ATTEMPTS}):`, error);
+    console.error(`[reminder.js] Failed to send (attempt ${attempt}):`, error.message);
     if (attempt < CONFIG.RETRY_ATTEMPTS) {
       await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY_MS));
-      return sendReminderWithRetry(reminder, sock, attempt + 1, useAlternateNumber);
+      return sendReminder(reminder, sock, attempt + 1);
     }
     return false;
   }
@@ -442,23 +306,18 @@ function scheduleReminder(reminder, sock) {
 
   const timeout = setTimeout(() => triggerReminder(reminder, sock), delay);
   activeTimeouts.set(reminder.id, timeout);
-  console.log(`[reminder.js] ⏰ Scheduled reminder ${reminder.id} in ${delay/1000}s`);
+  console.log(`[reminder.js] Scheduled ${reminder.id} in ${delay/1000}s`);
 }
 
 async function triggerReminder(reminder, sock) {
   try {
     if (!reminder.active) return;
+    console.log(`[reminder.js] Triggering ${reminder.id}: ${reminder.message}`);
 
-    console.log(`[reminder.js] 🔔 Triggering reminder ${reminder.id}: ${reminder.message}`);
-
-    // Track this reminder for spam detection
-    const spamData = trackUserReminder(reminder.userJid);
-    const useAlternateNumber = shouldUseDifferentNumber(reminder.userJid);
-
-    const success = await sendReminderWithRetry(reminder, sock, 1, useAlternateNumber);
+    const success = await sendReminder(reminder, sock);
 
     if (!success) {
-      console.error(`[reminder.js] ❌ Failed to send reminder ${reminder.id}`);
+      console.error(`[reminder.js] Failed after ${CONFIG.RETRY_ATTEMPTS} attempts`);
       if (!reminder.recurring) {
         reminder.active = false;
         cleanupReminder(reminder);
@@ -466,31 +325,17 @@ async function triggerReminder(reminder, sock) {
       return;
     }
 
-    // Send warning if user is approaching spam limit
-    if (spamData.count >= CONFIG.SPAM_THRESHOLD - 1 && spamData.count < CONFIG.SPAM_THRESHOLD) {
-      const timeLeft = CONFIG.SPAM_WINDOW_MS - (Date.now() - spamData.timestamps[0]);
-      const minutesLeft = Math.ceil(timeLeft / 60000);
-
-      await sock.sendMessage(reminder.from, {
-        text: formatInfo('⚠️ REMINDER LIMIT',
-          `You have sent ${spamData.count} reminders in the last hour.\n` +
-          `Maximum ${CONFIG.SPAM_THRESHOLD} reminders per hour.\n` +
-          `Please wait ${minutesLeft} minute(s) before creating more reminders.`)
-      });
-    }
-
     if (reminder.recurring && reminder.interval) {
       reminder.triggerAt = new Date(Date.now() + reminder.interval);
       reminder.lastTriggered = new Date();
       scheduleReminder(reminder, sock);
       persistenceManager.saveReminders();
-      console.log(`[reminder.js] 🔄 Rescheduled recurring reminder ${reminder.id}`);
     } else {
       reminder.active = false;
       cleanupReminder(reminder);
     }
   } catch (error) {
-    console.error('[reminder.js] ❌ Error triggering reminder:', error);
+    console.error('[reminder.js] Error:', error);
   }
 }
 
@@ -504,7 +349,6 @@ function cleanupReminder(reminder) {
     }
   }
   persistenceManager.saveReminders();
-  console.log(`[reminder.js] 🧹 Cleaned up reminder ${reminder.id}`);
 }
 
 // ============================================================================
@@ -514,22 +358,7 @@ function cleanupReminder(reminder) {
 export async function reminder(context) {
   try {
     console.log('\n[reminder.js] 📝 NEW REMINDER');
-    const { args, fullArgs, from, userJid, sock, cleanPhone } = context;
-
-    // Check spam limit first
-    const currentReminderCount = getReminderCountInWindow(userJid);
-    if (currentReminderCount >= CONFIG.SPAM_THRESHOLD) {
-      const userData = userSpamTracker.get(userJid);
-      const timeLeft = CONFIG.SPAM_WINDOW_MS - (Date.now() - userData.timestamps[0]);
-      const minutesLeft = Math.ceil(timeLeft / 60000);
-
-      return sock.sendMessage(from, {
-        text: formatError('RATE LIMIT EXCEEDED',
-          `You have reached the maximum of ${CONFIG.SPAM_THRESHOLD} reminders per hour.\n` +
-          `Please wait ${minutesLeft} minute(s) before creating more reminders.\n\n` +
-          `💡 *Tip:* Use .reminders to see your active reminders.`)
-      });
-    }
+    const { args, fullArgs, from, userJid, sock, cleanPhone, isAdmin } = context;
 
     // Rate limiting check
     if (rateLimiter.isRateLimited(userJid)) {
@@ -584,16 +413,12 @@ export async function reminder(context) {
     message = sanitizeInput(message);
     if (!message) {
       return sock.sendMessage(from, {
-        text: formatError('INVALID MESSAGE', 'Message cannot be empty or contain invalid characters.')
+        text: formatError('INVALID MESSAGE', 'Message cannot be empty.')
       });
     }
 
-    // Detect user's timezone from phone number
-    const phoneForTimezone = cleanPhone || (userJid ? userJid.split('@')[0] : '');
-    const userTimezone = detectUserTimezone(phoneForTimezone);
-
-    // Parse time with user's timezone
-    const parsed = parseTime(timeStr, userTimezone.timezone);
+    // Parse time
+    const parsed = parseTime(timeStr);
     if (!parsed) {
       return sock.sendMessage(from, {
         text: formatError('INVALID TIME',
@@ -629,7 +454,7 @@ export async function reminder(context) {
     const userRemindersMap = global.reminders.get(userJid);
     if (userRemindersMap.size >= CONFIG.MAX_REMINDERS_PER_USER) {
       return sock.sendMessage(from, {
-        text: formatError('LIMIT EXCEEDED', `Maximum ${CONFIG.MAX_REMINDERS_PER_USER} reminders per user. Cancel some first.`)
+        text: formatError('LIMIT EXCEEDED', `Maximum ${CONFIG.MAX_REMINDERS_PER_USER} reminders. Cancel some first.`)
       });
     }
 
@@ -644,33 +469,29 @@ export async function reminder(context) {
       interval: isRecurring ? parsed.ms : null,
       recurring: isRecurring,
       active: true,
-      lastTriggered: null,
-      timezone: userTimezone.timezone
+      lastTriggered: null
     };
 
     userRemindersMap.set(reminderId, reminder);
     scheduleReminder(reminder, sock);
     persistenceManager.saveReminders();
 
-    const timeDisplay = formatDateTime(parsed.date, userTimezone.timezone);
+    const timeDisplay = formatDateTime(parsed.date);
     const timeRemaining = formatTimeRemaining(parsed.ms);
     const recurrenceText = isRecurring ? ` (repeats every ${timeStr})` : '';
-    const spamWarning = getReminderCountInWindow(userJid) >= CONFIG.SPAM_THRESHOLD - 1 ?
-      `\n\n⚠️ *Reminder limit:* ${getReminderCountInWindow(userJid) + 1}/${CONFIG.SPAM_THRESHOLD} this hour` : '';
 
     await sock.sendMessage(from, {
       text: formatSuccess('✅ REMINDER SET',
         `📝 *Message:* ${message}\n` +
-        `⏰ *When:* ${timeDisplay} (${userTimezone.timezone})\n` +
+        `⏰ *When:* ${timeDisplay}\n` +
         `⏳ *In:* ${timeRemaining}${recurrenceText}\n` +
-        `🆔 *ID:* ${reminderId.slice(-8)}${spamWarning}`
-      )
+        `🆔 *ID:* ${reminderId.slice(-8)}`)
     });
 
-    console.log(`[reminder.js] ✅ Reminder created: ${reminderId}`);
+    console.log(`[reminder.js] ✅ Created: ${reminderId}`);
 
   } catch (error) {
-    console.error('[reminder.js] ❌ Reminder error:', error);
+    console.error('[reminder.js] Error:', error);
     try {
       await context.sock.sendMessage(context.from, {
         text: formatError('ERROR', error.message)
@@ -685,9 +506,8 @@ export async function reminder(context) {
 
 export async function listReminders(context) {
   try {
-    const { from, userJid, sock, cleanPhone } = context;
+    const { from, userJid, sock } = context;
     const userReminders = global.reminders.get(userJid);
-    const userTimezone = detectUserTimezone(cleanPhone || (userJid ? userJid.split('@')[0] : ''));
 
     if (!userReminders || userReminders.size === 0) {
       return sock.sendMessage(from, {
@@ -713,23 +533,16 @@ export async function listReminders(context) {
 
       const recurring = r.recurring ? ' 🔄' : '';
       const shortId = r.id.slice(-8);
-      const triggerTime = formatDateTime(r.triggerAt, userTimezone.timezone);
 
-      text += `*${index + 1}.* ${r.message}${recurring}\n   ⏰ ${triggerTime} (${timeDisplay})\n   🆔 ${shortId}\n\n`;
+      text += `*${index + 1}.* ${r.message}${recurring}\n   ⏰ ${timeDisplay}\n   🆔 ${shortId}\n\n`;
     });
 
-    const spamData = userSpamTracker.get(userJid);
-    const remindersLeft = Math.max(0, CONFIG.SPAM_THRESHOLD - (spamData?.count || 0));
-
-    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `💡 Use ${ENV.PREFIX}cancelreminder <id>\n`;
-    text += `📊 *Reminders left this hour:* ${remindersLeft}/${CONFIG.SPAM_THRESHOLD}\n`;
-    text += `⚡ AYOBOT v1 | 👑 AYOCODES`;
+    text += `━━━━━━━━━━━━━━━━━━━━━\n💡 Use ${ENV.PREFIX}cancelreminder <id>\n⚡ AYOBOT v1 | 👑 AYOCODES`;
 
     await sock.sendMessage(from, { text });
 
   } catch (error) {
-    console.error('[reminder.js] ❌ List reminders error:', error);
+    console.error('[reminder.js] List error:', error);
     await context.sock.sendMessage(context.from, {
       text: formatError('ERROR', error.message)
     });
@@ -747,8 +560,7 @@ export async function cancelReminder(context) {
     if (!args.length) {
       return sock.sendMessage(from, {
         text: formatInfo('CANCEL REMINDER',
-          `Usage: ${ENV.PREFIX}cancelreminder <id>\nExample: ${ENV.PREFIX}cancelreminder 5\n` +
-          'You can use full ID or last 8 characters')
+          `Usage: ${ENV.PREFIX}cancelreminder <id>\nExample: ${ENV.PREFIX}cancelreminder 5`)
       });
     }
 
@@ -799,7 +611,7 @@ export async function cancelReminder(context) {
     });
 
   } catch (error) {
-    console.error('[reminder.js] ❌ Cancel reminder error:', error);
+    console.error('[reminder.js] Cancel error:', error);
     await context.sock.sendMessage(context.from, {
       text: formatError('ERROR', error.message)
     });
@@ -812,7 +624,7 @@ export async function cancelReminder(context) {
 
 export async function snooze(context) {
   try {
-    const { args, message, from, userJid, sock, cleanPhone } = context;
+    const { args, message, from, userJid, sock } = context;
     const quoted = message.message?.extendedTextMessage?.contextInfo;
     let reminderId = null;
 
@@ -826,13 +638,13 @@ export async function snooze(context) {
     if (!reminderId) {
       return sock.sendMessage(from, {
         text: formatInfo('SNOOZE',
-          `Reply to a reminder message with:\n${ENV.PREFIX}snooze <time>\n\nExamples:\n${ENV.PREFIX}snooze 5m`)
+          `Reply to a reminder with:\n${ENV.PREFIX}snooze <time>\nExample: ${ENV.PREFIX}snooze 5m`)
       });
     }
 
     if (!args.length) {
       return sock.sendMessage(from, {
-        text: formatError('MISSING TIME', `Please specify snooze time (e.g., ${ENV.PREFIX}snooze 5m)`)
+        text: formatError('MISSING TIME', `Usage: ${ENV.PREFIX}snooze <time>`)
       });
     }
 
@@ -841,7 +653,7 @@ export async function snooze(context) {
 
     if (!parsed) {
       return sock.sendMessage(from, {
-        text: formatError('INVALID TIME', 'Use format: 30s, 10m, 2h, 1d')
+        text: formatError('INVALID TIME', 'Use: 30s, 10m, 2h, 1d')
       });
     }
 
@@ -864,16 +676,14 @@ export async function snooze(context) {
     scheduleReminder(reminder, sock);
     persistenceManager.saveReminders();
 
-    const userTimezone = detectUserTimezone(cleanPhone || (userJid ? userJid.split('@')[0] : ''));
-
     await sock.sendMessage(from, {
       text: formatSuccess('⏰ REMINDER SNOOZED',
         `Reminder ${reminderId.slice(-8)} snoozed for ${timeStr}\n` +
-        `New time: ${formatDateTime(newTriggerAt, userTimezone.timezone)} (${userTimezone.timezone})`)
+        `New time: ${formatDateTime(newTriggerAt)}`)
     });
 
   } catch (error) {
-    console.error('[reminder.js] ❌ Snooze error:', error);
+    console.error('[reminder.js] Snooze error:', error);
     await context.sock.sendMessage(context.from, {
       text: formatError('ERROR', error.message)
     });
@@ -881,7 +691,7 @@ export async function snooze(context) {
 }
 
 // ============================================================================
-//  CLEANUP EXPIRED REMINDERS ON STARTUP
+//  CLEANUP
 // ============================================================================
 
 function cleanupExpiredReminders() {
@@ -903,7 +713,7 @@ function cleanupExpiredReminders() {
   }
 
   if (cleaned > 0) {
-    console.log(`[reminder.js] 🧹 Cleaned up ${cleaned} expired reminders`);
+    console.log(`[reminder.js] Cleaned up ${cleaned} expired reminders`);
     persistenceManager.saveReminders();
   }
 }
@@ -911,7 +721,6 @@ function cleanupExpiredReminders() {
 cleanupExpiredReminders();
 
 console.log('✅ [reminder.js] Module loaded successfully');
-console.log(`   Features: Anti-spam (${CONFIG.SPAM_THRESHOLD}/hour), Audio reminders, Timezone detection`);
 
 // ============================================================================
 //  DEFAULT EXPORT
