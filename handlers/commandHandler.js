@@ -1297,28 +1297,36 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 5: Antilink handled exclusively by automation.js ───────────────
 
-    // ── PHASE 6: Trivia answer handler ───────────────────────────────────────
-    if (!trimmed.startsWith(ENV.PREFIX)) {
-      if (global.activeTrivia && global.activeTrivia instanceof Map) {
-        if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
-          if (global.activeTrivia.has(from)) {
-            if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) return;
-            if (sessionMode === "private" && !isAdminUser) return;
-            if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
-            try {
-              const g = MODULES.games;
-              if (typeof g?.handleTriviaAnswer === "function") {
-                await g.handleTriviaAnswer(message, from, sock);
-                return;
-              }
-            } catch (error) {
-              log.debug(`[${executionId}] Trivia error: ${error.message}`);
-            }
-          }
+// ── PHASE 6: Trivia answer handler ───────────────────────────────────────
+if (!trimmed.startsWith(ENV.PREFIX)) {
+  if (global.activeTrivia && global.activeTrivia instanceof Map) {
+    // Check if the message is a single letter A, B, C, D
+    const upperMsg = trimmed.toUpperCase();
+    const isTriviaAnswer = ["A", "B", "C", "D"].includes(upperMsg) ||
+                           (upperMsg.length === 1 && ["A", "B", "C", "D"].includes(upperMsg));
+
+    if (isTriviaAnswer && global.activeTrivia.has(from)) {
+      if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) return;
+      if (sessionMode === "private" && !isAdminUser) return;
+      if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
+
+      try {
+        const g = MODULES.games;
+        if (typeof g?.handleTriviaAnswer === "function") {
+          console.log(`🎮 [commandHandler] Calling handleTriviaAnswer for ${from}`);
+          await g.handleTriviaAnswer(message, from, sock);
+          return;
+        } else {
+          console.log(`❌ [commandHandler] handleTriviaAnswer not found in games module`);
         }
+      } catch (error) {
+        console.error(`❌ [commandHandler] Trivia error:`, error);
+        log.debug(`[${executionId}] Trivia error: ${error.message}`);
       }
-      return;
     }
+  }
+  return;
+}
 
     // ── PHASE 7: Prefix check ────────────────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
