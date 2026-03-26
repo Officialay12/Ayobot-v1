@@ -1,12 +1,15 @@
 // utils/validators.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Validators & Helpers — COMPLETE FIXED VERSION
+//  Validators & Helpers — PERMANENT FIXED VERSION
 //  Author: AYOCODES
 //
-//  CRITICAL FIXES:
-//    1. normalizeNum() — MUST strip device suffix (:N) BEFORE extracting digits
-//    2. isGroupAdminCached() — now properly passes ownerPhone to isAdmin()
-//    3. validateGroupCommand() — same fix for ownerPhone
+//  CRITICAL FIX:
+//    normalizeNum() — MUST strip device suffix (:N) BEFORE extracting digits
+//
+//    Example:
+//      Input:  "2349159180375:5@s.whatsapp.net"
+//      WRONG:  .replace(/[^0-9]/g, "") → "23491591803755" ❌
+//      RIGHT:  .split("@")[0].split(":")[0].replace(/[^0-9]/g, "") → "2349159180375" ✅
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -26,28 +29,26 @@ import {
 } from "../index.js";
 
 // ============================================================================
-//  NORMALIZE PHONE NUMBER — CRITICAL FIX
-//  Strips device suffix (:N) AND @domain BEFORE extracting digits.
+//  NORMALIZE PHONE NUMBER — THE PERMANENT FIX
 //
-//  CORRECT ORDER:
+//  This function MUST strip the device suffix BEFORE removing digits.
+//  The order of operations is CRITICAL:
 //    1. Split on "@" to remove domain
 //    2. Split on ":" to remove device suffix
-//    3. Remove all non-digits
-//
-//  Examples:
-//    "2349159180375:5@s.whatsapp.net" → "2349159180375" ✅
-//    "2349159180375@s.whatsapp.net"    → "2349159180375" ✅
+//    3. Then remove all non-digits
 // ============================================================================
 export function normalizeNum(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || String(jid);
   }
+
   // CRITICAL: Strip device suffix BEFORE removing digits
-  return String(jid)
-    .split("@")[0]    // Remove @s.whatsapp.net / @g.us / @lid
-    .split(":")[0]    // Remove :58 device suffix ← CRITICAL ORDER
-    .replace(/[^0-9]/g, ""); // Now safely extract only digits
+  const withoutDomain = String(jid).split("@")[0];
+  const withoutDeviceSuffix = withoutDomain.split(":")[0];
+  const onlyDigits = withoutDeviceSuffix.replace(/[^0-9]/g, "");
+
+  return onlyDigits;
 }
 
 // ============================================================================
@@ -239,7 +240,7 @@ export async function isGroupAdminCached(
 }
 
 // ============================================================================
-//  CACHED BOT ADMIN CHECK
+//  CACHED BOT ADMIN CHECK — THE KEY FUNCTION FOR BOT ADMIN DETECTION
 // ============================================================================
 export async function isBotGroupAdminCached(
   groupJid,
@@ -260,7 +261,9 @@ export async function isBotGroupAdminCached(
   }
 
   try {
+    // Get bot number using normalizeNum (which now strips device suffix correctly)
     const botNumber = normalizeNum(sock.user.id);
+    console.log(`[validators] Checking bot admin for: ${botNumber}`);
 
     const metadata = await sock.groupMetadata(groupJid);
     if (!metadata?.participants) {
@@ -268,9 +271,16 @@ export async function isBotGroupAdminCached(
       return false;
     }
 
+    // Find bot in participants using normalized numbers
     const botParticipant = metadata.participants.find(
       (p) => normalizeNum(p.id) === botNumber,
     );
+
+    if (botParticipant) {
+      console.log(`[validators] Found bot participant: admin=${botParticipant.admin}`);
+    } else {
+      console.log(`[validators] Bot not found in participants`);
+    }
 
     const result = !!(
       botParticipant &&
@@ -523,6 +533,40 @@ export async function validateGroupCommand(
 }
 
 // ============================================================================
+//  DEBUG FUNCTION - Run this to see what's happening
+// ============================================================================
+export async function debugAdminCheck(groupJid, sock) {
+  if (!groupJid || !sock) return;
+
+  console.log("\n🔍 ===== ADMIN DEBUG =====");
+  const botJid = sock.user?.id;
+  console.log("Bot raw JID:", botJid);
+  const botNum = normalizeNum(botJid);
+  console.log("Bot normalized:", botNum);
+
+  try {
+    const metadata = await sock.groupMetadata(groupJid);
+    console.log("Group:", metadata.subject);
+    console.log("Participants:");
+    metadata.participants.forEach(p => {
+      const pNum = normalizeNum(p.id);
+      const isBot = pNum === botNum;
+      console.log(`  ${p.id} → ${pNum} (${p.admin || "member"}) ${isBot ? "← BOT" : ""}`);
+    });
+
+    const botParticipant = metadata.participants.find(p => normalizeNum(p.id) === botNum);
+    if (botParticipant) {
+      console.log(`\n✅ Bot found! Admin status: ${botParticipant.admin === "admin" || botParticipant.admin === "superadmin"}`);
+    } else {
+      console.log("\n❌ Bot NOT found in participants!");
+    }
+  } catch (e) {
+    console.error("Debug error:", e.message);
+  }
+  console.log("=========================\n");
+}
+
+// ============================================================================
 //  DEFAULT EXPORT
 // ============================================================================
 export default {
@@ -551,4 +595,5 @@ export default {
   isGroupJid,
   isUserJid,
   validateGroupCommand,
+  debugAdminCheck,
 };

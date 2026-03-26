@@ -1,6 +1,6 @@
 // features/music.js - AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE WORKING MUSIC MODULE - YouTube Primary
+//  COMPLETE WORKING MUSIC MODULE - WITH COVER IMAGE & WORKING LYRICS
 //  Author: AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -22,7 +22,7 @@ async function getYTS() {
       const module = await import("yt-search");
       yts = module.default || module;
     } catch (e) {
-      console.log("[music] yt-search not installed, using fallback");
+      console.log("[music] yt-search not installed");
       yts = false;
     }
   }
@@ -79,7 +79,7 @@ async function downloadBuffer(url, timeout = 60000, maxSize = 80 * 1024 * 1024) 
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MUSIC DOWNLOAD - PRIMARY: YouTube via ytdl-core
+//  MUSIC DOWNLOAD - WITH COVER IMAGE ATTACHED
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicDownload({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
@@ -107,7 +107,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
           title: video.title,
           artist: video.author?.name || "Unknown",
           duration: video.duration?.seconds || 0,
-          thumbnail: video.thumbnail || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+          thumbnail: video.thumbnail || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
           source: "YouTube",
           url: `https://www.youtube.com/watch?v=${videoId}`,
         };
@@ -175,10 +175,6 @@ export async function musicDownload({ fullArgs, from, sock }) {
     });
   }
 
-  await sock.sendMessage(from, {
-    text: `🎵 *Found:* ${songInfo.title}\n👤 *Artist:* ${songInfo.artist}\n📡 *Source:* ${songInfo.source}\n\n⬇️ *Downloading...*`
-  });
-
   let audioBuffer = null;
   let usedApi = "";
   let isPreview = false;
@@ -240,27 +236,45 @@ export async function musicDownload({ fullArgs, from, sock }) {
   }
 
   if (audioBuffer && audioBuffer.length > 5000) {
-    // Send thumbnail with info
+    // FIRST: Send cover image with song info (attached to image)
     if (songInfo.thumbnail) {
       try {
+        let infoText = `🎵 *${songInfo.title}*\n`;
+        infoText += `👤 *Artist:* ${songInfo.artist}\n`;
+        if (songInfo.duration) infoText += `⏱️ *Duration:* ${fmtDur(songInfo.duration)}\n`;
+        infoText += `📡 *Source:* ${songInfo.source}\n`;
+        if (isPreview) infoText += `⚠️ *Preview only (30 seconds)*\n`;
+        infoText += `\n📥 *Downloading audio...*`;
+
         await sock.sendMessage(from, {
           image: { url: songInfo.thumbnail },
-          caption: `🎵 *${songInfo.title}*\n👤 *${songInfo.artist}*\n⏱️ *Duration:* ${fmtDur(songInfo.duration)}\n📡 *Source:* ${songInfo.source}${isPreview ? "\n⚠️ _Preview only (30 sec)_" : ""}\n${AYOBOT_TAG}`,
+          caption: infoText,
         });
-      } catch (_) {}
+      } catch (_) {
+        // If thumbnail fails, send text info
+        await sock.sendMessage(from, {
+          text: `🎵 *${songInfo.title}*\n👤 ${songInfo.artist}\n📡 *Source:* ${songInfo.source}\n\n📥 *Downloading audio...*`
+        });
+      }
+    } else {
+      await sock.sendMessage(from, {
+        text: `🎵 *${songInfo.title}*\n👤 ${songInfo.artist}\n📡 *Source:* ${songInfo.source}\n\n📥 *Downloading audio...*`
+      });
     }
 
-    // Send audio
+    // SECOND: Send the audio file
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: "audio/mpeg",
       ptt: false,
     });
 
+    // THIRD: Send download confirmation
     await sock.sendMessage(from, {
       text: `${isPreview ? "⚠️ *Preview* (30 sec)\n" : "✅ *Downloaded!*\n"}🎵 *${songInfo.title}* - ${songInfo.artist}\n📦 ${fmtSize(audioBuffer.length)} | 🔧 ${usedApi}\n${AYOBOT_TAG}`,
     });
   } else {
+    // Send link only
     await sock.sendMessage(from, {
       text: `🎵 *${songInfo.title}*\n👤 ${songInfo.artist}\n\n🔗 *Listen here:*\n${songInfo.url}\n\n⚠️ _Could not download audio. Try the link above._\n${AYOBOT_TAG}`,
     });
@@ -268,21 +282,21 @@ export async function musicDownload({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  LYRICS - IMPROVED ARTIST DETECTION
+//  LYRICS - MULTI-API FALLBACK WITH WORKING SEARCH
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicLyrics({ fullArgs, from, sock }) {
   try {
     if (!fullArgs?.trim()) {
       return sock.sendMessage(from, {
         text: formatInfo("🎵 MUSIC LYRICS",
-          `Usage: ${ENV.PREFIX}lyrics <song name>\nWith artist: ${ENV.PREFIX}lyrics <song> - <artist>\n\nExamples:\n• ${ENV.PREFIX}lyrics Shape of You\n• ${ENV.PREFIX}lyrics Japanese Denim - Daniel Caesar`),
+          `Usage: ${ENV.PREFIX}lyrics <song name>\nWith artist: ${ENV.PREFIX}lyrics <song> - <artist>\n\nExamples:\n• ${ENV.PREFIX}lyrics Shape of You\n• ${ENV.PREFIX}lyrics Wildflower - Billie Eilish`),
       });
     }
 
     let title = fullArgs.trim();
     let artist = null;
 
-    // Handle different dash formats: " - ", "-", " – ", "—"
+    // Handle different dash formats
     const dashMatch = title.match(/\s*[-–—]\s*/);
     if (dashMatch) {
       const parts = title.split(dashMatch[0]);
@@ -290,18 +304,22 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       artist = parts.slice(1).join(" ").trim();
     }
 
-    // Also handle " by " format
+    // Handle " by " format
     if (!artist && title.toLowerCase().includes(" by ")) {
       const parts = title.split(/ by /i);
       title = parts[0].trim();
       artist = parts[1].trim();
     }
 
-    // Clean title
+    // Clean title (remove common suffixes)
     title = title.replace(/\(official\s+(?:video|audio|lyrics)\)/gi, "")
-      .replace(/\(lyrics?\)/gi, "").replace(/\[.*?\]/g, "").trim();
+      .replace(/\(lyrics?\)/gi, "")
+      .replace(/\[.*?\]/g, "")
+      .trim();
 
-    await sock.sendMessage(from, { text: `🎵 *Searching lyrics for "${title}"${artist ? ` by ${artist}` : ""}...*` });
+    await sock.sendMessage(from, {
+      text: `🎵 *Searching lyrics for "${title}"${artist ? ` by ${artist}` : ""}...*`
+    });
 
     const cacheKey = `lyrics-${title.toLowerCase()}-${(artist || "").toLowerCase()}`;
     const cached = musicCache.get(cacheKey);
@@ -309,16 +327,22 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       return sendLyricsResponse(sock, from, cached.data, true);
     }
 
+    // Try multiple lyric sources in order
     const apis = [
       { name: "Genius", fn: () => fetchFromGenius(title, artist) },
+      { name: "AZLyrics", fn: () => fetchFromAZLyrics(title, artist) },
       { name: "LyricsOvh", fn: () => fetchFromLyricsOvh(title, artist) },
-      { name: "Lyrist", fn: () => fetchFromLyrist(title, artist) },
+      { name: "SongLyrics", fn: () => fetchFromSongLyrics(title, artist) },
+      { name: "Musixmatch", fn: () => fetchFromMusixmatch(title, artist) },
     ];
 
     for (const api of apis) {
       try {
-        const result = await Promise.race([api.fn(), new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))]);
-        if (result?.lyrics && result.lyrics.length > 50) {
+        const result = await Promise.race([
+          api.fn(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 12000))
+        ]);
+        if (result?.lyrics && result.lyrics.length > 100) {
           musicCache.set(cacheKey, { data: result, timestamp: Date.now() });
           return sendLyricsResponse(sock, from, result);
         }
@@ -327,23 +351,39 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       }
     }
 
+    // Final fallback: Try Genius with just the title if artist was provided
+    if (artist && !cached) {
+      try {
+        const result = await fetchFromGenius(title);
+        if (result?.lyrics) {
+          musicCache.set(cacheKey, { data: result, timestamp: Date.now() });
+          return sendLyricsResponse(sock, from, result);
+        }
+      } catch (_) {}
+    }
+
     await sock.sendMessage(from, {
       text: formatInfo("🎵 LYRICS NOT FOUND",
         `Could not find lyrics for "${title}"${artist ? ` by ${artist}` : ""}.\n\n` +
-        `💡 *Tips:*\n• Include artist: ${ENV.PREFIX}lyrics ${title} - Artist Name\n• Try: ${ENV.PREFIX}genius ${title}\n• Example: ${ENV.PREFIX}lyrics Japanese Denim - Daniel Caesar`),
+        `💡 *Tips:*\n` +
+        `• Include artist: ${ENV.PREFIX}lyrics ${title} - Artist Name\n` +
+        `• Try a different spelling\n` +
+        `• Try: ${ENV.PREFIX}genius ${title}\n` +
+        `• Example: ${ENV.PREFIX}lyrics Wildflower - Billie Eilish`),
     });
   } catch (err) {
+    console.error("Lyrics error:", err);
     await sock.sendMessage(from, { text: formatError("LYRICS ERROR", err.message) });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GENIUS LYRICS
+//  GENIUS LYRICS - PRIMARY SOURCE
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicGenius({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("🎤 GENIUS LYRICS", `Usage: ${ENV.PREFIX}genius <song>\nExample: ${ENV.PREFIX}genius Lose Yourself`),
+      text: formatInfo("🎤 GENIUS LYRICS", `Usage: ${ENV.PREFIX}genius <song>\nExample: ${ENV.PREFIX}genius Wildflower Billie Eilish`),
     });
   }
   try {
@@ -362,57 +402,26 @@ export async function musicGenius({ fullArgs, from, sock }) {
 export async function musicSearch({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("🔍 MUSIC SEARCH", `Usage: ${ENV.PREFIX}musicsearch <query>\nExample: ${ENV.PREFIX}musicsearch Adele Hello`),
+      text: formatInfo("🔍 MUSIC SEARCH", `Usage: ${ENV.PREFIX}musicsearch <query>\nExample: ${ENV.PREFIX}musicsearch Billie Eilish Wildflower`),
     });
   }
 
   try {
     await sock.sendMessage(from, { text: `🔍 *Searching for: ${fullArgs}...*` });
 
-    // Try YouTube via yt-search
     const ytSearch = await getYTS();
     if (ytSearch) {
       const results = await ytSearch(fullArgs);
       if (results && results.videos && results.videos.length > 0) {
         let text = "🔍 *SEARCH RESULTS (YouTube)*\n\n";
         results.videos.slice(0, 8).forEach((video, i) => {
-          text += `${i + 1}. *${video.title.substring(0, 50)}*\n   👤 ${video.author?.name || "Unknown"}\n   ⏱️ ${fmtDur(video.duration?.seconds || 0)}\n\n`;
+          text += `${i + 1}. *${video.title.substring(0, 60)}*\n`;
+          text += `   👤 ${video.author?.name || "Unknown"}\n`;
+          text += `   ⏱️ ${fmtDur(video.duration?.seconds || 0)}\n\n`;
         });
         text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
         return sock.sendMessage(from, { text: formatSuccess("🔍 MUSIC SEARCH", text) });
       }
-    }
-
-    // Try JioSaavn
-    try {
-      const res = await axios.get(`https://saavn.dev/api/search/songs?query=${encodeURIComponent(fullArgs)}&page=1&limit=8`, { timeout: 10000 });
-      const results = res.data?.data?.results;
-      if (results?.length) {
-        let text = "🔍 *SEARCH RESULTS (JioSaavn)*\n\n";
-        results.forEach((t, i) => {
-          const artists = t.artists?.primary?.map((a) => a.name).join(", ") || "Unknown";
-          text += `${i + 1}. *${t.name}*\n   👤 ${artists}\n   ⏱️ ${fmtDur(t.duration)}\n\n`;
-        });
-        text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
-        return sock.sendMessage(from, { text: formatSuccess("🔍 MUSIC SEARCH", text) });
-      }
-    } catch (err) {
-      console.log(`[music] JioSaavn search failed: ${err.message}`);
-    }
-
-    // Try Deezer
-    try {
-      const res = await axios.get(`https://api.deezer.com/search?q=${encodeURIComponent(fullArgs)}&limit=8`, { timeout: 8000 });
-      if (res.data?.data?.length) {
-        let text = "🔍 *SEARCH RESULTS (Deezer)*\n\n";
-        res.data.data.forEach((t, i) => {
-          text += `${i + 1}. *${t.title}*\n   👤 ${t.artist.name}\n   ⏱️ ${fmtDur(t.duration)}\n\n`;
-        });
-        text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
-        return sock.sendMessage(from, { text: formatSuccess("🔍 MUSIC SEARCH", text) });
-      }
-    } catch (err) {
-      console.log(`[music] Deezer search failed: ${err.message}`);
     }
 
     throw new Error("No results");
@@ -422,9 +431,9 @@ export async function musicSearch({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INTERNAL HELPERS
+//  INTERNAL HELPERS - LYRICS SOURCES
 // ════════════════════════════════════════════════════════════════════════════
-async function fetchFromGenius(title, artist) {
+async function fetchFromGenius(title, artist = null) {
   const q = artist ? `${title} ${artist}` : title;
   const res = await axios.get(`https://genius.com/api/search/multi?q=${encodeURIComponent(q)}`, {
     timeout: 12000,
@@ -436,7 +445,10 @@ async function fetchFromGenius(title, artist) {
 
   let hit = hits[0];
   if (artist) {
-    const match = hits.find((h) => h.result.artist_names?.toLowerCase().includes(artist.toLowerCase()));
+    const match = hits.find((h) => {
+      const artistNames = h.result.artist_names?.toLowerCase() || "";
+      return artistNames.includes(artist.toLowerCase());
+    });
     if (match) hit = match;
   }
 
@@ -445,17 +457,40 @@ async function fetchFromGenius(title, artist) {
     headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
   });
   const $ = cheerio.load(page.data);
-  let lyrics = $('[data-lyrics-container="true"]').text() || $(".lyrics").text() || $(".song_body-lyrics").text();
+  let lyrics = "";
+
+  // Try different selectors
+  lyrics = $('[data-lyrics-container="true"]').text();
+  if (!lyrics) lyrics = $(".lyrics").text();
+  if (!lyrics) lyrics = $(".song_body-lyrics").text();
+
   if (!lyrics?.trim()) throw new Error("No lyrics found");
+
   lyrics = lyrics.replace(/\[.*?\]/g, "").replace(/\n{3,}/g, "\n\n").trim();
   return { lyrics, title: hit.result.title, artist: hit.result.artist_names, source: "Genius" };
 }
 
-async function fetchFromLyrist(title, artist) {
-  const q = artist ? `${title}/${artist}` : title;
-  const res = await axios.get(`https://lyrist.vercel.app/api/${encodeURIComponent(q)}`, { timeout: 8000 });
-  if (!res.data?.lyrics) throw new Error("No lyrics");
-  return { lyrics: res.data.lyrics, title: res.data.title || title, artist: res.data.artist || artist || "Unknown", source: "Lyrist" };
+async function fetchFromAZLyrics(title, artist) {
+  const searchTerm = artist ? `${artist} ${title}` : title;
+  const searchRes = await axios.get(`https://search.azlyrics.com/search.php?q=${encodeURIComponent(searchTerm)}`, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $ = cheerio.load(searchRes.data);
+  const firstResult = $(".table table a").first().attr("href");
+  if (!firstResult) throw new Error("No result found");
+
+  const lyricsPage = await axios.get(firstResult, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $$ = cheerio.load(lyricsPage.data);
+  let lyrics = $$("div.ringtone").next().text();
+  if (!lyrics) lyrics = $$(".col-xs-12.col-md-8").find("div").eq(5).text();
+  if (!lyrics?.trim()) throw new Error("No lyrics found");
+
+  lyrics = lyrics.replace(/<[^>]*>/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  return { lyrics, title, artist: artist || "Unknown", source: "AZLyrics" };
 }
 
 async function fetchFromLyricsOvh(title, artist) {
@@ -470,6 +505,52 @@ async function fetchFromLyricsOvh(title, artist) {
   return { lyrics: res.data.lyrics, title, artist, source: "Lyrics.ovh" };
 }
 
+async function fetchFromSongLyrics(title, artist) {
+  const searchTerm = artist ? `${artist} ${title}` : title;
+  const res = await axios.get(`https://www.songlyrics.com/index.php?section=search&searchW=${encodeURIComponent(searchTerm)}&submit=Search`, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $ = cheerio.load(res.data);
+  const firstLink = $(".serpresult a").first().attr("href");
+  if (!firstLink) throw new Error("No result");
+
+  const lyricsPage = await axios.get(firstLink, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $$ = cheerio.load(lyricsPage.data);
+  let lyrics = $$("#songLyricsDiv").text() || $$(".lyrics-text").text();
+  if (!lyrics?.trim()) throw new Error("No lyrics");
+
+  lyrics = lyrics.replace(/\n{3,}/g, "\n\n").trim();
+  return { lyrics, title, artist: artist || "Unknown", source: "SongLyrics" };
+}
+
+async function fetchFromMusixmatch(title, artist) {
+  // Musixmatch requires API key, but we can scrape
+  const searchTerm = artist ? `${artist} ${title}` : title;
+  const res = await axios.get(`https://www.musixmatch.com/search/${encodeURIComponent(searchTerm)}`, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $ = cheerio.load(res.data);
+  const firstLink = $(".media-card-title a").first().attr("href");
+  if (!firstLink) throw new Error("No result");
+
+  const lyricsPage = await axios.get(`https://www.musixmatch.com${firstLink}`, {
+    timeout: 10000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  const $$ = cheerio.load(lyricsPage.data);
+  let lyrics = $$(".mxm-lyrics__content").text();
+  if (!lyrics) lyrics = $$(".lyrics__content").text();
+  if (!lyrics?.trim()) throw new Error("No lyrics");
+
+  lyrics = lyrics.replace(/<[^>]*>/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  return { lyrics, title, artist: artist || "Unknown", source: "Musixmatch" };
+}
+
 async function sendLyricsResponse(sock, from, data, fromCache = false) {
   let clean = data.lyrics.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#039;|&#x27;|&#39;/g, "'").replace(/\n{3,}/g, "\n\n").trim();
   if (clean.length > 4000) {
@@ -482,7 +563,7 @@ async function sendLyricsResponse(sock, from, data, fromCache = false) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  OTHER COMMANDS (Trending, Random, Artist, Album)
+//  OTHER COMMANDS
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicTrending({ from, sock }) {
   try {
@@ -584,7 +665,7 @@ export async function music({ fullArgs, from, sock }) {
     if (!fullArgs?.trim()) {
       return sock.sendMessage(from, {
         text: formatInfo("🎵 MUSIC HUB",
-          `*Music Commands:*\n\n🎵 *${ENV.PREFIX}play <song>* — Download audio\n📝 *${ENV.PREFIX}lyrics <song>* — Get lyrics\n📈 *${ENV.PREFIX}trending* — Top songs\n🎲 *${ENV.PREFIX}random* — Random song\n🔍 *${ENV.PREFIX}musicsearch <query>* — Search\n👤 *${ENV.PREFIX}artist <name>* — Artist info\n💿 *${ENV.PREFIX}album <name>* — Album info\n🎤 *${ENV.PREFIX}genius <song>* — Genius lyrics\n\n*Examples:*\n• ${ENV.PREFIX}play wildflower billie eilish\n• ${ENV.PREFIX}lyrics Japanese Denim - Daniel Caesar\n\n⚡ AYOBOT v1 | 👑 AYOCODES`),
+          `*Music Commands:*\n\n🎵 *${ENV.PREFIX}play <song>* — Download audio\n📝 *${ENV.PREFIX}lyrics <song>* — Get lyrics\n📈 *${ENV.PREFIX}trending* — Top songs\n🎲 *${ENV.PREFIX}random* — Random song\n🔍 *${ENV.PREFIX}musicsearch <query>* — Search\n👤 *${ENV.PREFIX}artist <name>* — Artist info\n💿 *${ENV.PREFIX}album <name>* — Album info\n🎤 *${ENV.PREFIX}genius <song>* — Genius lyrics\n\n*Examples:*\n• ${ENV.PREFIX}play Wildflower Billie Eilish\n• ${ENV.PREFIX}lyrics Wildflower - Billie Eilish\n\n⚡ AYOBOT v1 | 👑 AYOCODES`),
       });
     }
     const sub = fullArgs.trim().toLowerCase().split(/\s+/)[0];
