@@ -4,18 +4,19 @@
 //  Author  : AYOCODES
 //
 //  FIXES:
-//    • .tovideo and .sticker ffmpeg commands now use execFile() with an args
-//      array instead of exec() with a shell string. The old code had
-//      mismatched quote boundaries in the template literals — the closing "
-//      after "decrease," ended the shell string early, leaving (ow-iw) outside
-//      the quotes where /bin/sh interpreted ( as a subshell and threw:
-//      /bin/sh: 1: Syntax error: "(" unexpected
-//      execFile() bypasses the shell entirely so parentheses are safe. — AYOCODES
+//    • .tovideo ANIM/ANMF fix — WhatsApp animated stickers use ANIM/ANMF
+//      format WebP which ffmpeg's built-in webp decoder cannot read.
+//      Error: "[webp] skipping unsupported chunk: ANIM/ANMF → image data not found"
+//      Fix: use sharp to extract each frame as PNG → pipe raw frame sequence
+//      to ffmpeg as image2pipe input instead of feeding the .webp directly.
+//      — AYOCODES
+//    • .sticker animated WebP same root cause — same fix applied.
+//    • execFile() retained throughout — parentheses in vf args stay safe.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import axios from "axios";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import FormData from "form-data";
 import fs from "fs";
 import path from "path";
@@ -25,7 +26,6 @@ import util from "util";
 import { ENV } from "../index.js";
 import { formatError, formatInfo, formatSuccess } from "../utils/formatters.js";
 
-// FIX: Use execFile (not exec) — bypasses shell so parentheses never crash — AYOCODES
 const execFilePromise = util.promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,12 +41,14 @@ setInterval(() => {
     const now = Date.now();
     for (const f of files) {
       const fp = path.join(TEMP_DIR, f);
-      if (now - fs.statSync(fp).mtimeMs > 3_600_000) fs.unlinkSync(fp);
+      try {
+        if (now - fs.statSync(fp).mtimeMs > 3_600_000) fs.unlinkSync(fp);
+      } catch (_) {}
     }
   } catch (_) {}
 }, 3_600_000);
 
-// Check if ffmpeg is available
+// ─── ffmpeg availability ──────────────────────────────────────────────────────
 let ffmpegAvailable = null;
 let ffmpegChecked = false;
 
@@ -64,14 +66,12 @@ async function checkFfmpeg() {
   return ffmpegAvailable;
 }
 
-// Download media helper
+// ─── helpers ─────────────────────────────────────────────────────────────────
 async function downloadMedia(msg, type) {
   try {
     const stream = await downloadContentFromMessage(msg, type);
     let buffer = Buffer.from([]);
-    for await (const chunk of stream) {
-      buffer = Buffer.concat([buffer, chunk]);
-    }
+    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
     if (!buffer.length) throw new Error("Empty media buffer");
     return buffer;
   } catch (e) {
@@ -79,7 +79,6 @@ async function downloadMedia(msg, type) {
   }
 }
 
-// Safe file cleanup
 function safeUnlink(...files) {
   for (const f of files) {
     try {
@@ -88,7 +87,6 @@ function safeUnlink(...files) {
   }
 }
 
-// Get video duration
 async function getVideoDuration(filePath) {
   try {
     const { stdout } = await execFilePromise("ffprobe", [
@@ -106,9 +104,115 @@ async function getVideoDuration(filePath) {
   }
 }
 
-// ============================================================================
-//  STICKER EXIF METADATA
-// ============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+//  ANIMATED WEBP FRAME EXTRACTOR
+//
+//  WhatsApp stickers are ANIM/ANMF format WebP files. ffmpeg's built-in
+//  webp decoder silently skips ANIM/ANMF chunks, leaving "image data not
+//  found" and an empty stream. The fix is to use sharp (which calls libwebp
+//  directly and handles ANIM/ANMF correctly) to extract every frame as a
+//  PNG buffer, then send those frames to ffmpeg via image2pipe (stdin).
+//
+//  Returns: { frames: Buffer[], fps: number, width: number, height: number }
+// ─────────────────────────────────────────────────────────────────────────────
+async function extractAnimatedWebpFrames(webpBuffer) {
+  // sharp handles animated WebP via libwebp — reads ANIM/ANMF correctly
+  const sharpObj = sharp(webpBuffer, { animated: true, pages: -1 });
+  const metadata = await sharpObj.metadata();
+
+  const pageCount = metadata.pages || 1;
+  const fps = metadata.delay
+    ? Math.round(1000 / (metadata.delay[0] || 100))
+    : 10;
+  const width = metadata.width || 512;
+  const height = metadata.pageHeight || metadata.height || 512;
+
+  if (pageCount <= 1) {
+    // Static sticker — just return the single frame
+    const single = await sharp(webpBuffer).png().toBuffer();
+    return { frames: [single], fps: 10, width, height, isStatic: true };
+  }
+
+  // Extract each page (frame) individually
+  const frames = [];
+  for (let i = 0; i < pageCount; i++) {
+    try {
+      const framePng = await sharp(webpBuffer, { page: i }).png().toBuffer();
+      frames.push(framePng);
+    } catch (_) {
+      // If a frame fails, skip it — don't abort everything
+    }
+  }
+
+  if (!frames.length) {
+    // Last resort: try extracting the whole animated webp as a flat PNG
+    const flat = await sharp(webpBuffer).png().toBuffer();
+    return { frames: [flat], fps: 10, width, height, isStatic: true };
+  }
+
+  return {
+    frames,
+    fps: Math.max(1, Math.min(fps, 30)),
+    width,
+    height,
+    isStatic: false,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PIPE FRAMES TO FFMPEG (image2pipe)
+//
+//  Instead of writing frames to disk, we open an ffmpeg child process
+//  with -f image2pipe -i pipe:0 and write PNG frames to stdin.
+//  This avoids the ANIM/ANMF issue entirely — ffmpeg never sees the WebP.
+// ─────────────────────────────────────────────────────────────────────────────
+function pipeFramesToFfmpeg(frames, fps, outputPath, extraArgs = []) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-f",
+      "image2pipe",
+      "-framerate",
+      String(fps),
+      "-i",
+      "pipe:0",
+      ...extraArgs,
+      "-y",
+      outputPath,
+    ];
+
+    const proc = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] });
+
+    let stderr = "";
+    proc.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`));
+    });
+
+    proc.on("error", (err) =>
+      reject(new Error(`ffmpeg spawn error: ${err.message}`)),
+    );
+
+    // Write all frames then end stdin
+    (async () => {
+      for (const frame of frames) {
+        const canWrite = proc.stdin.write(frame);
+        if (!canWrite) {
+          await new Promise((r) => proc.stdin.once("drain", r));
+        }
+      }
+      proc.stdin.end();
+    })().catch((err) => {
+      proc.kill();
+      reject(err);
+    });
+  });
+}
+
+// ─── sticker exif metadata ────────────────────────────────────────────────────
 function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
   const json = JSON.stringify({
     "sticker-pack-id": "ayobot-v1",
@@ -117,16 +221,14 @@ function buildStickerExif(packName = "AYOBOT V1", publisher = "AYOCODES") {
     "android-app-store-link": "",
     "ios-app-store-link": "",
   });
-
   const jsonBuf = Buffer.from(json, "utf-8");
   const header = Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]);
   return Buffer.concat([Buffer.from("Exif\x00\x00"), header, jsonBuf]);
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  STICKER
-//  FIX: video sticker ffmpeg now uses execFile args array — no shell quoting
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function sticker({ message, from, sock }) {
   try {
     const quoted =
@@ -145,17 +247,12 @@ export async function sticker({ message, from, sock }) {
 
     const isVideo = !!quoted.videoMessage;
     const mediaMsg = quoted.imageMessage || quoted.videoMessage;
-    const mediaBuffer = await downloadMedia(
-      mediaMsg,
-      isVideo ? "video" : "image",
-    );
-
+    const mediaBuf = await downloadMedia(mediaMsg, isVideo ? "video" : "image");
     const exif = buildStickerExif("AYOBOT V1", "AYOCODES");
-    let stickerBuffer;
 
     if (!isVideo) {
       // Image sticker — sharp handles this perfectly
-      stickerBuffer = await sharp(mediaBuffer)
+      const stickerBuf = await sharp(mediaBuf)
         .resize(512, 512, {
           fit: "contain",
           background: { r: 0, g: 0, b: 0, alpha: 0 },
@@ -164,26 +261,23 @@ export async function sticker({ message, from, sock }) {
         .toBuffer();
 
       await sock.sendMessage(from, {
-        sticker: stickerBuffer,
+        sticker: stickerBuf,
         mimetype: "image/webp",
         exif,
       });
     } else {
       // Video sticker
       const hasFfmpeg = await checkFfmpeg();
-
       if (!hasFfmpeg) {
-        // Static fallback — extract first frame
-        stickerBuffer = await sharp(mediaBuffer)
+        const fallback = await sharp(mediaBuf)
           .resize(512, 512, {
             fit: "contain",
             background: { r: 0, g: 0, b: 0, alpha: 0 },
           })
           .webp({ quality: 80 })
           .toBuffer();
-
         await sock.sendMessage(from, {
-          sticker: stickerBuffer,
+          sticker: fallback,
           mimetype: "image/webp",
           exif,
         });
@@ -195,11 +289,9 @@ export async function sticker({ message, from, sock }) {
 
       const inputPath = path.join(TEMP_DIR, `sticker_in_${Date.now()}.mp4`);
       const outputPath = path.join(TEMP_DIR, `sticker_out_${Date.now()}.webp`);
-
-      fs.writeFileSync(inputPath, mediaBuffer);
+      fs.writeFileSync(inputPath, mediaBuf);
 
       try {
-        // FIX: execFile with args array — parentheses in vf are safe — AYOCODES
         await execFilePromise("ffmpeg", [
           "-i",
           inputPath,
@@ -224,27 +316,23 @@ export async function sticker({ message, from, sock }) {
           outputPath,
         ]);
 
-        stickerBuffer = fs.readFileSync(outputPath);
-
+        const stickerBuf = fs.readFileSync(outputPath);
         await sock.sendMessage(from, {
-          sticker: stickerBuffer,
+          sticker: stickerBuf,
           mimetype: "image/webp",
           exif,
         });
       } catch (ffErr) {
         console.error("ffmpeg sticker error:", ffErr.message);
-
-        // Fallback to static on ffmpeg failure
-        stickerBuffer = await sharp(mediaBuffer)
+        const fallback = await sharp(mediaBuf)
           .resize(512, 512, {
             fit: "contain",
             background: { r: 0, g: 0, b: 0, alpha: 0 },
           })
           .webp({ quality: 80 })
           .toBuffer();
-
         await sock.sendMessage(from, {
-          sticker: stickerBuffer,
+          sticker: fallback,
           mimetype: "image/webp",
           exif,
         });
@@ -265,9 +353,9 @@ export async function sticker({ message, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  TO IMAGE — sticker → PNG
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function toImage({ message, from, sock }) {
   try {
     const quoted =
@@ -286,14 +374,12 @@ export async function toImage({ message, from, sock }) {
       text: "🔄 *Converting sticker to image...*",
     });
 
-    const stickerBuffer = await downloadMedia(quoted.stickerMessage, "image");
-    const pngBuffer = await sharp(stickerBuffer)
-      .png({ quality: 100 })
-      .toBuffer();
+    const stickerBuf = await downloadMedia(quoted.stickerMessage, "image");
+    const pngBuf = await sharp(stickerBuf).png({ quality: 100 }).toBuffer();
 
     await sock.sendMessage(from, {
-      image: pngBuffer,
-      caption: `🖼️ *Sticker → Image*\n📦 ${(pngBuffer.length / 1024).toFixed(1)} KB`,
+      image: pngBuf,
+      caption: `🖼️ *Sticker → Image*\n📦 ${(pngBuf.length / 1024).toFixed(1)} KB`,
     });
   } catch (e) {
     console.error("ToImage error:", e);
@@ -303,10 +389,20 @@ export async function toImage({ message, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  TO VIDEO — animated sticker → MP4
-//  FIX: execFile with args array — parentheses in vf filter are safe — AYOCODES
-// ============================================================================
+//
+//  ROOT CAUSE OF ERROR:
+//    ffmpeg -i sticker.webp  →  "[webp] skipping unsupported chunk: ANIM/ANMF"
+//    →  "image data not found"  →  "Could not find codec parameters for stream 0"
+//
+//  WHY:  WhatsApp stickers use ANIM/ANMF animated WebP which ffmpeg's own
+//        webp demuxer cannot parse. It silently skips all animation frames.
+//
+//  FIX:  Use sharp (libwebp) to extract each frame as PNG, then feed frames
+//        to ffmpeg via image2pipe stdin (-f image2pipe -i pipe:0).
+//        ffmpeg never touches the .webp file — it only sees PNG frames. ✅
+// ════════════════════════════════════════════════════════════════════════════
 export async function toVideo({ message, from, sock }) {
   try {
     const quoted =
@@ -335,40 +431,73 @@ export async function toVideo({ message, from, sock }) {
       });
     }
 
-    const stickerBuffer = await downloadMedia(quoted.stickerMessage, "image");
+    const stickerBuf = await downloadMedia(quoted.stickerMessage, "image");
 
-    const inputPath = path.join(TEMP_DIR, `stk_${Date.now()}.webp`);
-    const outputPath = path.join(TEMP_DIR, `vid_${Date.now()}.mp4`);
+    // ── Step 1: Extract frames using sharp (handles ANIM/ANMF correctly) ──
+    await sock.sendMessage(from, { text: "🔄 *Extracting frames...*" });
 
-    fs.writeFileSync(inputPath, stickerBuffer);
+    let frameData;
+    try {
+      frameData = await extractAnimatedWebpFrames(stickerBuf);
+    } catch (sharpErr) {
+      return sock.sendMessage(from, {
+        text: formatError(
+          "FRAME EXTRACTION FAILED",
+          `Could not read sticker frames: ${sharpErr.message}`,
+        ),
+      });
+    }
 
-    // FIX: execFile args array — (ow-iw)/2 and (oh-ih)/2 are passed directly
-    // to ffmpeg without shell interpretation — no more "(" unexpected — AYOCODES
-    await execFilePromise("ffmpeg", [
-      "-i",
-      inputPath,
-      "-c:v",
-      "libx264",
-      "-pix_fmt",
-      "yuv420p",
-      "-t",
-      "5",
-      "-vf",
-      "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black",
-      "-movflags",
-      "+faststart",
-      "-y",
-      outputPath,
-    ]);
+    const { frames, fps, width, height, isStatic } = frameData;
 
-    const videoBuffer = fs.readFileSync(outputPath);
+    if (isStatic || frames.length === 1) {
+      // Static sticker — just send as image
+      await sock.sendMessage(from, {
+        image: frames[0],
+        caption: `🖼️ *This is a static sticker — converted to image*\n👑 AYOCODES`,
+      });
+      return;
+    }
 
     await sock.sendMessage(from, {
-      video: videoBuffer,
-      caption: `🎬 *Sticker → Video*\n📦 ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`,
+      text: `🔄 *Processing ${frames.length} frames at ${fps}fps...*`,
     });
 
-    safeUnlink(inputPath, outputPath);
+    // ── Step 2: Pipe PNG frames to ffmpeg via stdin ────────────────────────
+    const outputPath = path.join(TEMP_DIR, `vid_${Date.now()}.mp4`);
+
+    try {
+      await pipeFramesToFfmpeg(frames, fps, outputPath, [
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-vf",
+        `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+        "-movflags",
+        "+faststart",
+      ]);
+
+      const videoBuf = fs.readFileSync(outputPath);
+
+      await sock.sendMessage(from, {
+        video: videoBuf,
+        caption:
+          `🎬 *Sticker → Video*\n` +
+          `🖼️ *Frames:* ${frames.length}\n` +
+          `🎞️ *FPS:* ${fps}\n` +
+          `📦 *Size:* ${(videoBuf.length / 1024 / 1024).toFixed(2)} MB\n` +
+          `👑 AYOCODES`,
+      });
+
+      safeUnlink(outputPath);
+    } catch (ffErr) {
+      safeUnlink(outputPath);
+      console.error("ToVideo ffmpeg error:", ffErr.message);
+      return sock.sendMessage(from, {
+        text: formatError("CONVERSION FAILED", ffErr.message.slice(0, 300)),
+      });
+    }
   } catch (e) {
     console.error("ToVideo error:", e);
     await sock.sendMessage(from, {
@@ -377,9 +506,9 @@ export async function toVideo({ message, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  TO GIF — video → GIF playback
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function toGif({ message, from, sock }) {
   try {
     const quoted =
@@ -413,7 +542,6 @@ export async function toGif({ message, from, sock }) {
 
     const inputPath = path.join(TEMP_DIR, `gif_in_${Date.now()}.mp4`);
     const outputPath = path.join(TEMP_DIR, `gif_out_${Date.now()}.mp4`);
-
     fs.writeFileSync(inputPath, videoBuffer);
 
     const duration = await getVideoDuration(inputPath);
@@ -453,9 +581,9 @@ export async function toGif({ message, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  TO AUDIO — video → MP3
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function toAudio({ message, from, sock }) {
   try {
     const quoted =
@@ -469,13 +597,10 @@ export async function toAudio({ message, from, sock }) {
 
     await sock.sendMessage(from, { text: "🔄 *Extracting audio...*" });
 
-    const isAudio = !!quoted.audioMessage;
-
-    // Already audio — re-send directly
-    if (isAudio) {
-      const audioBuffer = await downloadMedia(quoted.audioMessage, "audio");
+    if (quoted.audioMessage) {
+      const audioBuf = await downloadMedia(quoted.audioMessage, "audio");
       return sock.sendMessage(from, {
-        audio: audioBuffer,
+        audio: audioBuf,
         mimetype: "audio/mp4",
         ptt: false,
       });
@@ -501,7 +626,6 @@ export async function toAudio({ message, from, sock }) {
 
     const inputPath = path.join(TEMP_DIR, `vid_${Date.now()}.mp4`);
     const outputPath = path.join(TEMP_DIR, `aud_${Date.now()}.mp3`);
-
     fs.writeFileSync(inputPath, videoBuffer);
 
     await execFilePromise("ffmpeg", [
@@ -518,18 +642,17 @@ export async function toAudio({ message, from, sock }) {
       outputPath,
     ]);
 
-    const audioBuffer = fs.readFileSync(outputPath);
+    const audioBuf = fs.readFileSync(outputPath);
 
     await sock.sendMessage(from, {
-      audio: audioBuffer,
+      audio: audioBuf,
       mimetype: "audio/mpeg",
       ptt: false,
     });
-
     await sock.sendMessage(from, {
       text: formatSuccess(
         "AUDIO EXTRACTED",
-        `📦 Size: ${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB`,
+        `📦 Size: ${(audioBuf.length / 1024 / 1024).toFixed(2)} MB`,
       ),
     });
 
@@ -542,9 +665,9 @@ export async function toAudio({ message, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  REMOVE BACKGROUND
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function removeBg({ message, from, sock }) {
   try {
     const quoted =
@@ -564,10 +687,7 @@ export async function removeBg({ message, from, sock }) {
     const imageBuffer = await downloadMedia(quoted.imageMessage, "image");
     let resultBuffer = null;
 
-    // Try remove.bg API if key is set
-    const hasKey = ENV.REMOVEBG_KEY && ENV.REMOVEBG_KEY.length > 10;
-
-    if (hasKey) {
+    if (ENV.REMOVEBG_KEY && ENV.REMOVEBG_KEY.length > 10) {
       try {
         const form = new FormData();
         form.append("image_file", imageBuffer, {
@@ -575,27 +695,21 @@ export async function removeBg({ message, from, sock }) {
           contentType: "image/jpeg",
         });
         form.append("size", "auto");
-
         const res = await axios.post(
           "https://api.remove.bg/v1.0/removebg",
           form,
           {
-            headers: {
-              ...form.getHeaders(),
-              "X-Api-Key": ENV.REMOVEBG_KEY,
-            },
+            headers: { ...form.getHeaders(), "X-Api-Key": ENV.REMOVEBG_KEY },
             responseType: "arraybuffer",
             timeout: 30000,
           },
         );
-
         resultBuffer = Buffer.from(res.data);
       } catch (apiErr) {
         console.log(`remove.bg API failed: ${apiErr.message}`);
       }
     }
 
-    // Free fallback
     if (!resultBuffer) {
       try {
         const form = new FormData();
@@ -603,7 +717,6 @@ export async function removeBg({ message, from, sock }) {
           filename: "image.jpg",
           contentType: "image/jpeg",
         });
-
         const res = await axios.post(
           "https://sdk.photoroom.com/v1/segment",
           form,
@@ -613,10 +726,7 @@ export async function removeBg({ message, from, sock }) {
             timeout: 30000,
           },
         );
-
-        if (res.data?.byteLength > 1000) {
-          resultBuffer = Buffer.from(res.data);
-        }
+        if (res.data?.byteLength > 1000) resultBuffer = Buffer.from(res.data);
       } catch (_) {}
     }
 
@@ -635,15 +745,13 @@ export async function removeBg({ message, from, sock }) {
     }
   } catch (e) {
     console.error("RemoveBG error:", e);
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", e.message),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", e.message) });
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  MEME
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export async function meme({ message, fullArgs, from, sock }) {
   try {
     const quoted =
@@ -677,7 +785,6 @@ export async function meme({ message, fullArgs, from, sock }) {
     const meta = await sharp(imageBuffer).metadata();
     const w = meta.width || 512;
     const h = meta.height || 512;
-
     const fontSize = Math.max(24, Math.floor(w * 0.08));
     const padding = Math.floor(fontSize * 0.6);
 
@@ -717,9 +824,9 @@ export async function meme({ message, fullArgs, from, sock }) {
   }
 }
 
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 //  DEFAULT EXPORT
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════
 export default {
   sticker,
   toImage,

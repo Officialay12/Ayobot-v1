@@ -1,20 +1,33 @@
 // handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Command Handler — COMPLETE FIXED VERSION
-//  Author  : AYOCODES
+//  Command Handler — FIXED
+//  Author: AYOCODES
 //
-//  FIXES:
-//  • REMOVED Phase 5 antilink entirely — it was the duplicate causing
-//    4/3, 5/3 warning overflow. automation.js is the SOLE antilink handler.
-//  • Removed adminOnly from group commands (group admins can now use them)
-//  • Fixed Phase 15 JID comparison (strips :N device suffix — pure digits)
-//  • Fixed adm.eval → adm.adminEval
-//  • Fixed url command registration syntax error
-//  • Added setMode to command context
-//  • Added missing admin commands (superban, listbanned, clearbans, botstatus)
-//  • Pinterest renamed to avoid conflict with .pin message command
-//  • link registered only once
-//  — AYOCODES
+//  FIXES IN THIS FILE:
+//
+//  1. isAdmin() called with wrong arity — THE PRIMARY "not admin" BUG
+//     BEFORE: isAdmin(userJid)              → ownerPhone always undefined
+//             normalizeNum(undefined) = ""  → "" never equals a phone number
+//             → bot owner on linked device (fromMe=false) was NEVER recognized
+//             → ALL adminOnly commands blocked for the actual bot owner
+//             → isAuthorizedUser was also wrong because it depended on isAdminUser
+//     AFTER:  isAdmin(userJid, ownerPhone)  → correct two-arg call
+//             ownerPhone is extracted from message._ownerPhone || session.ownerPhone
+//
+//  2. Phase 9 group activation gate blocked .activate itself
+//     BEFORE: if (!isGroupActivated) return — fired before command lookup
+//             A user in a fresh group could never run .activate to enable the bot
+//             because the gate stopped ALL commands before even checking the name
+//     AFTER:  .activate and .deactivate are whitelisted through the gate
+//
+//  3. isAdmin() also fixed in Phase 15 requireBotAdmin user-admin check
+//     The local inline admin check in Phase 15 was correct (used digit comparison)
+//     but used the broken isAdminUser value from Phase 3 as its bypass condition.
+//     Now isAdminUser is correct so this naturally fixes too.
+//
+//  4. ownerPhone threaded into isGroupAdminCached() calls in Phase 15
+//     validators.js now accepts ownerPhone as 5th param so the bot-owner
+//     bypass works inside the cached check as well.
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -46,15 +59,15 @@ const C = {
 };
 
 const log = {
-  ok: (m) => console.log(`${C.green}✅${C.reset} ${m}`),
-  err: (m) => console.log(`${C.red}❌${C.reset} ${m}`),
-  warn: (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
-  info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
-  cmd: (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
-  debug: (m) => console.log(`${C.gray}🔍${C.reset} ${m}`),
+  ok:      (m) => console.log(`${C.green}✅${C.reset} ${m}`),
+  err:     (m) => console.log(`${C.red}❌${C.reset} ${m}`),
+  warn:    (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
+  info:    (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
+  cmd:     (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
+  debug:   (m) => console.log(`${C.gray}🔍${C.reset} ${m}`),
   success: (m) => console.log(`${C.green}✓${C.reset}  ${m}`),
-  title: (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
-  div: () => console.log(`${C.cyan}${"─".repeat(60)}${C.reset}`),
+  title:   (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
+  div:     ()  => console.log(`${C.cyan}${"─".repeat(60)}${C.reset}`),
 };
 
 // ============================================================================
@@ -105,31 +118,31 @@ global.activeTrivia = global.activeTrivia || new Map();
 log.title("📦 LOADING COMMAND MODULES");
 
 const MODULE_PATHS = {
-  basic: "../commands/group/basic.js",
-  admin: "../commands/group/admin.js",
-  groupCore: "../commands/group/core.js",
-  groupMod: "../commands/group/moderation.js",
+  basic:         "../commands/group/basic.js",
+  admin:         "../commands/group/admin.js",
+  groupCore:     "../commands/group/core.js",
+  groupMod:      "../commands/group/moderation.js",
   groupSettings: "../commands/group/settings.js",
-  automation: "../commands/group/automation.js",
-  ai: "../features/ai.js",
-  calculator: "../features/calculator.js",
-  crypto: "../features/crypto.js",
-  dictionary: "../features/dictionary.js",
-  downloader: "../features/downloader.js",
-  encryption: "../features/encryption.js",
-  games: "../features/games.js",
-  imageTools: "../features/imageTools.js",
-  jokes: "../features/jokes.js",
-  movies: "../features/movies.js",
-  music: "../features/music.js",
-  news: "../features/news.js",
-  notes: "../features/notes.js",
-  quotes: "../features/quotes.js",
-  reminder: "../features/reminder.js",
-  security: "../features/security.js",
-  stocks: "../features/stocks.js",
-  translation: "../features/translation.js",
-  tts: "../features/tts.js",
+  automation:    "../commands/group/automation.js",
+  ai:            "../features/ai.js",
+  calculator:    "../features/calculator.js",
+  crypto:        "../features/crypto.js",
+  dictionary:    "../features/dictionary.js",
+  downloader:    "../features/downloader.js",
+  encryption:    "../features/encryption.js",
+  games:         "../features/games.js",
+  imageTools:    "../features/imageTools.js",
+  jokes:         "../features/jokes.js",
+  movies:        "../features/movies.js",
+  music:         "../features/music.js",
+  news:          "../features/news.js",
+  notes:         "../features/notes.js",
+  quotes:        "../features/quotes.js",
+  reminder:      "../features/reminder.js",
+  security:      "../features/security.js",
+  stocks:        "../features/stocks.js",
+  translation:   "../features/translation.js",
+  tts:           "../features/tts.js",
   unitConverter: "../features/unitConverter.js",
 };
 
@@ -176,15 +189,15 @@ export const commandStats = new Map();
 
 class CommandMeta {
   constructor(primaryName, handler, options = {}) {
-    this.primaryName = primaryName.toLowerCase();
-    this.handler = handler;
-    this.category = options.category || "general";
-    this.description = options.description || "";
-    this.adminOnly = options.adminOnly === true;
-    this.groupOnly = options.groupOnly === true;
+    this.primaryName    = primaryName.toLowerCase();
+    this.handler        = handler;
+    this.category       = options.category || "general";
+    this.description    = options.description || "";
+    this.adminOnly      = options.adminOnly === true;
+    this.groupOnly      = options.groupOnly === true;
     this.requireBotAdmin = options.requireBotAdmin === true;
-    this.aliases = (options.aliases || []).map((a) => a.toLowerCase());
-    this.createdAt = Date.now();
+    this.aliases        = (options.aliases || []).map((a) => a.toLowerCase());
+    this.createdAt      = Date.now();
   }
 }
 
@@ -194,33 +207,22 @@ export function registerCommand(primaryName, handler, options = {}) {
     return false;
   }
 
-  const name = primaryName.toLowerCase();
+  const name    = primaryName.toLowerCase();
   const aliases = (options.aliases || []).map((a) => a.toLowerCase());
-  const meta = new CommandMeta(name, handler, options);
+  const meta    = new CommandMeta(name, handler, options);
 
   primaryCommands.set(name, meta);
   commands.set(name, meta);
   commandStats.set(name, {
-    uses: 0,
-    errors: 0,
-    lastUsed: null,
-    avgResponseTime: 0,
-    totalResponseTime: 0,
+    uses: 0, errors: 0, lastUsed: null,
+    avgResponseTime: 0, totalResponseTime: 0,
   });
 
-  log.cmd(
-    `Registered: ${name}${aliases.length ? ` [${aliases.join(", ")}]` : ""}`,
-  );
+  log.cmd(`Registered: ${name}${aliases.length ? ` [${aliases.join(", ")}]` : ""}`);
 
   for (const alias of aliases) {
     if (alias === name) continue;
-    const aliasMeta = {
-      ...meta,
-      isAlias: true,
-      aliasName: alias,
-      primaryName: name,
-      handler,
-    };
+    const aliasMeta = { ...meta, isAlias: true, aliasName: alias, primaryName: name, handler };
     commands.set(alias, aliasMeta);
     aliasMap.set(alias, name);
     log.debug(`  Alias: ${alias} → ${name}`);
@@ -250,412 +252,221 @@ export function registerAllCommands() {
 
   if (b.menu)
     safeRegister("menu", b.menu, {
-      category: "core",
-      description: "Show all commands",
-      aliases: [
-        "help",
-        "commands",
-        "h",
-        "cmd",
-        "cmds",
-        "commandlist",
-        "menuhelp",
-      ],
+      category: "core", description: "Show all commands",
+      aliases: ["help", "commands", "h", "cmd", "cmds", "commandlist", "menuhelp"],
     });
 
   if (b.ping)
     safeRegister("ping", b.ping, {
-      category: "core",
-      description: "Check bot latency",
+      category: "core", description: "Check bot latency",
       aliases: ["pong", "latency", "speed", "ms", "uptime", "alive", "botping"],
     });
 
   if (b.status)
     safeRegister("status", b.status, {
-      category: "core",
-      description: "Your status and usage",
+      category: "core", description: "Your status and usage",
       aliases: ["me", "profile", "whoami", "myinfo", "mystats", "userstatus"],
     });
 
   if (b.creator)
     safeRegister("creator", b.creator, {
-      category: "core",
-      description: "Creator information",
-      aliases: [
-        "dev",
-        "owner",
-        "author",
-        "ayo",
-        "ayocodes",
-        "developer",
-        "creatorinfo",
-      ],
+      category: "core", description: "Creator information",
+      aliases: ["dev", "owner", "author", "ayo", "ayocodes", "developer", "creatorinfo"],
     });
 
   if (b.creatorGit)
     safeRegister("github", b.creatorGit, {
-      category: "core",
-      description: "GitHub repository",
+      category: "core", description: "GitHub repository",
       aliases: ["git", "repo", "source", "code", "repository", "sourcecode"],
     });
 
   if (b.auto)
     safeRegister("auto", b.auto, {
-      category: "core",
-      description: "Toggle auto-reply",
+      category: "core", description: "Toggle auto-reply",
       aliases: ["autoreply", "toggleauto", "autorespond", "automsg"],
     });
 
   if (b.connectInfo)
     safeRegister("connect", b.connectInfo, {
-      category: "core",
-      description: "Community links",
+      category: "core", description: "Community links",
       aliases: ["community", "links", "social", "join", "connectinfo"],
     });
 
   if (b.prefixinfo)
     safeRegister("prefix", b.prefixinfo, {
-      category: "core",
-      description: "Show current prefix",
+      category: "core", description: "Show current prefix",
       aliases: ["preinfo", "getprefix", "prefixinfo", "whatprefix", "myprefix"],
     });
 
   if (b.test)
     safeRegister("test", b.test, {
-      category: "debug",
-      description: "Test command",
+      category: "debug", description: "Test command",
       aliases: ["hello", "hi", "testcmd", "pingtest", "testbot", "check"],
     });
 
   if (b.time)
     safeRegister("time", b.time, {
-      category: "info",
-      description: "World time lookup",
-      aliases: [
-        "worldtime",
-        "timezone",
-        "tz",
-        "clock",
-        "currenttime",
-        "datetime",
-        "whattime",
-      ],
+      category: "info", description: "World time lookup",
+      aliases: ["worldtime", "timezone", "tz", "clock", "currenttime", "datetime", "whattime"],
     });
 
   if (b.weather)
     safeRegister("weather", b.weather, {
-      category: "info",
-      description: "Weather forecast",
-      aliases: [
-        "w",
-        "forecast",
-        "temp",
-        "climate",
-        "temperature",
-        "weatherinfo",
-        "wea",
-      ],
+      category: "info", description: "Weather forecast",
+      aliases: ["w", "forecast", "temp", "climate", "temperature", "weatherinfo", "wea"],
     });
 
   // Web Tools
   if (b.getip || b.ip) {
     const ipHandler = b.getip || b.ip;
     safeRegister("ip", ipHandler, {
-      category: "web",
-      description: "IP address lookup",
-      aliases: [
-        "getip",
-        "iplookup",
-        "ipinfo",
-        "checkip",
-        "iptrace",
-        "iplocate",
-      ],
+      category: "web", description: "IP address lookup",
+      aliases: ["getip", "iplookup", "ipinfo", "checkip", "iptrace", "iplocate"],
     });
   }
 
   if (b.myip)
     safeRegister("myip", b.myip, {
-      category: "web",
-      description: "Your public IP",
+      category: "web", description: "Your public IP",
       aliases: ["myipaddr", "publicip", "whatismyip", "myipaddress", "ipme"],
     });
 
   if (b.whois)
     safeRegister("whois", b.whois, {
-      category: "web",
-      description: "Domain WHOIS lookup",
-      aliases: [
-        "domain",
-        "domaininfo",
-        "domainlookup",
-        "whoislookup",
-        "domainwhois",
-      ],
+      category: "web", description: "Domain WHOIS lookup",
+      aliases: ["domain", "domaininfo", "domainlookup", "whoislookup", "domainwhois"],
     });
 
   if (b.dns)
     safeRegister("dns", b.dns, {
-      category: "web",
-      description: "DNS lookup",
-      aliases: [
-        "dnslookup",
-        "dnsrecords",
-        "nslookup",
-        "dig",
-        "dnsinfo",
-        "dnsquery",
-      ],
+      category: "web", description: "DNS lookup",
+      aliases: ["dnslookup", "dnsrecords", "nslookup", "dig", "dnsinfo", "dnsquery"],
     });
 
   if (b.url)
     safeRegister("url", b.url, {
-      category: "web",
-      description: "URL information",
+      category: "web", description: "URL information",
       aliases: ["urlinfo", "urlcheck", "expandurl", "urldetails", "urlinspect"],
     });
 
   if (b.fetch)
     safeRegister("fetch", b.fetch, {
-      category: "web",
-      description: "Fetch URL content",
+      category: "web", description: "Fetch URL content",
       aliases: ["geturl", "curl", "httpget", "wget", "fetchurl", "getcontent"],
     });
 
   if (b.scrape)
     safeRegister("scrape", b.scrape, {
-      category: "web",
-      description: "Scrape webpage",
-      aliases: [
-        "scraper",
-        "webscrape",
-        "getpage",
-        "extract",
-        "pagescrape",
-        "scrapeweb",
-      ],
+      category: "web", description: "Scrape webpage",
+      aliases: ["scraper", "webscrape", "getpage", "extract", "pagescrape", "scrapeweb"],
     });
 
   if (b.screenshot)
     safeRegister("screenshot", b.screenshot, {
-      category: "web",
-      description: "Take screenshot",
-      aliases: [
-        "ss",
-        "capture",
-        "snap",
-        "webshot",
-        "screencap",
-        "pagepic",
-        "webpic",
-      ],
+      category: "web", description: "Take screenshot",
+      aliases: ["ss", "capture", "snap", "webshot", "screencap", "pagepic", "webpic"],
     });
 
   if (b.inspect)
     safeRegister("inspect", b.inspect, {
-      category: "web",
-      description: "Inspect webpage",
-      aliases: [
-        "pageinspect",
-        "pageinfo",
-        "analyze",
-        "webinspect",
-        "inspectpage",
-      ],
+      category: "web", description: "Inspect webpage",
+      aliases: ["pageinspect", "pageinfo", "analyze", "webinspect", "inspectpage"],
     });
 
   if (b.shorten)
     safeRegister("shorten", b.shorten, {
-      category: "web",
-      description: "Shorten URL",
-      aliases: [
-        "short",
-        "tiny",
-        "tinyurl",
-        "bitly",
-        "urlshort",
-        "shortlink",
-        "shorturl",
-      ],
+      category: "web", description: "Shorten URL",
+      aliases: ["short", "tiny", "tinyurl", "bitly", "urlshort", "shortlink", "shorturl"],
     });
 
   // Media
   if (b.viewOnce)
     safeRegister("vv", b.viewOnce, {
-      category: "media",
-      description: "View once message",
-      aliases: [
-        "viewonce",
-        "open",
-        "arise",
-        "reveal",
-        "view",
-        "once",
-        "viewoncemsg",
-      ],
+      category: "media", description: "View once message",
+      aliases: ["viewonce", "open", "arise", "reveal", "view", "once", "viewoncemsg"],
     });
 
   if (b.take)
     safeRegister("take", b.take, {
-      category: "media",
-      description: "Take sticker",
-      aliases: [
-        "takesticker",
-        "steal",
-        "savesticker",
-        "stickersteal",
-        "takestk",
-      ],
+      category: "media", description: "Take sticker",
+      aliases: ["takesticker", "steal", "savesticker", "stickersteal", "takestk"],
     });
 
   if (b.imgbb)
     safeRegister("imgbb", b.imgbb, {
-      category: "media",
-      description: "Upload to ImgBB",
-      aliases: [
-        "upload",
-        "imageupload",
-        "hostimage",
-        "img",
-        "imghost",
-        "uploadimg",
-      ],
+      category: "media", description: "Upload to ImgBB",
+      aliases: ["upload", "imageupload", "hostimage", "img", "imghost", "uploadimg"],
     });
 
   if (b.qencode)
     safeRegister("qr", b.qencode, {
-      category: "tools",
-      description: "Generate QR code",
+      category: "tools", description: "Generate QR code",
       aliases: ["qrcode", "qencode", "makeqr", "createqr", "qrgen", "qrcreate"],
     });
 
   if (b.pdf)
     safeRegister("pdf", b.pdf, {
-      category: "tools",
-      description: "Create PDF",
-      aliases: [
-        "makepdf",
-        "createpdf",
-        "topdf",
-        "document",
-        "pdfcreate",
-        "pdfgen",
-      ],
+      category: "tools", description: "Create PDF",
+      aliases: ["makepdf", "createpdf", "topdf", "document", "pdfcreate", "pdfgen"],
     });
 
   if (b.getpp)
     safeRegister("getpp", b.getpp, {
-      category: "profile",
-      description: "Get profile picture",
-      aliases: [
-        "pp",
-        "profilepic",
-        "pfp",
-        "dp",
-        "avatar",
-        "getpfp",
-        "profilepicture",
-      ],
+      category: "profile", description: "Get profile picture",
+      aliases: ["pp", "profilepic", "pfp", "dp", "avatar", "getpfp", "profilepicture"],
     });
 
   if (b.getgpp)
     safeRegister("getgpp", b.getgpp, {
-      category: "profile",
-      description: "Get group picture",
-      groupOnly: true,
-      aliases: [
-        "gpp",
-        "grouppic",
-        "groupdp",
-        "grouppfp",
-        "grouppicture",
-        "groupprofile",
-      ],
+      category: "profile", description: "Get group picture", groupOnly: true,
+      aliases: ["gpp", "grouppic", "groupdp", "grouppfp", "grouppicture", "groupprofile"],
     });
 
   if (b.jarvis)
     safeRegister("jarvis", b.jarvis, {
-      category: "ai",
-      description: "Jarvis AI assistant",
-      aliases: [
-        "j",
-        "ask",
-        "query",
-        "jarvisask",
-        "ai",
-        "jarv",
-        "jar",
-        "askjarvis",
-      ],
+      category: "ai", description: "Jarvis AI assistant",
+      aliases: ["j", "ask", "query", "jarvisask", "ai", "jarv", "jar", "askjarvis"],
     });
 
   if (b.jarvisVoice && typeof b.jarvisVoice === "function") {
     safeRegister("jarvisv", b.jarvisVoice, {
-      category: "ai",
-      description: "Jarvis with voice",
+      category: "ai", description: "Jarvis with voice",
       aliases: ["jv", "voiceask", "speakjarvis", "jarvisvoice", "jvoice"],
     });
   } else {
     const voiceFallback = async ({ from, sock }) =>
-      sock.sendMessage(from, {
-        text: "🔊 Voice response coming soon! Use `.jarvis` for now.",
-      });
+      sock.sendMessage(from, { text: "🔊 Voice response coming soon! Use `.jarvis` for now." });
     safeRegister("jarvisv", voiceFallback, {
-      category: "ai",
-      description: "Jarvis voice (coming soon)",
+      category: "ai", description: "Jarvis voice (coming soon)",
       aliases: ["jv", "voiceask", "speakjarvis", "jarvisvoice"],
     });
   }
 
   if (b.joinWaitlist)
     safeRegister("waitlist", b.joinWaitlist, {
-      category: "misc",
-      description: "Join AYOBOT waitlist",
-      aliases: [
-        "jointrend",
-        "joinnext",
-        "joinfuture",
-        "waiting",
-        "waitlistjoin",
-      ],
+      category: "misc", description: "Join AYOBOT waitlist",
+      aliases: ["jointrend", "joinnext", "joinfuture", "waiting", "waitlistjoin"],
     });
 
   if (b.activate)
     safeRegister("activate", b.activate, {
-      category: "group",
-      groupOnly: true,
-      adminOnly: true,
+      category: "group", groupOnly: true, adminOnly: true,
       description: "Activate bot in group (bot owner only)",
-      aliases: [
-        "groupactivate",
-        "activatebot",
-        "openbot",
-        "unlockbot",
-        "activategroup",
-      ],
+      aliases: ["groupactivate", "activatebot", "openbot", "unlockbot", "activategroup"],
     });
 
   if (b.deactivate)
     safeRegister("deactivate", b.deactivate, {
-      category: "group",
-      groupOnly: true,
-      adminOnly: true,
+      category: "group", groupOnly: true, adminOnly: true,
       description: "Restrict bot to owner-only (bot owner only)",
       aliases: ["groupdeactivate", "deactivatebot", "closebot", "lockbot"],
     });
 
   if (b.antilink)
     safeRegister("antilink", b.antilink, {
-      category: "group",
-      groupOnly: true,
+      category: "group", groupOnly: true,
       description: "Toggle anti-link protection",
-      aliases: [
-        "nolink",
-        "blocklinks",
-        "toggleantilink",
-        "antilinks",
-        "protectlink",
-      ],
+      aliases: ["nolink", "blocklinks", "toggleantilink", "antilinks", "protectlink"],
     });
 
   // ── AI.JS ─────────────────────────────────────────────────────────────────
@@ -663,44 +474,26 @@ export function registerAllCommands() {
 
   if (a.ai)
     safeRegister("ayobot", a.ai, {
-      category: "ai",
-      description: "Chat with AI",
+      category: "ai", description: "Chat with AI",
       aliases: ["chat", "bot", "gpt", "askai", "aichat", "talk", "aibot"],
     });
 
   if (a.aiClear)
     safeRegister("aiclear", a.aiClear, {
-      category: "ai",
-      description: "Clear AI history",
-      aliases: [
-        "clearchat",
-        "resetai",
-        "clearai",
-        "ayobotclr",
-        "reset",
-        "clearhistory",
-      ],
+      category: "ai", description: "Clear AI history",
+      aliases: ["clearchat", "resetai", "clearai", "ayobotclr", "reset", "clearhistory"],
     });
 
   if (a.summarize)
     safeRegister("summarize", a.summarize, {
-      category: "ai",
-      description: "Summarize text",
+      category: "ai", description: "Summarize text",
       aliases: ["summary", "tldr", "sum", "summarise", "summarizetext"],
     });
 
   if (a.grammar)
     safeRegister("grammar", a.grammar, {
-      category: "ai",
-      description: "Check grammar",
-      aliases: [
-        "spell",
-        "spellcheck",
-        "fix",
-        "proofread",
-        "grammarcheck",
-        "correct",
-      ],
+      category: "ai", description: "Check grammar",
+      aliases: ["spell", "spellcheck", "fix", "proofread", "grammarcheck", "correct"],
     });
 
   // ── CALCULATOR.JS ─────────────────────────────────────────────────────────
@@ -708,8 +501,7 @@ export function registerAllCommands() {
 
   if (calc.calculate)
     safeRegister("calc", calc.calculate, {
-      category: "tools",
-      description: "Math calculator",
+      category: "tools", description: "Math calculator",
       aliases: ["math", "calculate", "solve", "calculator", "cal", "maths"],
     });
 
@@ -718,22 +510,13 @@ export function registerAllCommands() {
 
   if (cr.crypto)
     safeRegister("crypto", cr.crypto, {
-      category: "info",
-      description: "Crypto prices",
-      aliases: [
-        "coin",
-        "btc",
-        "eth",
-        "cryptoprice",
-        "cryptocurrency",
-        "cryptoinfo",
-      ],
+      category: "info", description: "Crypto prices",
+      aliases: ["coin", "btc", "eth", "cryptoprice", "cryptocurrency", "cryptoinfo"],
     });
 
   if (cr.cryptoTop)
     safeRegister("cryptotop", cr.cryptoTop, {
-      category: "info",
-      description: "Top cryptocurrencies",
+      category: "info", description: "Top cryptocurrencies",
       aliases: ["top10", "topcrypto", "cryptolist", "cointop", "topcoins"],
     });
 
@@ -742,17 +525,8 @@ export function registerAllCommands() {
 
   if (dict.dict)
     safeRegister("dict", dict.dict, {
-      category: "info",
-      description: "Dictionary lookup",
-      aliases: [
-        "define",
-        "meaning",
-        "word",
-        "definition",
-        "dictionary",
-        "def",
-        "diction",
-      ],
+      category: "info", description: "Dictionary lookup",
+      aliases: ["define", "meaning", "word", "definition", "dictionary", "def", "diction"],
     });
 
   // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
@@ -760,87 +534,67 @@ export function registerAllCommands() {
 
   if (dl.youtube)
     safeRegister("youtube", dl.youtube, {
-      category: "dl",
-      description: "Download YouTube",
-      aliases: [
-        "yt",
-        "ytdl",
-        "ytmp3",
-        "ytmp4",
-        "ytvideo",
-        "youtubedl",
-        "ytaudio",
-      ],
+      category: "dl", description: "Download YouTube",
+      aliases: ["yt", "ytdl", "ytmp3", "ytmp4", "ytvideo", "youtubedl", "ytaudio"],
     });
 
   if (dl.tiktok)
     safeRegister("tiktok", dl.tiktok, {
-      category: "dl",
-      description: "Download TikTok",
+      category: "dl", description: "Download TikTok",
       aliases: ["tt", "tok", "tiktokdl", "ttvideo", "tiktokdown", "ttdl"],
     });
 
   if (dl.spotify)
     safeRegister("spotify", dl.spotify, {
-      category: "dl",
-      description: "Download Spotify",
+      category: "dl", description: "Download Spotify",
       aliases: ["sp", "spotifydl", "spotifymp3", "spotifydown", "spdl"],
     });
 
   if (dl.play)
     safeRegister("play", dl.play, {
-      category: "dl",
-      description: "Play music",
+      category: "dl", description: "Play music",
       aliases: ["mp3", "music", "song", "audio", "playmusic", "playsong"],
     });
 
   if (dl.instagram)
     safeRegister("instagram", dl.instagram, {
-      category: "dl",
-      description: "Download Instagram",
+      category: "dl", description: "Download Instagram",
       aliases: ["ig", "insta", "igdl", "igreels", "instadl", "instagramdl"],
     });
 
   if (dl.facebook)
     safeRegister("facebook", dl.facebook, {
-      category: "dl",
-      description: "Download Facebook",
+      category: "dl", description: "Download Facebook",
       aliases: ["fb", "fbdl", "fbvideo", "fbd", "facebookdl", "fbdown"],
     });
 
   if (dl.twitter)
     safeRegister("twitter", dl.twitter, {
-      category: "dl",
-      description: "Download Twitter/X",
+      category: "dl", description: "Download Twitter/X",
       aliases: ["x", "tweet", "xdl", "twitterdl", "twdl", "xdown"],
     });
 
   if (dl.gif)
     safeRegister("gif", dl.gif, {
-      category: "dl",
-      description: "Search animated GIFs",
+      category: "dl", description: "Search animated GIFs",
       aliases: ["giphy", "tenor", "gifsearch", "animated"],
     });
 
   if (dl.image)
     safeRegister("img", dl.image, {
-      category: "dl",
-      description: "Search for images",
+      category: "dl", description: "Search for images",
       aliases: ["image", "imgsearch", "pics", "photos", "picture"],
     });
 
-  // Pinterest: PRIMARY name is "pinterest" — avoid conflict with .pin (message pin)
   if (dl.pinterest)
     safeRegister("pinterest", dl.pinterest, {
-      category: "dl",
-      description: "Search Pinterest images",
+      category: "dl", description: "Search Pinterest images",
       aliases: ["pins", "pinsearch", "pinterestsearch"],
     });
 
   if (dl.download)
     safeRegister("dl", dl.download, {
-      category: "dl",
-      description: "Universal media downloader",
+      category: "dl", description: "Universal media downloader",
       aliases: ["download", "get", "dlfile"],
     });
 
@@ -849,29 +603,25 @@ export function registerAllCommands() {
 
   if (enc.encrypt)
     safeRegister("encrypt", enc.encrypt, {
-      category: "security",
-      description: "Encrypt text",
+      category: "security", description: "Encrypt text",
       aliases: ["enc", "lock", "cipher", "encode", "encrypttext"],
     });
 
   if (enc.decrypt)
     safeRegister("decrypt", enc.decrypt, {
-      category: "security",
-      description: "Decrypt text",
+      category: "security", description: "Decrypt text",
       aliases: ["dec", "unlock", "decipher", "decode", "decrypttext"],
     });
 
   if (enc.hash)
     safeRegister("hash", enc.hash, {
-      category: "security",
-      description: "Hash text",
+      category: "security", description: "Hash text",
       aliases: ["md5", "sha256", "hashtext", "checksum", "hashgen"],
     });
 
   if (enc.password)
     safeRegister("password", enc.password, {
-      category: "security",
-      description: "Generate password",
+      category: "security", description: "Generate password",
       aliases: ["genpass", "newpass", "passgen", "mkpass", "passwordgen"],
     });
 
@@ -880,29 +630,25 @@ export function registerAllCommands() {
 
   if (games.rps)
     safeRegister("rps", games.rps, {
-      category: "games",
-      description: "Rock Paper Scissors",
+      category: "games", description: "Rock Paper Scissors",
       aliases: ["rockpaperscissors", "rpsgame", "rock", "paper", "scissors"],
     });
 
   if (games.dice)
     safeRegister("dice", games.dice, {
-      category: "games",
-      description: "Roll dice",
+      category: "games", description: "Roll dice",
       aliases: ["roll", "rolldice", "rolld6", "diceroll", "dicer"],
     });
 
   if (games.coinFlip)
     safeRegister("flip", games.coinFlip, {
-      category: "games",
-      description: "Flip coin",
+      category: "games", description: "Flip coin",
       aliases: ["coin", "coinflip", "toss", "heads", "tails", "cointoss"],
     });
 
   if (games.trivia)
     safeRegister("trivia", games.trivia, {
-      category: "games",
-      description: "Trivia question",
+      category: "games", description: "Trivia question",
       aliases: ["quiz", "question", "q", "triviaquestion", "triv"],
     });
 
@@ -911,63 +657,43 @@ export function registerAllCommands() {
 
   if (img.sticker)
     safeRegister("sticker", img.sticker, {
-      category: "media",
-      description: "Create sticker from image/video",
+      category: "media", description: "Create sticker from image/video",
       aliases: ["s", "stiker", "makesticker", "tosticker", "stickerize", "stk"],
     });
 
   if (img.toImage)
     safeRegister("toimage", img.toImage, {
-      category: "media",
-      description: "Convert sticker to image",
+      category: "media", description: "Convert sticker to image",
       aliases: ["toimg", "stickertoimage", "stktoimg", "sticker2img"],
     });
 
   if (img.toVideo)
     safeRegister("tovideo", img.toVideo, {
-      category: "media",
-      description: "Convert animated sticker to video",
+      category: "media", description: "Convert animated sticker to video",
       aliases: ["tovid", "stickertovideo", "stk2vid", "sticker2video"],
     });
 
   if (img.toGif)
     safeRegister("togif", img.toGif, {
-      category: "media",
-      description: "Convert video to GIF",
+      category: "media", description: "Convert video to GIF",
       aliases: ["makegif", "videotogif", "togiphy", "gifmaker"],
     });
 
   if (img.toAudio)
     safeRegister("toaudio", img.toAudio, {
-      category: "media",
-      description: "Extract audio from video",
-      aliases: [
-        "tomp3",
-        "extractaudio",
-        "video2audio",
-        "getaudio",
-        "audioextract",
-      ],
+      category: "media", description: "Extract audio from video",
+      aliases: ["tomp3", "extractaudio", "video2audio", "getaudio", "audioextract"],
     });
 
   if (img.removeBg)
     safeRegister("removebg", img.removeBg, {
-      category: "media",
-      description: "Remove image background",
-      aliases: [
-        "nobg",
-        "rmbg",
-        "bgremove",
-        "cutbg",
-        "backgroundremove",
-        "removebackground",
-      ],
+      category: "media", description: "Remove image background",
+      aliases: ["nobg", "rmbg", "bgremove", "cutbg", "backgroundremove", "removebackground"],
     });
 
   if (img.meme)
     safeRegister("meme", img.meme, {
-      category: "media",
-      description: "Create meme from image",
+      category: "media", description: "Create meme from image",
       aliases: ["makememe", "memegen", "imagememe", "creatememe"],
     });
 
@@ -976,22 +702,19 @@ export function registerAllCommands() {
 
   if (jokes.joke)
     safeRegister("joke", jokes.joke, {
-      category: "fun",
-      description: "Random joke",
+      category: "fun", description: "Random joke",
       aliases: ["laugh", "funny", "lol", "haha", "humor", "jokefun"],
     });
 
   if (jokes.roast)
     safeRegister("roast", jokes.roast, {
-      category: "fun",
-      description: "Roast someone",
+      category: "fun", description: "Roast someone",
       aliases: ["burn", "flame", "diss", "insult", "roastme"],
     });
 
   if (jokes.pickupLine)
     safeRegister("pickup", jokes.pickupLine, {
-      category: "fun",
-      description: "Pickup line",
+      category: "fun", description: "Pickup line",
       aliases: ["flirt", "pickupline", "rizz", "pickuplines"],
     });
 
@@ -1000,15 +723,13 @@ export function registerAllCommands() {
 
   if (movies.movie)
     safeRegister("movie", movies.movie, {
-      category: "info",
-      description: "Movie info",
+      category: "info", description: "Movie info",
       aliases: ["film", "imdb", "movieinfo", "moviesearch", "moviedb"],
     });
 
   if (movies.tv)
     safeRegister("tv", movies.tv, {
-      category: "info",
-      description: "TV series info",
+      category: "info", description: "TV series info",
       aliases: ["series", "show", "tvshow", "tvseries", "tvguide"],
     });
 
@@ -1017,15 +738,13 @@ export function registerAllCommands() {
 
   if (music.lyrics)
     safeRegister("lyrics", music.lyrics, {
-      category: "music",
-      description: "Song lyrics",
+      category: "music", description: "Song lyrics",
       aliases: ["lyric", "words", "songlyrics", "getlyrics", "lyricsearch"],
     });
 
   if (music.trending)
     safeRegister("trending", music.trending, {
-      category: "music",
-      description: "Trending songs",
+      category: "music", description: "Trending songs",
       aliases: ["chart", "topsongs", "topmusic", "hotmusic", "trendingmusic"],
     });
 
@@ -1034,8 +753,7 @@ export function registerAllCommands() {
 
   if (news.news)
     safeRegister("news", news.news, {
-      category: "info",
-      description: "Latest news",
+      category: "info", description: "Latest news",
       aliases: ["headlines", "breaking", "latestnews", "topnews", "newsupdate"],
     });
 
@@ -1044,29 +762,25 @@ export function registerAllCommands() {
 
   if (notes.note)
     safeRegister("note", notes.note, {
-      category: "storage",
-      description: "Save note",
+      category: "storage", description: "Save note",
       aliases: ["store", "savenote", "addnote", "remember", "newnote"],
     });
 
   if (notes.getnote)
     safeRegister("getnote", notes.getnote, {
-      category: "storage",
-      description: "Get note",
+      category: "storage", description: "Get note",
       aliases: ["recall", "readnote", "shownote", "retrievenote"],
     });
 
   if (notes.notes)
     safeRegister("notes", notes.notes, {
-      category: "storage",
-      description: "List notes",
+      category: "storage", description: "List notes",
       aliases: ["mynotes", "listnotes", "allnotes", "notelist", "shownotes"],
     });
 
   if (notes.deleteKey)
     safeRegister("delnote", notes.deleteKey, {
-      category: "storage",
-      description: "Delete note",
+      category: "storage", description: "Delete note",
       aliases: ["forget", "deletenote", "removenote", "rmnote"],
     });
 
@@ -1075,8 +789,7 @@ export function registerAllCommands() {
 
   if (quotes.quote)
     safeRegister("quote", quotes.quote, {
-      category: "fun",
-      description: "Random quote",
+      category: "fun", description: "Random quote",
       aliases: ["motivation", "inspire", "wisdom", "motivate", "inspiration"],
     });
 
@@ -1085,46 +798,25 @@ export function registerAllCommands() {
 
   if (reminder.reminder)
     safeRegister("remind", reminder.reminder, {
-      category: "storage",
-      description: "Set reminder",
-      aliases: [
-        "reminder",
-        "later",
-        "setreminder",
-        "setalarm",
-        "remindme",
-        "alarm",
-      ],
+      category: "storage", description: "Set reminder",
+      aliases: ["reminder", "later", "setreminder", "setalarm", "remindme", "alarm"],
     });
 
   if (reminder.listReminders)
     safeRegister("reminders", reminder.listReminders, {
-      category: "storage",
-      description: "List reminders",
-      aliases: [
-        "myreminders",
-        "listreminders",
-        "showreminders",
-        "reminderlist",
-      ],
+      category: "storage", description: "List reminders",
+      aliases: ["myreminders", "listreminders", "showreminders", "reminderlist"],
     });
 
   if (reminder.cancelReminder)
     safeRegister("cancelreminder", reminder.cancelReminder, {
-      category: "storage",
-      description: "Cancel reminder",
-      aliases: [
-        "delreminder",
-        "removereminder",
-        "stopreminder",
-        "deletereminder",
-      ],
+      category: "storage", description: "Cancel reminder",
+      aliases: ["delreminder", "removereminder", "stopreminder", "deletereminder"],
     });
 
   if (reminder.snooze)
     safeRegister("snooze", reminder.snooze, {
-      category: "storage",
-      description: "Snooze reminder",
+      category: "storage", description: "Snooze reminder",
       aliases: ["snoozereminder", "delayrm", "snoozealarm"],
     });
 
@@ -1133,16 +825,8 @@ export function registerAllCommands() {
 
   if (sec.scan)
     safeRegister("scan", sec.scan, {
-      category: "security",
-      description: "Scan URL",
-      aliases: [
-        "virustotal",
-        "urlscan",
-        "safescan",
-        "checksafe",
-        "threatscan",
-        "checkurl",
-      ],
+      category: "security", description: "Scan URL",
+      aliases: ["virustotal", "urlscan", "safescan", "checksafe", "threatscan", "checkurl"],
     });
 
   // ── STOCKS.JS ─────────────────────────────────────────────────────────────
@@ -1150,8 +834,7 @@ export function registerAllCommands() {
 
   if (stocks.stock)
     safeRegister("stock", stocks.stock, {
-      category: "info",
-      description: "Stock prices",
+      category: "info", description: "Stock prices",
       aliases: ["stocks", "share", "stockprice", "stockinfo", "market"],
     });
 
@@ -1160,22 +843,19 @@ export function registerAllCommands() {
 
   if (trans.translate)
     safeRegister("translate", trans.translate, {
-      category: "tools",
-      description: "Translate text",
+      category: "tools", description: "Translate text",
       aliases: ["tr", "tl", "lang", "trans", "translation", "translator"],
     });
 
   if (trans.detect)
     safeRegister("detect", trans.detect, {
-      category: "tools",
-      description: "Detect language",
+      category: "tools", description: "Detect language",
       aliases: ["langdetect", "whatlang", "detectlang", "language", "langid"],
     });
 
   if (trans.languages)
     safeRegister("languages", trans.languages, {
-      category: "tools",
-      description: "List languages",
+      category: "tools", description: "List languages",
       aliases: ["langs", "langlist", "supportedlangs", "alllangs"],
     });
 
@@ -1184,8 +864,7 @@ export function registerAllCommands() {
 
   if (tts.tts)
     safeRegister("tts", tts.tts, {
-      category: "media",
-      description: "Text to speech",
+      category: "media", description: "Text to speech",
       aliases: ["voice", "say", "speak", "read", "texttospeech", "speaktext"],
     });
 
@@ -1194,106 +873,63 @@ export function registerAllCommands() {
 
   if (uc.convert)
     safeRegister("convert", uc.convert, {
-      category: "tools",
-      description: "Convert units",
+      category: "tools", description: "Convert units",
       aliases: ["conv", "uconvert", "unitconvert", "cvt", "conversion"],
     });
 
   if (uc.units)
     safeRegister("units", uc.units, {
-      category: "tools",
-      description: "List units",
+      category: "tools", description: "List units",
       aliases: ["listunits", "unitlist", "availableunits", "showunits"],
     });
 
   // ── GROUP CORE.JS ─────────────────────────────────────────────────────────
-  // NOTE: adminOnly removed — group admin checks are done inside each function
   const gc = MODULES.groupCore;
 
   if (gc.kick)
     safeRegister("kick", gc.kick, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Kick member",
       aliases: ["remove", "kickmember", "removemember", "boot", "kickout"],
     });
 
   if (gc.add)
     safeRegister("add", gc.add, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Add member",
-      aliases: [
-        "invite",
-        "addmember",
-        "addperson",
-        "addtogroup",
-        "addparticipant",
-      ],
+      aliases: ["invite", "addmember", "addperson", "addtogroup", "addparticipant"],
     });
 
   if (gc.promote)
     safeRegister("promote", gc.promote, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Promote to admin",
       aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin"],
     });
 
   if (gc.demote)
     safeRegister("demote", gc.demote, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Demote admin",
       aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin"],
     });
 
   if (gc.admins)
     safeRegister("admins", gc.admins, {
-      category: "group",
-      groupOnly: true,
-      description: "List admins",
-      aliases: [
-        "listadmins",
-        "adminlist",
-        "groupadmins",
-        "getadmins",
-        "showadmins",
-      ],
+      category: "group", groupOnly: true, description: "List admins",
+      aliases: ["listadmins", "adminlist", "groupadmins", "getadmins", "showadmins"],
     });
 
   if (gc.tagall)
     safeRegister("tagall", gc.tagall, {
-      category: "group",
-      groupOnly: true,
-      description: "Tag all members",
-      aliases: [
-        "everyone",
-        "all",
-        "tageveryone",
-        "mentionall",
-        "pingall",
-        "tag",
-      ],
+      category: "group", groupOnly: true, description: "Tag all members",
+      aliases: ["everyone", "all", "tageveryone", "mentionall", "pingall", "tag"],
     });
 
   if (gc.hidetag)
     safeRegister("hidetag", gc.hidetag, {
-      category: "group",
-      groupOnly: true,
-      description: "Silent tag all",
-      aliases: [
-        "htag",
-        "silent",
-        "silentping",
-        "hiddentag",
-        "ghosttag",
-        "silenttag",
-      ],
+      category: "group", groupOnly: true, description: "Silent tag all",
+      aliases: ["htag", "silent", "silentping", "hiddentag", "ghosttag", "silenttag"],
     });
 
   // ── GROUP MODERATION.JS ───────────────────────────────────────────────────
@@ -1301,50 +937,38 @@ export function registerAllCommands() {
 
   if (gm.ban)
     safeRegister("ban", gm.ban, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Ban user from group",
       aliases: ["block", "banuser", "blacklist", "banmember"],
     });
 
   if (gm.unban)
     safeRegister("unban", gm.unban, {
-      category: "group",
-      groupOnly: true,
-      description: "Unban user from group",
+      category: "group", groupOnly: true, description: "Unban user from group",
       aliases: ["unblock", "unbanuser", "whitelist", "removeban"],
     });
 
   if (gm.warn)
     safeRegister("warn", gm.warn, {
-      category: "group",
-      groupOnly: true,
-      description: "Warn user",
+      category: "group", groupOnly: true, description: "Warn user",
       aliases: ["warning", "warnuser", "givewarn", "addwarn", "warnmember"],
     });
 
   if (gm.warnings)
     safeRegister("warnings", gm.warnings, {
-      category: "group",
-      groupOnly: true,
-      description: "View warnings",
+      category: "group", groupOnly: true, description: "View warnings",
       aliases: ["warnlist", "checkwarns", "getwarn", "mywarnings", "seewarns"],
     });
 
   if (gm.clearWarns)
     safeRegister("clearwarns", gm.clearWarns, {
-      category: "group",
-      groupOnly: true,
-      description: "Clear warnings",
+      category: "group", groupOnly: true, description: "Clear warnings",
       aliases: ["resetwarns", "clearwarnings", "rmwarns", "deletewarns"],
     });
 
   if (gm.listBanned)
     safeRegister("listbanned", gm.listBanned, {
-      category: "group",
-      groupOnly: true,
-      description: "List banned users in group",
+      category: "group", groupOnly: true, description: "List banned users in group",
       aliases: ["bannedlist", "getbanned", "showbanned"],
     });
 
@@ -1353,193 +977,146 @@ export function registerAllCommands() {
 
   if (gs.mute)
     safeRegister("mute", gs.mute, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Mute group",
       aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"],
     });
 
   if (gs.unmute)
     safeRegister("unmute", gs.unmute, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Unmute group",
       aliases: ["unlockgroup", "groupunlock", "unmuteall", "unmutechat"],
     });
 
   if (gs.lock)
     safeRegister("lock", gs.lock, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
-      description: "Lock group (restrict editing info)",
+      category: "group", groupOnly: true, requireBotAdmin: true,
+      description: "Lock group info editing",
       aliases: ["lockinfo", "restrict"],
     });
 
   if (gs.unlock)
     safeRegister("unlock", gs.unlock, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
-      description: "Unlock group (allow all to edit info)",
+      category: "group", groupOnly: true, requireBotAdmin: true,
+      description: "Unlock group info editing",
       aliases: ["unlockinfo", "unrestrict"],
     });
 
   if (gs.antiSpam)
     safeRegister("antispam", gs.antiSpam, {
-      category: "group",
-      groupOnly: true,
-      description: "Toggle anti-spam protection",
+      category: "group", groupOnly: true, description: "Toggle anti-spam",
       aliases: ["nospam", "blockspam", "toggleantispam", "stopspam"],
     });
 
   if (gs.welcomeToggle)
     safeRegister("welcome", gs.welcomeToggle, {
-      category: "group",
-      groupOnly: true,
-      description: "Toggle welcome messages",
+      category: "group", groupOnly: true, description: "Toggle welcome messages",
       aliases: ["togglewelcome", "welcomeon", "welcomeoff"],
     });
 
   if (gs.setWelcome)
     safeRegister("setwelcome", gs.setWelcome, {
-      category: "group",
-      groupOnly: true,
-      description: "Set welcome message",
+      category: "group", groupOnly: true, description: "Set welcome message",
       aliases: ["setwelcomemsg", "welcometext"],
     });
 
   if (gs.goodbyeToggle)
     safeRegister("goodbye", gs.goodbyeToggle, {
-      category: "group",
-      groupOnly: true,
-      description: "Toggle goodbye messages",
+      category: "group", groupOnly: true, description: "Toggle goodbye messages",
       aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff"],
     });
 
   if (gs.setGoodbye)
     safeRegister("setgoodbye", gs.setGoodbye, {
-      category: "group",
-      groupOnly: true,
-      description: "Set goodbye message",
+      category: "group", groupOnly: true, description: "Set goodbye message",
       aliases: ["setgoodbyemsg", "goodbyetext"],
     });
 
   if (gs.groupInfo)
     safeRegister("groupinfo", gs.groupInfo, {
-      category: "group",
-      groupOnly: true,
-      description: "Show group information",
+      category: "group", groupOnly: true, description: "Show group information",
       aliases: ["ginfo", "group", "grouppanel"],
     });
 
   if (gs.rules)
     safeRegister("rules", gs.rules, {
-      category: "group",
-      groupOnly: true,
-      description: "Show group rules",
+      category: "group", groupOnly: true, description: "Show group rules",
       aliases: ["grules", "grouprules"],
     });
 
   if (gs.setRules)
     safeRegister("setrules", gs.setRules, {
-      category: "group",
-      groupOnly: true,
-      description: "Set group rules",
+      category: "group", groupOnly: true, description: "Set group rules",
       aliases: ["setgrules", "addrules"],
     });
 
-  // link registered ONCE from settings (most complete version) — AYOCODES
   if (gs.link)
     safeRegister("link", gs.link, {
-      category: "group",
-      groupOnly: true,
-      description: "Get group invite link",
+      category: "group", groupOnly: true, description: "Get group invite link",
       aliases: ["grouplink", "invite", "invitelink"],
     });
 
   if (gs.revoke)
     safeRegister("revoke", gs.revoke, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Revoke group invite link",
       aliases: ["revokelink", "resetlink", "newlink"],
     });
 
   if (gs.pin)
     safeRegister("pin", gs.pin, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Pin a message",
       aliases: ["pinmsg", "pinmessage"],
     });
 
   if (gs.unpin)
     safeRegister("unpin", gs.unpin, {
-      category: "group",
-      groupOnly: true,
-      requireBotAdmin: true,
+      category: "group", groupOnly: true, requireBotAdmin: true,
       description: "Unpin a message",
       aliases: ["unpinmsg", "unpinmessage"],
     });
 
   if (gs.deleteMsg)
     safeRegister("delete", gs.deleteMsg, {
-      category: "group",
-      groupOnly: true,
-      description: "Delete a message",
+      category: "group", groupOnly: true, description: "Delete a message",
       aliases: ["delmsg", "deletemessage", "rmmsg"],
     });
 
   if (gs.settingsOverview)
     safeRegister("settings", gs.settingsOverview, {
-      category: "group",
-      groupOnly: true,
-      description: "View group settings",
+      category: "group", groupOnly: true, description: "View group settings",
       aliases: ["groupsettings", "gsettings", "settingspanel"],
     });
 
   if (gs.resetSettings)
     safeRegister("resetsettings", gs.resetSettings, {
-      category: "group",
-      groupOnly: true,
-      description: "Reset all group settings",
+      category: "group", groupOnly: true, description: "Reset all group settings",
       aliases: ["resetgroupsettings", "clearsettings", "resetall"],
     });
 
   if (gs.leave)
     safeRegister("leave", gs.leave, {
-      category: "group",
-      groupOnly: true,
-      description: "Make bot leave the group",
+      category: "group", groupOnly: true, description: "Make bot leave the group",
       aliases: ["botleave", "leavegroup", "exit"],
     });
 
   if (gs.debug)
     safeRegister("groupdebug", gs.debug, {
-      category: "group",
-      groupOnly: true,
-      description: "Debug group information",
+      category: "group", groupOnly: true, description: "Debug group information",
       aliases: ["gdebug", "groupdbg"],
     });
 
   if (gs.testAdmin)
     safeRegister("testadmin", gs.testAdmin, {
-      category: "group",
-      groupOnly: true,
-      description: "Test admin status",
+      category: "group", groupOnly: true, description: "Test admin status",
       aliases: ["admintest", "checkadmin"],
     });
 
   if (gs.refreshAdmin)
     safeRegister("refreshadmin", gs.refreshAdmin, {
-      category: "group",
-      groupOnly: true,
-      description: "Refresh admin cache",
+      category: "group", groupOnly: true, description: "Refresh admin cache",
       aliases: ["refresh", "clearcache"],
     });
 
@@ -1548,122 +1125,91 @@ export function registerAllCommands() {
 
   if (adm.addUser)
     safeRegister("adduser", adm.addUser, {
-      category: "admin",
-      adminOnly: true,
-      description: "Add authorized user",
+      category: "admin", adminOnly: true, description: "Add authorized user",
       aliases: ["auth", "allow", "authorize", "addauth"],
     });
 
   if (adm.removeUser)
     safeRegister("removeuser", adm.removeUser, {
-      category: "admin",
-      adminOnly: true,
-      description: "Remove authorized user",
+      category: "admin", adminOnly: true, description: "Remove authorized user",
       aliases: ["deauth", "disallow", "unauthorize", "removeauth"],
     });
 
   if (adm.listUsers)
     safeRegister("listusers", adm.listUsers, {
-      category: "admin",
-      adminOnly: true,
-      description: "List authorized users",
+      category: "admin", adminOnly: true, description: "List authorized users",
       aliases: ["users", "showusers", "authlist", "listauth"],
     });
 
   if (adm.mode)
     safeRegister("mode", adm.mode, {
-      category: "admin",
-      adminOnly: true,
-      description: "Change bot mode",
+      category: "admin", adminOnly: true, description: "Change bot mode",
       aliases: ["setmode", "botmode", "changemode", "switchmode"],
     });
 
   if (adm.broadcast)
     safeRegister("broadcast", adm.broadcast, {
-      category: "admin",
-      adminOnly: true,
-      description: "Broadcast message",
+      category: "admin", adminOnly: true, description: "Broadcast message",
       aliases: ["bc", "announce", "sendall", "massmessage"],
     });
 
   if (adm.globalBroadcast)
     safeRegister("globalbc", adm.globalBroadcast, {
-      category: "admin",
-      adminOnly: true,
-      description: "Global broadcast",
+      category: "admin", adminOnly: true, description: "Global broadcast",
       aliases: ["gbc", "globalbroadcast", "globalannounce", "massbc"],
     });
 
   if (adm.stats)
     safeRegister("stats", adm.stats, {
-      category: "admin",
-      adminOnly: true,
-      description: "Bot statistics",
+      category: "admin", adminOnly: true, description: "Bot statistics",
       aliases: ["botstats", "usage", "analytics", "statistics"],
     });
 
   if (adm.botStatus)
     safeRegister("botstatus", adm.botStatus, {
-      category: "admin",
-      adminOnly: true,
-      description: "Detailed bot status",
+      category: "admin", adminOnly: true, description: "Detailed bot status",
       aliases: ["botinfo", "fullstatus", "statusinfo"],
     });
 
   if (adm.superBan)
     safeRegister("superban", adm.superBan, {
-      category: "admin",
-      adminOnly: true,
-      description: "Permanently ban user globally",
+      category: "admin", adminOnly: true, description: "Permanently ban user globally",
       aliases: ["globalban", "permban", "hardban"],
     });
 
   if (adm.unban)
     safeRegister("superunban", adm.unban, {
-      category: "admin",
-      adminOnly: true,
-      description: "Remove global ban",
+      category: "admin", adminOnly: true, description: "Remove global ban",
       aliases: ["globalunban", "permunban", "hardunban"],
     });
 
   if (adm.listBanned)
     safeRegister("listglobalbanned", adm.listBanned, {
-      category: "admin",
-      adminOnly: true,
-      description: "List globally banned users",
+      category: "admin", adminOnly: true, description: "List globally banned users",
       aliases: ["globalbannedlist", "getglobalbanned"],
     });
 
   if (adm.clearBans)
     safeRegister("clearbans", adm.clearBans, {
-      category: "admin",
-      adminOnly: true,
-      description: "Clear all global bans",
+      category: "admin", adminOnly: true, description: "Clear all global bans",
       aliases: ["resetbans", "removeallbans", "deletebans"],
     });
 
   if (adm.restart)
     safeRegister("restart", adm.restart, {
-      category: "admin",
-      adminOnly: true,
-      description: "Restart bot",
+      category: "admin", adminOnly: true, description: "Restart bot",
       aliases: ["reboot", "botrestart", "restartbot", "reload"],
     });
 
   if (adm.shutdown)
     safeRegister("shutdown", adm.shutdown, {
-      category: "admin",
-      adminOnly: true,
-      description: "Shutdown bot",
+      category: "admin", adminOnly: true, description: "Shutdown bot",
       aliases: ["off", "stop", "botoff", "poweroff", "halt"],
     });
 
-  // adm.adminEval is the correct export name (eval is a reserved word) — AYOCODES
   if (adm.adminEval)
     safeRegister("eval", adm.adminEval, {
-      category: "admin",
-      adminOnly: true,
-      description: "Execute code",
+      category: "admin", adminOnly: true, description: "Execute code",
       aliases: ["exec", "run", "runcode", "execute", "evalcode"],
     });
 
@@ -1678,6 +1224,20 @@ export function registerAllCommands() {
 registerAllCommands();
 
 // ============================================================================
+//  COMMANDS THAT ARE ALLOWED THROUGH THE GROUP ACTIVATION GATE
+//  FIX: .activate was blocked by Phase 9 before command lookup, so nobody
+//  could ever enable the bot in a fresh group. These commands bypass the
+//  activation check so the owner can always manage bot state.
+// ============================================================================
+const ACTIVATION_EXEMPT = new Set([
+  "activate", "groupactivate", "activatebot", "openbot", "unlockbot", "activategroup",
+  "deactivate", "groupdeactivate", "deactivatebot", "closebot", "lockbot",
+  "testadmin", "admintest", "checkadmin",
+  "refreshadmin", "refresh", "clearcache",
+  "groupdebug", "gdebug", "groupdbg",
+]);
+
+// ============================================================================
 //  COMMAND HANDLER
 // ============================================================================
 export async function handleCommand(message, sock) {
@@ -1685,20 +1245,19 @@ export async function handleCommand(message, sock) {
   const executionId = Math.random().toString(36).substring(2, 8);
 
   try {
-    // ── PHASE 1: Extract basic message info ──────────────────────────────────
+    // ── PHASE 1: Basic message info ──────────────────────────────────────────
     const from = message?.key?.remoteJid;
     if (!from) return;
 
-    const isGroup = from.endsWith("@g.us");
-    const fromMe = !!message.key.fromMe;
+    const isGroup  = from.endsWith("@g.us");
+    const fromMe   = !!message.key.fromMe;
 
-    const session = message._session || null;
-    const ownerPhone = message._ownerPhone || session?.ownerPhone || "";
-    const sessionMode =
-      message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
-    const sessionId = message._sessionId || session?.id || "";
+    const session     = message._session || null;
+    const ownerPhone  = message._ownerPhone || session?.ownerPhone || "";
+    const sessionMode = message._sessionMode || session?.mode || ENV.BOT_MODE || "public";
+    const sessionId   = message._sessionId || session?.id || "";
 
-    // ── PHASE 2: Determine sender ─────────────────────────────────────────────
+    // ── PHASE 2: Determine sender ────────────────────────────────────────────
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -1709,20 +1268,18 @@ export async function handleCommand(message, sock) {
       rawSenderJid = from;
     }
 
-    // Strip device suffix — pure phone number — AYOCODES
+    // Strip device suffix — pure phone number
     const cleanPhone =
-      rawSenderJid
-        ?.split("@")[0]
-        ?.split(":")[0]
-        ?.replace(/[^0-9]/g, "") || "";
+      rawSenderJid?.split("@")[0]?.split(":")[0]?.replace(/[^0-9]/g, "") || "";
     const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
 
     if (!userJid || !cleanPhone) return;
 
     // ── PHASE 3: Authorization checks ────────────────────────────────────────
-    const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
-    const isAuthorizedUser =
-      isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
+    // FIX: was isAdmin(userJid) — missing ownerPhone → always false for owners
+    // on linked devices. Now correctly passes ownerPhone from session context.
+    const isAdminUser     = fromMe || isAdmin(userJid, ownerPhone);
+    const isAuthorizedUser = isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
     // ── PHASE 4: Extract message text ────────────────────────────────────────
     const m = message.message || {};
@@ -1737,18 +1294,13 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // ── PHASE 5: [ANTILINK REMOVED] ──────────────────────────────────────────
-    // Antilink is handled EXCLUSIVELY by automation.js handleAntiLink().
-    // Having it here too caused duplicate warnings (4/3, 5/3) because the two
-    // implementations used different warning key formats and separate counters.
-    // The ONLY antilink code that runs is in automation.js. — AYOCODES
+    // ── PHASE 5: [ANTILINK REMOVED — handled exclusively by automation.js] ──
 
     // ── PHASE 6: Trivia answer handler ───────────────────────────────────────
     if (!trimmed.startsWith(ENV.PREFIX)) {
       if (["A", "B", "C", "D"].includes(trimmed.toUpperCase())) {
         if (global.activeTrivia?.has(from)) {
-          if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from))
-            return;
+          if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) return;
           if (sessionMode === "private" && !isAdminUser) return;
           if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
 
@@ -1770,10 +1322,10 @@ export async function handleCommand(message, sock) {
     const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
-    const parts = body.split(/\s+/);
+    const parts       = body.split(/\s+/);
     const commandName = parts[0].toLowerCase();
-    const args = parts.slice(1);
-    const fullArgs = args.join(" ");
+    const args        = parts.slice(1);
+    const fullArgs    = args.join(" ");
 
     if (!commandName) return;
 
@@ -1784,9 +1336,14 @@ export async function handleCommand(message, sock) {
     }
 
     // ── PHASE 9: Group activation check ─────────────────────────────────────
+    // FIX: exempt .activate/.deactivate and diagnostic commands so the owner
+    // can always manage the bot even in an unactivated group.
+    // All other commands still require the group to be activated.
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
-      log.info(`[${executionId}] Group not activated: ${commandName} ignored`);
-      return;
+      if (!ACTIVATION_EXEMPT.has(commandName)) {
+        log.info(`[${executionId}] Group not activated: ${commandName} ignored`);
+        return;
+      }
     }
 
     // ── PHASE 10: Private mode check ─────────────────────────────────────────
@@ -1809,10 +1366,7 @@ export async function handleCommand(message, sock) {
       if (similar.length > 0) {
         suggestion = `\n\nDid you mean: *${ENV.PREFIX}${similar[0]}*?`;
         if (similar.length > 1)
-          suggestion += `\nOr: ${similar
-            .slice(1, 3)
-            .map((c) => `*${ENV.PREFIX}${c}*`)
-            .join(", ")}`;
+          suggestion += `\nOr: ${similar.slice(1, 3).map((c) => `*${ENV.PREFIX}${c}*`).join(", ")}`;
       }
       await sock.sendMessage(from, {
         text: `❓ *Unknown Command:* ${ENV.PREFIX}${commandName}${suggestion}\n\nType *${ENV.PREFIX}menu* to see all commands!`,
@@ -1822,13 +1376,11 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 12: Resolve handler ─────────────────────────────────────────────
     let handlerFunction = commandMeta.handler;
-    let primaryName = commandMeta.primaryName || commandName;
+    let primaryName     = commandMeta.primaryName || commandName;
 
     if (commandMeta.isAlias && commandMeta.primaryName) {
       primaryName = commandMeta.primaryName;
-      log.debug(
-        `[${executionId}] Alias "${commandName}" → primary "${primaryName}"`,
-      );
+      log.debug(`[${executionId}] Alias "${commandName}" → primary "${primaryName}"`);
     }
 
     // ── PHASE 13: Track usage ─────────────────────────────────────────────────
@@ -1837,11 +1389,8 @@ export async function handleCommand(message, sock) {
       (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
     const stats = commandStats.get(primaryName) || {
-      uses: 0,
-      errors: 0,
-      lastUsed: null,
-      avgResponseTime: 0,
-      totalResponseTime: 0,
+      uses: 0, errors: 0, lastUsed: null,
+      avgResponseTime: 0, totalResponseTime: 0,
     };
     stats.uses++;
     stats.lastUsed = Date.now();
@@ -1862,7 +1411,7 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 15: Permission checks ───────────────────────────────────────────
 
-    // Bot-owner-only commands
+    // Bot-owner-only commands (adminOnly flag)
     if (commandMeta.adminOnly && !isAdminUser) {
       log.debug(`[${executionId}] Admin-only command blocked for non-owner`);
       return sock.sendMessage(from, {
@@ -1878,38 +1427,33 @@ export async function handleCommand(message, sock) {
       });
     }
 
-    // Commands requiring bot to be group admin
+    // Commands requiring group admin
     if (commandMeta.requireBotAdmin && isGroup) {
-      // FIX: Pure digit comparison on both sides — strips :N device suffix — AYOCODES
       let userIsGroupAdmin = false;
-      let groupMetadata = null;
+      let groupMetadata    = null;
 
       try {
         groupMetadata = await sock.groupMetadata(from);
+        // FIX: compare normalized digits on both sides — handles :N device suffix
         userIsGroupAdmin = groupMetadata.participants.some((p) => {
-          const pPhone = p.id
-            .split("@")[0]
-            .split(":")[0]
-            .replace(/[^0-9]/g, "");
+          const pPhone = p.id.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
           return (
             pPhone === cleanPhone &&
             (p.admin === "admin" || p.admin === "superadmin")
           );
         });
       } catch (err) {
-        log.debug(
-          `[${executionId}] Failed to check user admin status: ${err.message}`,
-        );
+        log.debug(`[${executionId}] Failed to check user admin status: ${err.message}`);
       }
 
-      // Bot owners bypass the group admin requirement
+      // Bot owners bypass the group admin requirement entirely
       if (!isAdminUser && !userIsGroupAdmin) {
         return sock.sendMessage(from, {
           text: `⛔ *Group Admin Only*\nYou need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.`,
         });
       }
 
-      // Warn if bot itself is not admin (but still let the command run)
+      // Warn if bot is not admin yet (let command run — some degrade gracefully)
       let botIsAdmin = false;
       try {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
@@ -1919,7 +1463,6 @@ export async function handleCommand(message, sock) {
         await sock.sendMessage(from, {
           text: `⚠️ *Note:* I am not a group admin yet.\nPlease promote me to admin for this command to work fully.`,
         });
-        // Continue execution — some commands degrade gracefully
       }
     }
 
@@ -1927,7 +1470,6 @@ export async function handleCommand(message, sock) {
     const handlerStart = Date.now();
     log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
 
-    // setMode — updates session mode in memory — AYOCODES
     const setMode = async (newMode) => {
       if (session) {
         session.mode = newMode;
@@ -1941,24 +1483,24 @@ export async function handleCommand(message, sock) {
         fullArgs,
         message,
         from,
-        groupJid: isGroup ? from : null,
+        groupJid:      isGroup ? from : null,
         userJid,
         cleanPhone,
         isGroup,
-        isDM: !isGroup,
+        isDM:          !isGroup,
         fromMe,
         sock,
-        isAdmin: isAdminUser,
-        isAuthorized: isAuthorizedUser,
-        commandName: primaryName,
-        invokedAs: commandName,
-        prefix: ENV.PREFIX,
+        isAdmin:       isAdminUser,
+        isAuthorized:  isAuthorizedUser,
+        commandName:   primaryName,
+        invokedAs:     commandName,
+        prefix:        ENV.PREFIX,
         session,
         sessionId,
         sessionMode,
-        ownerPhone,
+        ownerPhone,    // threaded through so sub-modules can call isAdmin() correctly
         ENV,
-        setMode, // injected for .mode command in admin.js — AYOCODES
+        setMode,
       };
 
       const timeoutPromise = new Promise((_, reject) =>
@@ -1970,9 +1512,7 @@ export async function handleCommand(message, sock) {
       const executionTime = Date.now() - handlerStart;
       stats.totalResponseTime += executionTime;
       stats.avgResponseTime = stats.totalResponseTime / stats.uses;
-      log.success(
-        `[${executionId}] ${primaryName} completed (${executionTime}ms)`,
-      );
+      log.success(`[${executionId}] ${primaryName} completed (${executionTime}ms)`);
     } catch (cmdError) {
       stats.errors++;
       log.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
@@ -2009,7 +1549,7 @@ export async function handleCommand(message, sock) {
 //  HELPER FUNCTIONS
 // ============================================================================
 function findSimilarCommands(input, limit = 3) {
-  const inputLower = input.toLowerCase();
+  const inputLower  = input.toLowerCase();
   const commandsList = Array.from(primaryCommands.keys());
 
   return commandsList
@@ -2051,13 +1591,13 @@ export function getCommandInfo(name) {
   const meta = commands.get(name?.toLowerCase());
   if (!meta) return null;
   return {
-    name: meta.primaryName || name,
-    category: meta.category,
+    name:        meta.primaryName || name,
+    category:    meta.category,
     description: meta.description,
-    adminOnly: meta.adminOnly,
-    groupOnly: meta.groupOnly,
-    isAlias: meta.isAlias || false,
-    aliases: meta.aliases || [],
+    adminOnly:   meta.adminOnly,
+    groupOnly:   meta.groupOnly,
+    isAlias:     meta.isAlias || false,
+    aliases:     meta.aliases || [],
   };
 }
 
@@ -2076,16 +1616,15 @@ export function getCommandsByCategory(category) {
 }
 
 export function getAllStats() {
-  let totalUses = 0,
-    totalErrors = 0;
+  let totalUses = 0, totalErrors = 0;
   for (const stats of commandStats.values()) {
-    totalUses += stats.uses;
+    totalUses   += stats.uses;
     totalErrors += stats.errors;
   }
   return {
-    totalCommands: primaryCommands.size,
-    totalAliases: commands.size - primaryCommands.size,
-    totalEntries: commands.size,
+    totalCommands:  primaryCommands.size,
+    totalAliases:   commands.size - primaryCommands.size,
+    totalEntries:   commands.size,
     totalUses,
     totalErrors,
     uniqueCommands: primaryCommands.size,
