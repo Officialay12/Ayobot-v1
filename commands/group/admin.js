@@ -1,17 +1,20 @@
 // commands/group/admin.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  AYOBOT v1 — Admin Commands
-//  Author  : AYOCODES
-//  Contact : wa.me/2349159180375
+//  Admin Commands — PRODUCTION REWRITE
+//  Author: AYOCODES
 //
-//  FIXES:
-//    • CRITICAL: saveBannedUsers, saveGroupSettings, saveWarnings were
-//      imported from "../../utils/database.js" which does NOT exist.
-//      They live in "../../index.js". Fixed to correct import — AYOCODES
-//    • mode(): Changes per-session mode via setMode() helper instead of
-//      mutating global ENV.BOT_MODE which affected ALL sessions
-//    • All functions: clean, correct imports, no crashes
-//  — AYOCODES
+//  FIXES IN THIS FILE:
+//
+//  1. mode() — CRITICAL CRASH FIX
+//     Old code had a dynamic `import("../../index.js")` inside mode() to
+//     get sessionMetaCollection. This caused a MODULE_NOT_FOUND crash at
+//     runtime because dynamic re-importing ESM modules with side effects
+//     is unreliable. Fixed by only using the setMode() helper from context
+//     and the session object directly. — AYOCODES
+//
+//  2. All functions — isAdmin guard uses context.isAdmin (set by
+//     commandHandler) so they never run for non-owners regardless of how
+//     the command was invoked. — AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -21,7 +24,6 @@ import {
   botStartTime,
   commandUsage,
   messageCount,
-  // FIX: These must come from index.js — there is no utils/database.js — AYOCODES
   saveBannedUsers,
   saveGroupSettings,
   saveWarnings,
@@ -33,44 +35,30 @@ import {
   formatUptime,
 } from "../../utils/formatters.js";
 
-// ════════════════════════════════════════════════════════════════════════════
-//  ADD USER — Whitelist a user so they can use the bot in private mode
-// ════════════════════════════════════════════════════════════════════════════
-export async function addUser({
-  fullArgs,
-  from,
-  userJid,
-  sock,
-  isAdmin,
-  session,
-}) {
+// ============================================================================
+//  ADD USER — AYOCODES
+// ============================================================================
+export async function addUser({ fullArgs, from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
-  const phone = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
-  if (!phone || phone.length < 10) {
+  const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
+  if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError(
-        "INVALID NUMBER",
-        "Please provide a valid phone number.\nExample: .adduser 2348123456789",
-      ),
+      text: formatError("INVALID NUMBER",
+        "Please provide a valid phone number.\nExample: .adduser 2348123456789"),
     });
   }
 
-  const jid = `${phone}@s.whatsapp.net`;
-
-  // Add to global set + per-session set — AYOCODES
+  const jid = `${ph}@s.whatsapp.net`;
   authorizedUsers.add(jid);
-  authorizedUsers.add(phone);
+  authorizedUsers.add(ph);
   if (session?.authorizedUsers) {
     session.authorizedUsers.add(jid);
-    session.authorizedUsers.add(phone);
+    session.authorizedUsers.add(ph);
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess(
-      "USER AUTHORIZED",
-      `✅ *${phone}* can now use the bot in private mode.`,
-    ),
+    text: formatSuccess("USER AUTHORIZED", `✅ *${ph}* can now use the bot in private mode.`),
   });
 
   try {
@@ -84,46 +72,40 @@ export async function addUser({
   } catch (_) {}
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  REMOVE USER — Remove from whitelist
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  REMOVE USER — AYOCODES
+// ============================================================================
 export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
-  const phone = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
-  if (!phone || phone.length < 10) {
+  const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
+  if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError(
-        "INVALID NUMBER",
-        "Please provide a valid phone number.\nExample: .removeuser 2348123456789",
-      ),
+      text: formatError("INVALID NUMBER",
+        "Please provide a valid phone number.\nExample: .removeuser 2348123456789"),
     });
   }
 
-  const jid = `${phone}@s.whatsapp.net`;
-
+  const jid = `${ph}@s.whatsapp.net`;
   authorizedUsers.delete(jid);
-  authorizedUsers.delete(phone);
+  authorizedUsers.delete(ph);
   if (session?.authorizedUsers) {
     session.authorizedUsers.delete(jid);
-    session.authorizedUsers.delete(phone);
+    session.authorizedUsers.delete(ph);
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess(
-      "USER REMOVED",
-      `✅ *${phone}* has been removed from authorized users.`,
-    ),
+    text: formatSuccess("USER REMOVED", `✅ *${ph}* has been removed from authorized users.`),
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  LIST USERS — Show all authorized users
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  LIST USERS — AYOCODES
+// ============================================================================
 export async function listUsers({ from, sock, isAdmin }) {
   if (!isAdmin) return;
 
-  let list = "";
+  let list  = "";
   let count = 0;
   for (const u of authorizedUsers) {
     if (u.includes("@")) {
@@ -144,20 +126,13 @@ export async function listUsers({ from, sock, isAdmin }) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  MODE — Changes per-session mode via setMode() helper
-//  FIX: Old code mutated ENV.BOT_MODE (global), affecting ALL sessions.
-//  New code: setMode(newMode) → changes only THIS session. — AYOCODES
-// ════════════════════════════════════════════════════════════════════════════
-export async function mode({
-  fullArgs,
-  from,
-  sock,
-  isAdmin,
-  setMode,
-  sessionMode,
-  session,
-}) {
+// ============================================================================
+//  MODE — AYOCODES
+//  FIX: Removed dynamic import of index.js which caused runtime crashes.
+//  Uses setMode() helper from context (set by commandHandler) + direct
+//  session object mutation as the reliable fallback. — AYOCODES
+// ============================================================================
+export async function mode({ fullArgs, from, sock, isAdmin, setMode, sessionMode, session }) {
   if (!isAdmin) return;
 
   const newMode = fullArgs?.trim().toLowerCase();
@@ -165,37 +140,23 @@ export async function mode({
 
   if (newMode !== "public" && newMode !== "private") {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "BOT MODE",
+      text: formatInfo("BOT MODE",
         `Current: *${current.toUpperCase()}*\n\n` +
-          `Usage:\n` +
-          `${ENV.PREFIX}mode public  — Anyone can use the bot\n` +
-          `${ENV.PREFIX}mode private — Only you can use the bot`,
-      ),
+        `Usage:\n` +
+        `${ENV.PREFIX}mode public  — Anyone can use the bot\n` +
+        `${ENV.PREFIX}mode private — Only you can use the bot`),
     });
   }
 
-  // Use injected setMode helper if available — AYOCODES
+  // FIX: Use injected setMode helper — no dynamic imports needed — AYOCODES
   if (typeof setMode === "function") {
     await setMode(newMode);
   } else if (session) {
-    // Fallback: directly set on session object — AYOCODES
     session.mode = newMode;
-    // Try to persist to MongoDB
-    try {
-      const { sessionMetaCollection } = await import("../../index.js");
-      if (sessionMetaCollection) {
-        await sessionMetaCollection.updateOne(
-          { sessionId: session.id },
-          { $set: { mode: newMode } },
-          { upsert: true },
-        );
-      }
-    } catch (_) {}
   }
 
   const modeEmoji = newMode === "private" ? "🔒" : "🌐";
-  const modeDesc =
+  const modeDesc  =
     newMode === "private"
       ? "Only *you* can use commands now."
       : "Everyone can use the bot now.";
@@ -209,27 +170,23 @@ export async function mode({
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  BROADCAST — Send message to all authorized users
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  BROADCAST — AYOCODES
+// ============================================================================
 export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "BROADCAST",
-        `Usage: ${ENV.PREFIX}broadcast <message>\nSends to all authorized users.`,
-      ),
+      text: formatInfo("BROADCAST",
+        `Usage: ${ENV.PREFIX}broadcast <message>\nSends to all authorized users.`),
     });
   }
 
-  await sock.sendMessage(from, {
-    text: "📢 *Broadcasting to authorized users...*",
-  });
+  await sock.sendMessage(from, { text: "📢 *Broadcasting to authorized users...*" });
 
-  let sent = 0;
-  let failed = 0;
+  let sent    = 0;
+  let failed  = 0;
   const targets = new Set();
 
   for (const u of authorizedUsers) {
@@ -252,48 +209,36 @@ export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
       await sock.sendMessage(target, { text: msg, mentions: [userJid] });
       sent++;
       await new Promise((r) => setTimeout(r, 600));
-    } catch (_) {
-      failed++;
-    }
+    } catch (_) { failed++; }
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess(
-      "BROADCAST DONE",
-      `✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}\n👥 *Total targets:* ${targets.size}`,
-    ),
+    text: formatSuccess("BROADCAST DONE",
+      `✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}\n👥 *Total targets:* ${targets.size}`),
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  GLOBAL BROADCAST — Send to ALL groups the bot is in
-// ════════════════════════════════════════════════════════════════════════════
-export async function globalBroadcast({
-  fullArgs,
-  from,
-  userJid,
-  sock,
-  isAdmin,
-}) {
+// ============================================================================
+//  GLOBAL BROADCAST — AYOCODES
+// ============================================================================
+export async function globalBroadcast({ fullArgs, from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "GLOBAL BROADCAST",
-        `Usage: ${ENV.PREFIX}globalbc <message>\nSends to ALL groups the bot is in.`,
-      ),
+      text: formatInfo("GLOBAL BROADCAST",
+        `Usage: ${ENV.PREFIX}globalbc <message>\nSends to ALL groups the bot is in.`),
     });
   }
 
   await sock.sendMessage(from, { text: "🌍 *Fetching all groups...*" });
 
-  let sent = 0;
+  let sent   = 0;
   let failed = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    const list = Object.values(groups);
+    const list   = Object.values(groups);
 
     await sock.sendMessage(from, {
       text: `🌍 *Found ${list.length} groups. Broadcasting now...*`,
@@ -313,34 +258,27 @@ export async function globalBroadcast({
       try {
         await sock.sendMessage(group.id, { text: msg, mentions: [userJid] });
         sent++;
-        // Progress update every 10 groups — AYOCODES
         if (sent % 10 === 0) {
           await sock.sendMessage(from, {
             text: `📊 *Progress:* ${sent}/${list.length} groups done...`,
           });
         }
         await new Promise((r) => setTimeout(r, 1200));
-      } catch (_) {
-        failed++;
-      }
+      } catch (_) { failed++; }
     }
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "GLOBAL BROADCAST DONE",
-        `🌍 *Total groups:* ${list.length}\n✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}`,
-      ),
+      text: formatSuccess("GLOBAL BROADCAST DONE",
+        `🌍 *Total groups:* ${list.length}\n✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}`),
     });
   } catch (err) {
-    await sock.sendMessage(from, {
-      text: formatError("BROADCAST FAILED", err.message),
-    });
+    await sock.sendMessage(from, { text: formatError("BROADCAST FAILED", err.message) });
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STATS — Full bot statistics
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  STATS — AYOCODES
+// ============================================================================
 export async function stats({ from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) {
     return sock.sendMessage(from, {
@@ -348,13 +286,13 @@ export async function stats({ from, userJid, sock, isAdmin, session }) {
     });
   }
 
-  const mem = process.memoryUsage();
+  const mem     = process.memoryUsage();
   const current = session?.mode || ENV.BOT_MODE || "public";
   let groupCount = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    groupCount = Object.keys(groups).length;
+    groupCount   = Object.keys(groups).length;
   } catch (_) {}
 
   await sock.sendMessage(from, {
@@ -382,60 +320,48 @@ export async function stats({ from, userJid, sock, isAdmin, session }) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  SUPER BAN — Permanently ban a user from using the bot
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  SUPER BAN — AYOCODES
+// ============================================================================
 export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "SUPER BAN",
-        `Usage: ${ENV.PREFIX}superban <phone> [reason]\nExample: ${ENV.PREFIX}superban 2348123456789 Spamming`,
-      ),
+      text: formatInfo("SUPER BAN",
+        `Usage: ${ENV.PREFIX}superban <phone> [reason]\nExample: ${ENV.PREFIX}superban 2348123456789 Spamming`),
     });
   }
 
-  const parts = fullArgs.trim().split(/\s+/);
-  const phone = parts[0].replace(/[^0-9]/g, "");
+  const parts  = fullArgs.trim().split(/\s+/);
+  const ph     = parts[0].replace(/[^0-9]/g, "");
   const reason = parts.slice(1).join(" ") || "Banned by admin";
 
-  if (!phone || phone.length < 10) {
+  if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError(
-        "INVALID NUMBER",
-        "Please provide a valid phone number.",
-      ),
+      text: formatError("INVALID NUMBER", "Please provide a valid phone number."),
     });
   }
 
-  // Prevent banning self — AYOCODES
-  if (phone === userJid.split("@")[0] || phone === ENV.ADMIN) {
+  if (ph === userJid.split("@")[0] || ph === ENV.ADMIN) {
     return sock.sendMessage(from, {
       text: formatError("INVALID ACTION", "You cannot ban the bot owner."),
     });
   }
 
-  const jid = `${phone}@s.whatsapp.net`;
+  const jid = `${ph}@s.whatsapp.net`;
 
   if (bannedUsers.has(jid)) {
     return sock.sendMessage(from, {
-      text: formatInfo("ALREADY BANNED", `*${phone}* is already banned.`),
+      text: formatInfo("ALREADY BANNED", `*${ph}* is already banned.`),
     });
   }
 
   authorizedUsers.delete(jid);
-  authorizedUsers.delete(phone);
-  bannedUsers.set(jid, {
-    bannedBy: userJid,
-    time: Date.now(),
-    reason,
-    phone,
-  });
+  authorizedUsers.delete(ph);
+  bannedUsers.set(jid, { bannedBy: userJid, time: Date.now(), reason, phone: ph });
   saveBannedUsers();
 
-  // Notify the banned user — AYOCODES
   try {
     await sock.sendMessage(jid, {
       text:
@@ -452,60 +378,49 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
   } catch (_) {}
 
   await sock.sendMessage(from, {
-    text: formatSuccess(
-      "SUPER BAN EXECUTED",
-      `🚫 *${phone}* has been banned.\n📝 *Reason:* ${reason}`,
-    ),
+    text: formatSuccess("SUPER BAN EXECUTED",
+      `🚫 *${ph}* has been banned.\n📝 *Reason:* ${reason}`),
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  UNBAN — Remove a user from the ban list
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  UNBAN — AYOCODES
+// ============================================================================
 export async function unban({ fullArgs, from, sock, isAdmin }) {
   if (!isAdmin) return;
 
-  const phone = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
-  if (!phone || phone.length < 10) {
+  const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
+  if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "UNBAN",
-        `Usage: ${ENV.PREFIX}unban <phone>\nExample: ${ENV.PREFIX}unban 2348123456789`,
-      ),
+      text: formatInfo("UNBAN",
+        `Usage: ${ENV.PREFIX}unban <phone>\nExample: ${ENV.PREFIX}unban 2348123456789`),
     });
   }
 
-  const jid = `${phone}@s.whatsapp.net`;
-  let removed = false;
+  const jid     = `${ph}@s.whatsapp.net`;
+  let removed   = false;
 
-  if (bannedUsers.has(jid)) {
-    bannedUsers.delete(jid);
-    removed = true;
-  }
+  if (bannedUsers.has(jid)) { bannedUsers.delete(jid); removed = true; }
 
-  // Also check partial matches — AYOCODES
   for (const key of bannedUsers.keys()) {
-    if (key.includes(phone)) {
-      bannedUsers.delete(key);
-      removed = true;
-    }
+    if (key.includes(ph)) { bannedUsers.delete(key); removed = true; }
   }
 
   if (removed) {
     saveBannedUsers();
     await sock.sendMessage(from, {
-      text: formatSuccess("USER UNBANNED", `✅ *${phone}* has been unbanned.`),
+      text: formatSuccess("USER UNBANNED", `✅ *${ph}* has been unbanned.`),
     });
   } else {
     await sock.sendMessage(from, {
-      text: formatInfo("NOT FOUND", `*${phone}* is not in the ban list.`),
+      text: formatInfo("NOT FOUND", `*${ph}* is not in the ban list.`),
     });
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  LIST BANNED — Show all banned users
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  LIST BANNED — AYOCODES
+// ============================================================================
 export async function listBanned({ from, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -522,13 +437,13 @@ export async function listBanned({ from, sock, isAdmin }) {
   let index = 1;
 
   for (const [jid, data] of bannedUsers.entries()) {
-    const phone = jid.split("@")[0];
+    const ph   = jid.split("@")[0];
     const when = data.time ? new Date(data.time).toLocaleString() : "Unknown";
-    const byPhone = data.bannedBy?.split("@")[0] || "Unknown";
+    const by   = data.bannedBy?.split("@")[0] || "Unknown";
     text +=
-      `*${index}.* 📱 ${phone}\n` +
+      `*${index}.* 📱 ${ph}\n` +
       `   📝 *Reason:* ${data.reason || "No reason given"}\n` +
-      `   👑 *By:* ${byPhone}\n` +
+      `   👑 *By:* ${by}\n` +
       `   ⏰ *When:* ${when}\n\n`;
     index++;
   }
@@ -538,7 +453,6 @@ export async function listBanned({ from, sock, isAdmin }) {
     `📊 *Total banned:* ${bannedUsers.size}\n` +
     `👑 AYOCODES`;
 
-  // Split long messages — AYOCODES
   if (text.length > 4000) {
     const chunks = text.match(/[\s\S]{1,4000}/g) || [];
     for (const chunk of chunks) {
@@ -550,9 +464,9 @@ export async function listBanned({ from, sock, isAdmin }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  CLEAR BANS — Remove all bans
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  CLEAR BANS — AYOCODES
+// ============================================================================
 export async function clearBans({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -567,17 +481,15 @@ export async function clearBans({ from, userJid, sock, isAdmin }) {
   saveBannedUsers();
 
   await sock.sendMessage(from, {
-    text: formatSuccess(
-      "BANS CLEARED",
-      `✅ Cleared *${count}* banned users.\n\n👑 @${userJid.split("@")[0]}`,
-    ),
+    text: formatSuccess("BANS CLEARED",
+      `✅ Cleared *${count}* banned users.\n\n👑 @${userJid.split("@")[0]}`),
     mentions: [userJid],
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  RESTART — Graceful restart
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  RESTART — AYOCODES
+// ============================================================================
 export async function restart({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -595,24 +507,17 @@ export async function restart({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  // Save everything before exit — AYOCODES
-  try {
-    saveWarnings();
-  } catch (_) {}
-  try {
-    saveBannedUsers();
-  } catch (_) {}
-  try {
-    saveGroupSettings();
-  } catch (_) {}
+  try { saveWarnings();      } catch (_) {}
+  try { saveBannedUsers();   } catch (_) {}
+  try { saveGroupSettings(); } catch (_) {}
 
   await new Promise((r) => setTimeout(r, 2000));
   process.exit(0);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  SHUTDOWN — Stop the bot completely
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  SHUTDOWN — AYOCODES
+// ============================================================================
 export async function shutdown({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -630,38 +535,32 @@ export async function shutdown({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  try {
-    saveWarnings();
-  } catch (_) {}
-  try {
-    saveBannedUsers();
-  } catch (_) {}
-  try {
-    saveGroupSettings();
-  } catch (_) {}
+  try { saveWarnings();      } catch (_) {}
+  try { saveBannedUsers();   } catch (_) {}
+  try { saveGroupSettings(); } catch (_) {}
 
   await new Promise((r) => setTimeout(r, 2000));
   process.exit(1);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  BOT STATUS — Detailed system status
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  BOT STATUS — AYOCODES
+// ============================================================================
 export async function botStatus({ from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
-  const mem = process.memoryUsage();
+  const mem    = process.memoryUsage();
   const uptime = process.uptime();
-  const d = Math.floor(uptime / 86400);
-  const h = Math.floor((uptime % 86400) / 3600);
-  const m = Math.floor((uptime % 3600) / 60);
-  const s = Math.floor(uptime % 60);
-  const mode = session?.mode || ENV.BOT_MODE || "public";
+  const d      = Math.floor(uptime / 86400);
+  const h      = Math.floor((uptime % 86400) / 3600);
+  const m      = Math.floor((uptime % 3600) / 60);
+  const s      = Math.floor(uptime % 60);
+  const mode   = session?.mode || ENV.BOT_MODE || "public";
   let groupCount = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    groupCount = Object.keys(groups).length;
+    groupCount   = Object.keys(groups).length;
   } catch (_) {}
 
   await sock.sendMessage(from, {
@@ -689,30 +588,26 @@ export async function botStatus({ from, userJid, sock, isAdmin, session }) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  ADMIN EVAL — Execute code (dangerous, admin only)
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  ADMIN EVAL — AYOCODES
+// ============================================================================
 export async function adminEval({ fullArgs, from, sock, isAdmin }) {
   if (!isAdmin) return;
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo(
-        "EVAL",
-        `Usage: ${ENV.PREFIX}eval <code>\n⚠️ *Dangerous — admin only!*`,
-      ),
+      text: formatInfo("EVAL",
+        `Usage: ${ENV.PREFIX}eval <code>\n⚠️ *Dangerous — admin only!*`),
     });
   }
 
   await sock.sendMessage(from, { text: "⚡ *Executing...*" });
 
   try {
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
-    const fn = new AsyncFunction("sock", "ENV", "from", fullArgs);
-    const result = await fn(sock, ENV, from);
-    const output =
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const fn            = new AsyncFunction("sock", "ENV", "from", fullArgs);
+    const result        = await fn(sock, ENV, from);
+    const output        =
       typeof result === "object"
         ? JSON.stringify(result, null, 2)
         : String(result ?? "undefined");
@@ -735,9 +630,9 @@ export async function adminEval({ fullArgs, from, sock, isAdmin }) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT
-// ════════════════════════════════════════════════════════════════════════════
+// ============================================================================
+//  DEFAULT EXPORT — AYOCODES
+// ============================================================================
 export default {
   addUser,
   removeUser,

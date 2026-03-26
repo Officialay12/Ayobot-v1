@@ -3,13 +3,14 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Games Module — RPS, Dice, Coin Flip, Trivia
 //  Author  : AYOCODES
-//  Version : 1.0.0 (FINAL - TRIVIA FULLY FIXED)
+//  Version : 1.0.0 (FULLY FIXED - TRIVIA ANSWER DETECTION)
 //
 //  FIXES IN THIS VERSION:
-//    - Trivia answer detection now works 100%
-//    - Added debug logs to verify detection
-//    - Fixed answer parsing from messages
-//    - Properly handles non-command replies
+//    - Fixed message extraction from all message formats
+//    - Added better debugging for trivia answers
+//    - Fixed compatibility with command handler's context object
+//    - Added support for both direct message and quoted reply answers
+//    - Fixed global trivia state initialization
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
@@ -20,7 +21,46 @@ if (!global.activeTrivia) {
   global.activeTrivia = new Map();
   console.log("✅ [games.js] Created new global.activeTrivia");
 } else {
-  console.log("✅ [games.js] global.activeTrivia already exists");
+  console.log("✅ [games.js] global.activeTrivia already exists with size:", global.activeTrivia.size);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  HELPER FUNCTION: Extract message text from various formats
+// ════════════════════════════════════════════════════════════════════════════
+function extractMessageText(messageObj) {
+  if (!messageObj) return null;
+
+  console.log("[games.js] Extracting text from:", typeof messageObj);
+
+  // If it's a string
+  if (typeof messageObj === 'string') {
+    return messageObj.trim();
+  }
+
+  // If it's the context object from command handler
+  if (messageObj.message) {
+    const m = messageObj.message;
+    const text =
+      m.conversation ||
+      m.extendedTextMessage?.text ||
+      m.imageMessage?.caption ||
+      m.videoMessage?.caption ||
+      m.documentMessage?.caption ||
+      null;
+    if (text) return text.trim();
+  }
+
+  // If it has a text property directly
+  if (messageObj.text) {
+    return messageObj.text.trim();
+  }
+
+  // If it has a conversation property
+  if (messageObj.conversation) {
+    return messageObj.conversation.trim();
+  }
+
+  return null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -340,11 +380,12 @@ export async function trivia({ from, sock }) {
 
 // ════════════════════════════════════════════════════════════════════════════
 //  HANDLE TRIVIA ANSWER - FIXED WITH PROPER DETECTION
+//  This function is called from commandHandler.js when a user replies with A/B/C/D
 // ════════════════════════════════════════════════════════════════════════════
 export async function handleTriviaAnswer(message, from, sock) {
   console.log(`🎯 [handleTriviaAnswer] Called for chat: ${from}`);
-  console.log(`📊 [handleTriviaAnswer] Message object type:`, typeof message);
-  console.log(`📊 [handleTriviaAnswer] Has message property:`, !!message?.message);
+  console.log(`📊 [handleTriviaAnswer] Message type: ${typeof message}`);
+  console.log(`📊 [handleTriviaAnswer] Message keys: ${Object.keys(message || {})}`);
 
   // Check if global trivia store exists
   if (!global.activeTrivia) {
@@ -361,12 +402,16 @@ export async function handleTriviaAnswer(message, from, sock) {
     return false;
   }
 
-  // Extract the answer text from the message - FIXED to handle all message types
+  // Extract the answer text from the message - FIXED to handle all message formats
   let rawText = '';
 
   try {
-    // Try to get text from different message structures
-    if (message.message) {
+    // Try different ways to extract the text
+    if (typeof message === 'string') {
+      // Direct string message (legacy format)
+      rawText = message;
+    } else if (message.message) {
+      // Standard WhatsApp message object
       const msgObj = message.message;
       rawText =
         msgObj.conversation ||
@@ -374,11 +419,15 @@ export async function handleTriviaAnswer(message, from, sock) {
         msgObj.imageMessage?.caption ||
         msgObj.videoMessage?.caption ||
         '';
-    } else if (typeof message === 'string') {
-      // If message is a string (old format), use it directly
-      rawText = message;
     } else if (message.text) {
+      // Direct text property
       rawText = message.text;
+    } else if (message.conversation) {
+      // Direct conversation property
+      rawText = message.conversation;
+    } else if (typeof message === 'object' && message.toString) {
+      // Fallback
+      rawText = message.toString();
     }
 
     console.log(`📝 [handleTriviaAnswer] Raw text: "${rawText}"`);
@@ -388,19 +437,20 @@ export async function handleTriviaAnswer(message, from, sock) {
       return false;
     }
 
-    // Clean up the text - remove extra spaces, convert to uppercase
-    const playerAnswer = rawText.trim().toUpperCase();
+    // Clean up the text - remove spaces, get first character
+    const cleanedText = rawText.trim().toUpperCase();
+    const playerAnswer = cleanedText.charAt(0);
     console.log(`🔤 [handleTriviaAnswer] Player answer: "${playerAnswer}"`);
 
     // Only process A, B, C, or D
     if (!["A", "B", "C", "D"].includes(playerAnswer)) {
-      console.log(`❌ [handleTriviaAnswer] Not A/B/C/D`);
+      console.log(`❌ [handleTriviaAnswer] Not A/B/C/D, got "${playerAnswer}"`);
       return false;
     }
 
-    // Check if the game has expired
+    // Check if the game has expired (2 minutes = 120000ms)
     const timeElapsed = Date.now() - gameData.time;
-    if (timeElapsed > 100000) {
+    if (timeElapsed > 120000) {
       console.log(`⏰ [handleTriviaAnswer] Game expired (${timeElapsed}ms)`);
       global.activeTrivia.delete(from);
       await sock.sendMessage(from, {
@@ -415,6 +465,7 @@ export async function handleTriviaAnswer(message, from, sock) {
     // Remove the game regardless of right or wrong
     global.activeTrivia.delete(from);
     console.log(`🗑️ [handleTriviaAnswer] Removed trivia for ${from}`);
+    console.log(`📊 [handleTriviaAnswer] Remaining trivia count: ${global.activeTrivia.size}`);
 
     // Send response
     if (isCorrect) {
@@ -445,6 +496,7 @@ export async function handleTriviaAnswer(message, from, sock) {
     return true;
   } catch (error) {
     console.error(`❌ [handleTriviaAnswer] Error: ${error.message}`);
+    console.error(error.stack);
     return false;
   }
 }

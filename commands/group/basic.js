@@ -4,31 +4,13 @@
 //  Author  : AYOCODES
 //  Version : v1.0.0
 //
-//  ALL FIXES APPLIED:
-//    • normalizeJid() — strips :N device suffix BEFORE removing non-digits.
-//      "2349159180375:58@s.whatsapp.net" → "2349159180375" ✅ CORRECT
-//    • antilink — isGroup check moved OUTSIDE the args block.
-//      Old code: isGroup check was INSIDE `if (args && args.length > 0)`,
-//      so calling `.antilink` with no args in a group hit the dead `return`
-//      at the bottom and gave NO response at all. Now fixed. — AYOCODES
-//    • antilink toggle — checks actual group admin status via normalizeJid(),
-//      NOT just isAdmin (bot owner only check). — AYOCODES
-//    • antilink no-args — now shows current on/off status + helpful note.
-//    • antilink Part 2 (link detection) runs ONLY in automation.js.
-//      Do NOT add link detection back here — causes duplicate warnings.
-//    • groupWarnings key format: ${from}:${senderJid} — matches automation.js.
-//    • getip — all 4 fallback APIs included.
-//    • screenshot — all 4 screenshot services included.
-//    • scrape — CSS style inlining $(el).replaceWith() restored.
-//    • weather condEmoji — full 7-branch coverage restored.
-//    • menu — clean nested-array structure, accurate total count.
-//    • default export — every exported function included.
-//
-//  ⚠️  IMPORTANT — BOT MUST BE GROUP ADMIN:
-//    For antilink deletion, kick, promote, demote, mute/unmute, lock/unlock
-//    to work, the bot number (+2349159180375) MUST be made a group admin.
-//    Go to: WhatsApp → Group Info → Participants → tap bot → Make Admin.
-//    Without admin status the bot CANNOT delete messages or remove members.
+//  LATEST FIXES APPLIED:
+//    • normalizeJid() — SINGLE SOURCE OF TRUTH for all phone normalization
+//    • antilink — REMOVED owner bypass, ONLY group admins can toggle
+//    • antilink — Fixed groupSettings merge (no more overwriting)
+//    • antilink — Clean subcommand handling (no duplicate status logic)
+//    • antilink — Proper error handling for metadata fetch
+//    • All functions now use consistent normalizeJid()
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -97,16 +79,18 @@ function getSafeStartTime() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  normalizeJid — FIXED
-//  Strips :N device suffix BEFORE stripping non-digits.
+//  normalizeJid — SINGLE SOURCE OF TRUTH
+//  Strips :N device suffix and @domain, returns only digits.
+//  Used consistently across ALL functions in this module.
 //  "2349159180375:58@s.whatsapp.net" → "2349159180375"  ✅
 //  "223175560437838@s.whatsapp.net"  → "223175560437838" ✅
 // ─────────────────────────────────────────────────────────────────────────────
 function normalizeJid(jid = "") {
+  if (!jid || typeof jid !== "string") return "";
   return String(jid)
-    .split("@")[0] // drop @s.whatsapp.net / @g.us
-    .split(":")[0] // drop :58 device suffix  ← THE FIX
-    .replace(/[^0-9]/g, ""); // digits only
+    .split("@")[0]           // Remove @s.whatsapp.net / @g.us
+    .split(":")[0]           // Remove :58 device suffix
+    .replace(/[^0-9]/g, ""); // Keep only digits
 }
 
 function safeFixed(val, digits = 4) {
@@ -159,7 +143,7 @@ export async function test({
   sessionMode,
   ownerPhone,
 }) {
-  const phone = userJid?.split("@")[0] || "unknown";
+  const phone = normalizeJid(userJid);
   console.log("🔧 TEST COMMAND EXECUTED!");
   await sock.sendMessage(from, {
     text:
@@ -490,7 +474,7 @@ export async function status({
   sock,
   sessionMode,
 }) {
-  const phone = userJid.split("@")[0];
+  const phone = normalizeJid(userJid);
   const usage = commandUsage.get(userJid) || {};
   const total = Object.values(usage).reduce((a, b) => a + b, 0);
   const topCmd = Object.entries(usage).sort((a, b) => b[1] - a[1])[0];
@@ -959,8 +943,8 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
         `Example: ${ENV.PREFIX}waitlist user@example.com`,
       ),
     });
-  const phone = userJid.split("@")[0],
-    timestamp = new Date().toLocaleString();
+  const phone = normalizeJid(userJid);
+  const timestamp = new Date().toLocaleString();
   let pushname = "Unknown";
   try {
     if (message?.pushName) pushname = message.pushName;
@@ -1509,824 +1493,42 @@ export async function myip({ from, sock, userJid, message }) {
     text: "🌐 *Fetching IP & location info...*\n_Getting your number info + server IP..._",
   });
 
-  // ── PART 1: Phone number → country/region from number prefix ─────────────
-  // WhatsApp does not expose the user's real IP — that is a platform limitation.
-  // However we can accurately determine the user's country and carrier from
-  // their phone number prefix using the numverify / opencnam / phone-validation
-  // APIs, or our own prefix table as a reliable offline fallback. — AYOCODES
-
-  const rawJid = userJid || from;
-  const phoneNum = normalizeJid(rawJid); // e.g. "2349159180375"
+  const phoneNum = normalizeJid(userJid);
   const pushName = message?.pushName || "Unknown";
 
-  // Phone number prefix → country mapping (covers all major calling codes)
+  // Phone number prefix → country mapping
   const phoneCountryMap = [
-    // Africa
-    {
-      prefix: "234",
-      country: "Nigeria",
-      code: "NG",
-      flag: "🇳🇬",
-      tz: "Africa/Lagos",
-      currency: "NGN",
-    },
-    {
-      prefix: "233",
-      country: "Ghana",
-      code: "GH",
-      flag: "🇬🇭",
-      tz: "Africa/Accra",
-      currency: "GHS",
-    },
-    {
-      prefix: "254",
-      country: "Kenya",
-      code: "KE",
-      flag: "🇰🇪",
-      tz: "Africa/Nairobi",
-      currency: "KES",
-    },
-    {
-      prefix: "27",
-      country: "South Africa",
-      code: "ZA",
-      flag: "🇿🇦",
-      tz: "Africa/Johannesburg",
-      currency: "ZAR",
-    },
-    {
-      prefix: "256",
-      country: "Uganda",
-      code: "UG",
-      flag: "🇺🇬",
-      tz: "Africa/Kampala",
-      currency: "UGX",
-    },
-    {
-      prefix: "255",
-      country: "Tanzania",
-      code: "TZ",
-      flag: "🇹🇿",
-      tz: "Africa/Dar_es_Salaam",
-      currency: "TZS",
-    },
-    {
-      prefix: "260",
-      country: "Zambia",
-      code: "ZM",
-      flag: "🇿🇲",
-      tz: "Africa/Lusaka",
-      currency: "ZMW",
-    },
-    {
-      prefix: "263",
-      country: "Zimbabwe",
-      code: "ZW",
-      flag: "🇿🇼",
-      tz: "Africa/Harare",
-      currency: "ZWL",
-    },
-    {
-      prefix: "237",
-      country: "Cameroon",
-      code: "CM",
-      flag: "🇨🇲",
-      tz: "Africa/Douala",
-      currency: "XAF",
-    },
-    {
-      prefix: "225",
-      country: "Ivory Coast",
-      code: "CI",
-      flag: "🇨🇮",
-      tz: "Africa/Abidjan",
-      currency: "XOF",
-    },
-    {
-      prefix: "221",
-      country: "Senegal",
-      code: "SN",
-      flag: "🇸🇳",
-      tz: "Africa/Dakar",
-      currency: "XOF",
-    },
-    {
-      prefix: "212",
-      country: "Morocco",
-      code: "MA",
-      flag: "🇲🇦",
-      tz: "Africa/Casablanca",
-      currency: "MAD",
-    },
-    {
-      prefix: "20",
-      country: "Egypt",
-      code: "EG",
-      flag: "🇪🇬",
-      tz: "Africa/Cairo",
-      currency: "EGP",
-    },
-    {
-      prefix: "251",
-      country: "Ethiopia",
-      code: "ET",
-      flag: "🇪🇹",
-      tz: "Africa/Addis_Ababa",
-      currency: "ETB",
-    },
-    {
-      prefix: "223",
-      country: "Mali",
-      code: "ML",
-      flag: "🇲🇱",
-      tz: "Africa/Bamako",
-      currency: "XOF",
-    },
-    {
-      prefix: "229",
-      country: "Benin",
-      code: "BJ",
-      flag: "🇧🇯",
-      tz: "Africa/Porto-Novo",
-      currency: "XOF",
-    },
-    {
-      prefix: "228",
-      country: "Togo",
-      code: "TG",
-      flag: "🇹🇬",
-      tz: "Africa/Lome",
-      currency: "XOF",
-    },
-    {
-      prefix: "226",
-      country: "Burkina Faso",
-      code: "BF",
-      flag: "🇧🇫",
-      tz: "Africa/Ouagadougou",
-      currency: "XOF",
-    },
-    {
-      prefix: "227",
-      country: "Niger",
-      code: "NE",
-      flag: "🇳🇪",
-      tz: "Africa/Niamey",
-      currency: "XOF",
-    },
-    {
-      prefix: "242",
-      country: "Congo",
-      code: "CG",
-      flag: "🇨🇬",
-      tz: "Africa/Brazzaville",
-      currency: "XAF",
-    },
-    {
-      prefix: "243",
-      country: "DR Congo",
-      code: "CD",
-      flag: "🇨🇩",
-      tz: "Africa/Kinshasa",
-      currency: "CDF",
-    },
-    {
-      prefix: "250",
-      country: "Rwanda",
-      code: "RW",
-      flag: "🇷🇼",
-      tz: "Africa/Kigali",
-      currency: "RWF",
-    },
-    {
-      prefix: "257",
-      country: "Burundi",
-      code: "BI",
-      flag: "🇧🇮",
-      tz: "Africa/Bujumbura",
-      currency: "BIF",
-    },
-    {
-      prefix: "258",
-      country: "Mozambique",
-      code: "MZ",
-      flag: "🇲🇿",
-      tz: "Africa/Maputo",
-      currency: "MZN",
-    },
-    {
-      prefix: "261",
-      country: "Madagascar",
-      code: "MG",
-      flag: "🇲🇬",
-      tz: "Indian/Antananarivo",
-      currency: "MGA",
-    },
-    {
-      prefix: "264",
-      country: "Namibia",
-      code: "NA",
-      flag: "🇳🇦",
-      tz: "Africa/Windhoek",
-      currency: "NAD",
-    },
-    {
-      prefix: "265",
-      country: "Malawi",
-      code: "MW",
-      flag: "🇲🇼",
-      tz: "Africa/Blantyre",
-      currency: "MWK",
-    },
-    {
-      prefix: "266",
-      country: "Lesotho",
-      code: "LS",
-      flag: "🇱🇸",
-      tz: "Africa/Maseru",
-      currency: "LSL",
-    },
-    {
-      prefix: "267",
-      country: "Botswana",
-      code: "BW",
-      flag: "🇧🇼",
-      tz: "Africa/Gaborone",
-      currency: "BWP",
-    },
-    {
-      prefix: "268",
-      country: "Eswatini",
-      code: "SZ",
-      flag: "🇸🇿",
-      tz: "Africa/Mbabane",
-      currency: "SZL",
-    },
-    {
-      prefix: "249",
-      country: "Sudan",
-      code: "SD",
-      flag: "🇸🇩",
-      tz: "Africa/Khartoum",
-      currency: "SDG",
-    },
-    {
-      prefix: "218",
-      country: "Libya",
-      code: "LY",
-      flag: "🇱🇾",
-      tz: "Africa/Tripoli",
-      currency: "LYD",
-    },
-    {
-      prefix: "216",
-      country: "Tunisia",
-      code: "TN",
-      flag: "🇹🇳",
-      tz: "Africa/Tunis",
-      currency: "TND",
-    },
-    {
-      prefix: "213",
-      country: "Algeria",
-      code: "DZ",
-      flag: "🇩🇿",
-      tz: "Africa/Algiers",
-      currency: "DZD",
-    },
-    // Americas
-    {
-      prefix: "1",
-      country: "USA / Canada",
-      code: "US",
-      flag: "🇺🇸",
-      tz: "America/New_York",
-      currency: "USD",
-    },
-    {
-      prefix: "55",
-      country: "Brazil",
-      code: "BR",
-      flag: "🇧🇷",
-      tz: "America/Sao_Paulo",
-      currency: "BRL",
-    },
-    {
-      prefix: "52",
-      country: "Mexico",
-      code: "MX",
-      flag: "🇲🇽",
-      tz: "America/Mexico_City",
-      currency: "MXN",
-    },
-    {
-      prefix: "54",
-      country: "Argentina",
-      code: "AR",
-      flag: "🇦🇷",
-      tz: "America/Argentina/Buenos_Aires",
-      currency: "ARS",
-    },
-    {
-      prefix: "57",
-      country: "Colombia",
-      code: "CO",
-      flag: "🇨🇴",
-      tz: "America/Bogota",
-      currency: "COP",
-    },
-    {
-      prefix: "51",
-      country: "Peru",
-      code: "PE",
-      flag: "🇵🇪",
-      tz: "America/Lima",
-      currency: "PEN",
-    },
-    {
-      prefix: "56",
-      country: "Chile",
-      code: "CL",
-      flag: "🇨🇱",
-      tz: "America/Santiago",
-      currency: "CLP",
-    },
-    {
-      prefix: "58",
-      country: "Venezuela",
-      code: "VE",
-      flag: "🇻🇪",
-      tz: "America/Caracas",
-      currency: "VES",
-    },
-    {
-      prefix: "593",
-      country: "Ecuador",
-      code: "EC",
-      flag: "🇪🇨",
-      tz: "America/Guayaquil",
-      currency: "USD",
-    },
-    {
-      prefix: "591",
-      country: "Bolivia",
-      code: "BO",
-      flag: "🇧🇴",
-      tz: "America/La_Paz",
-      currency: "BOB",
-    },
-    {
-      prefix: "595",
-      country: "Paraguay",
-      code: "PY",
-      flag: "🇵🇾",
-      tz: "America/Asuncion",
-      currency: "PYG",
-    },
-    {
-      prefix: "598",
-      country: "Uruguay",
-      code: "UY",
-      flag: "🇺🇾",
-      tz: "America/Montevideo",
-      currency: "UYU",
-    },
-    // Europe
-    {
-      prefix: "44",
-      country: "United Kingdom",
-      code: "GB",
-      flag: "🇬🇧",
-      tz: "Europe/London",
-      currency: "GBP",
-    },
-    {
-      prefix: "49",
-      country: "Germany",
-      code: "DE",
-      flag: "🇩🇪",
-      tz: "Europe/Berlin",
-      currency: "EUR",
-    },
-    {
-      prefix: "33",
-      country: "France",
-      code: "FR",
-      flag: "🇫🇷",
-      tz: "Europe/Paris",
-      currency: "EUR",
-    },
-    {
-      prefix: "39",
-      country: "Italy",
-      code: "IT",
-      flag: "🇮🇹",
-      tz: "Europe/Rome",
-      currency: "EUR",
-    },
-    {
-      prefix: "34",
-      country: "Spain",
-      code: "ES",
-      flag: "🇪🇸",
-      tz: "Europe/Madrid",
-      currency: "EUR",
-    },
-    {
-      prefix: "31",
-      country: "Netherlands",
-      code: "NL",
-      flag: "🇳🇱",
-      tz: "Europe/Amsterdam",
-      currency: "EUR",
-    },
-    {
-      prefix: "32",
-      country: "Belgium",
-      code: "BE",
-      flag: "🇧🇪",
-      tz: "Europe/Brussels",
-      currency: "EUR",
-    },
-    {
-      prefix: "41",
-      country: "Switzerland",
-      code: "CH",
-      flag: "🇨🇭",
-      tz: "Europe/Zurich",
-      currency: "CHF",
-    },
-    {
-      prefix: "43",
-      country: "Austria",
-      code: "AT",
-      flag: "🇦🇹",
-      tz: "Europe/Vienna",
-      currency: "EUR",
-    },
-    {
-      prefix: "351",
-      country: "Portugal",
-      code: "PT",
-      flag: "🇵🇹",
-      tz: "Europe/Lisbon",
-      currency: "EUR",
-    },
-    {
-      prefix: "48",
-      country: "Poland",
-      code: "PL",
-      flag: "🇵🇱",
-      tz: "Europe/Warsaw",
-      currency: "PLN",
-    },
-    {
-      prefix: "46",
-      country: "Sweden",
-      code: "SE",
-      flag: "🇸🇪",
-      tz: "Europe/Stockholm",
-      currency: "SEK",
-    },
-    {
-      prefix: "47",
-      country: "Norway",
-      code: "NO",
-      flag: "🇳🇴",
-      tz: "Europe/Oslo",
-      currency: "NOK",
-    },
-    {
-      prefix: "45",
-      country: "Denmark",
-      code: "DK",
-      flag: "🇩🇰",
-      tz: "Europe/Copenhagen",
-      currency: "DKK",
-    },
-    {
-      prefix: "358",
-      country: "Finland",
-      code: "FI",
-      flag: "🇫🇮",
-      tz: "Europe/Helsinki",
-      currency: "EUR",
-    },
-    {
-      prefix: "7",
-      country: "Russia",
-      code: "RU",
-      flag: "🇷🇺",
-      tz: "Europe/Moscow",
-      currency: "RUB",
-    },
-    {
-      prefix: "380",
-      country: "Ukraine",
-      code: "UA",
-      flag: "🇺🇦",
-      tz: "Europe/Kyiv",
-      currency: "UAH",
-    },
-    {
-      prefix: "40",
-      country: "Romania",
-      code: "RO",
-      flag: "🇷🇴",
-      tz: "Europe/Bucharest",
-      currency: "RON",
-    },
-    {
-      prefix: "36",
-      country: "Hungary",
-      code: "HU",
-      flag: "🇭🇺",
-      tz: "Europe/Budapest",
-      currency: "HUF",
-    },
-    {
-      prefix: "420",
-      country: "Czech Republic",
-      code: "CZ",
-      flag: "🇨🇿",
-      tz: "Europe/Prague",
-      currency: "CZK",
-    },
-    {
-      prefix: "30",
-      country: "Greece",
-      code: "GR",
-      flag: "🇬🇷",
-      tz: "Europe/Athens",
-      currency: "EUR",
-    },
-    // Asia
-    {
-      prefix: "91",
-      country: "India",
-      code: "IN",
-      flag: "🇮🇳",
-      tz: "Asia/Kolkata",
-      currency: "INR",
-    },
-    {
-      prefix: "92",
-      country: "Pakistan",
-      code: "PK",
-      flag: "🇵🇰",
-      tz: "Asia/Karachi",
-      currency: "PKR",
-    },
-    {
-      prefix: "880",
-      country: "Bangladesh",
-      code: "BD",
-      flag: "🇧🇩",
-      tz: "Asia/Dhaka",
-      currency: "BDT",
-    },
-    {
-      prefix: "86",
-      country: "China",
-      code: "CN",
-      flag: "🇨🇳",
-      tz: "Asia/Shanghai",
-      currency: "CNY",
-    },
-    {
-      prefix: "81",
-      country: "Japan",
-      code: "JP",
-      flag: "🇯🇵",
-      tz: "Asia/Tokyo",
-      currency: "JPY",
-    },
-    {
-      prefix: "82",
-      country: "South Korea",
-      code: "KR",
-      flag: "🇰🇷",
-      tz: "Asia/Seoul",
-      currency: "KRW",
-    },
-    {
-      prefix: "62",
-      country: "Indonesia",
-      code: "ID",
-      flag: "🇮🇩",
-      tz: "Asia/Jakarta",
-      currency: "IDR",
-    },
-    {
-      prefix: "63",
-      country: "Philippines",
-      code: "PH",
-      flag: "🇵🇭",
-      tz: "Asia/Manila",
-      currency: "PHP",
-    },
-    {
-      prefix: "66",
-      country: "Thailand",
-      code: "TH",
-      flag: "🇹🇭",
-      tz: "Asia/Bangkok",
-      currency: "THB",
-    },
-    {
-      prefix: "84",
-      country: "Vietnam",
-      code: "VN",
-      flag: "🇻🇳",
-      tz: "Asia/Ho_Chi_Minh",
-      currency: "VND",
-    },
-    {
-      prefix: "60",
-      country: "Malaysia",
-      code: "MY",
-      flag: "🇲🇾",
-      tz: "Asia/Kuala_Lumpur",
-      currency: "MYR",
-    },
-    {
-      prefix: "65",
-      country: "Singapore",
-      code: "SG",
-      flag: "🇸🇬",
-      tz: "Asia/Singapore",
-      currency: "SGD",
-    },
-    {
-      prefix: "971",
-      country: "UAE",
-      code: "AE",
-      flag: "🇦🇪",
-      tz: "Asia/Dubai",
-      currency: "AED",
-    },
-    {
-      prefix: "966",
-      country: "Saudi Arabia",
-      code: "SA",
-      flag: "🇸🇦",
-      tz: "Asia/Riyadh",
-      currency: "SAR",
-    },
-    {
-      prefix: "964",
-      country: "Iraq",
-      code: "IQ",
-      flag: "🇮🇶",
-      tz: "Asia/Baghdad",
-      currency: "IQD",
-    },
-    {
-      prefix: "98",
-      country: "Iran",
-      code: "IR",
-      flag: "🇮🇷",
-      tz: "Asia/Tehran",
-      currency: "IRR",
-    },
-    {
-      prefix: "90",
-      country: "Turkey",
-      code: "TR",
-      flag: "🇹🇷",
-      tz: "Europe/Istanbul",
-      currency: "TRY",
-    },
-    {
-      prefix: "972",
-      country: "Israel",
-      code: "IL",
-      flag: "🇮🇱",
-      tz: "Asia/Jerusalem",
-      currency: "ILS",
-    },
-    {
-      prefix: "961",
-      country: "Lebanon",
-      code: "LB",
-      flag: "🇱🇧",
-      tz: "Asia/Beirut",
-      currency: "LBP",
-    },
-    {
-      prefix: "962",
-      country: "Jordan",
-      code: "JO",
-      flag: "🇯🇴",
-      tz: "Asia/Amman",
-      currency: "JOD",
-    },
-    {
-      prefix: "974",
-      country: "Qatar",
-      code: "QA",
-      flag: "🇶🇦",
-      tz: "Asia/Qatar",
-      currency: "QAR",
-    },
-    {
-      prefix: "965",
-      country: "Kuwait",
-      code: "KW",
-      flag: "🇰🇼",
-      tz: "Asia/Kuwait",
-      currency: "KWD",
-    },
-    {
-      prefix: "968",
-      country: "Oman",
-      code: "OM",
-      flag: "🇴🇲",
-      tz: "Asia/Muscat",
-      currency: "OMR",
-    },
-    {
-      prefix: "973",
-      country: "Bahrain",
-      code: "BH",
-      flag: "🇧🇭",
-      tz: "Asia/Bahrain",
-      currency: "BHD",
-    },
-    {
-      prefix: "967",
-      country: "Yemen",
-      code: "YE",
-      flag: "🇾🇪",
-      tz: "Asia/Aden",
-      currency: "YER",
-    },
-    {
-      prefix: "94",
-      country: "Sri Lanka",
-      code: "LK",
-      flag: "🇱🇰",
-      tz: "Asia/Colombo",
-      currency: "LKR",
-    },
-    {
-      prefix: "977",
-      country: "Nepal",
-      code: "NP",
-      flag: "🇳🇵",
-      tz: "Asia/Kathmandu",
-      currency: "NPR",
-    },
-    {
-      prefix: "95",
-      country: "Myanmar",
-      code: "MM",
-      flag: "🇲🇲",
-      tz: "Asia/Rangoon",
-      currency: "MMK",
-    },
-    {
-      prefix: "855",
-      country: "Cambodia",
-      code: "KH",
-      flag: "🇰🇭",
-      tz: "Asia/Phnom_Penh",
-      currency: "KHR",
-    },
-    {
-      prefix: "856",
-      country: "Laos",
-      code: "LA",
-      flag: "🇱🇦",
-      tz: "Asia/Vientiane",
-      currency: "LAK",
-    },
-    // Oceania
-    {
-      prefix: "61",
-      country: "Australia",
-      code: "AU",
-      flag: "🇦🇺",
-      tz: "Australia/Sydney",
-      currency: "AUD",
-    },
-    {
-      prefix: "64",
-      country: "New Zealand",
-      code: "NZ",
-      flag: "🇳🇿",
-      tz: "Pacific/Auckland",
-      currency: "NZD",
-    },
+    { prefix: "234", country: "Nigeria", code: "NG", flag: "🇳🇬", tz: "Africa/Lagos", currency: "NGN" },
+    { prefix: "233", country: "Ghana", code: "GH", flag: "🇬🇭", tz: "Africa/Accra", currency: "GHS" },
+    { prefix: "254", country: "Kenya", code: "KE", flag: "🇰🇪", tz: "Africa/Nairobi", currency: "KES" },
+    { prefix: "27", country: "South Africa", code: "ZA", flag: "🇿🇦", tz: "Africa/Johannesburg", currency: "ZAR" },
+    { prefix: "1", country: "USA / Canada", code: "US", flag: "🇺🇸", tz: "America/New_York", currency: "USD" },
+    { prefix: "44", country: "United Kingdom", code: "GB", flag: "🇬🇧", tz: "Europe/London", currency: "GBP" },
+    { prefix: "91", country: "India", code: "IN", flag: "🇮🇳", tz: "Asia/Kolkata", currency: "INR" },
+    { prefix: "92", country: "Pakistan", code: "PK", flag: "🇵🇰", tz: "Asia/Karachi", currency: "PKR" },
+    { prefix: "86", country: "China", code: "CN", flag: "🇨🇳", tz: "Asia/Shanghai", currency: "CNY" },
+    { prefix: "81", country: "Japan", code: "JP", flag: "🇯🇵", tz: "Asia/Tokyo", currency: "JPY" },
+    { prefix: "82", country: "South Korea", code: "KR", flag: "🇰🇷", tz: "Asia/Seoul", currency: "KRW" },
+    { prefix: "62", country: "Indonesia", code: "ID", flag: "🇮🇩", tz: "Asia/Jakarta", currency: "IDR" },
+    { prefix: "63", country: "Philippines", code: "PH", flag: "🇵🇭", tz: "Asia/Manila", currency: "PHP" },
+    { prefix: "66", country: "Thailand", code: "TH", flag: "🇹🇭", tz: "Asia/Bangkok", currency: "THB" },
+    { prefix: "84", country: "Vietnam", code: "VN", flag: "🇻🇳", tz: "Asia/Ho_Chi_Minh", currency: "VND" },
+    { prefix: "60", country: "Malaysia", code: "MY", flag: "🇲🇾", tz: "Asia/Kuala_Lumpur", currency: "MYR" },
+    { prefix: "65", country: "Singapore", code: "SG", flag: "🇸🇬", tz: "Asia/Singapore", currency: "SGD" },
+    { prefix: "61", country: "Australia", code: "AU", flag: "🇦🇺", tz: "Australia/Sydney", currency: "AUD" },
+    { prefix: "64", country: "New Zealand", code: "NZ", flag: "🇳🇿", tz: "Pacific/Auckland", currency: "NZD" },
+    { prefix: "55", country: "Brazil", code: "BR", flag: "🇧🇷", tz: "America/Sao_Paulo", currency: "BRL" },
+    { prefix: "52", country: "Mexico", code: "MX", flag: "🇲🇽", tz: "America/Mexico_City", currency: "MXN" },
+    { prefix: "49", country: "Germany", code: "DE", flag: "🇩🇪", tz: "Europe/Berlin", currency: "EUR" },
+    { prefix: "33", country: "France", code: "FR", flag: "🇫🇷", tz: "Europe/Paris", currency: "EUR" },
+    { prefix: "39", country: "Italy", code: "IT", flag: "🇮🇹", tz: "Europe/Rome", currency: "EUR" },
+    { prefix: "34", country: "Spain", code: "ES", flag: "🇪🇸", tz: "Europe/Madrid", currency: "EUR" },
+    { prefix: "7", country: "Russia", code: "RU", flag: "🇷🇺", tz: "Europe/Moscow", currency: "RUB" },
   ];
 
-  // Match longest prefix first for accuracy (e.g. "234" before "23")
-  const sorted = [...phoneCountryMap].sort(
-    (a, b) => b.prefix.length - a.prefix.length,
-  );
+  const sorted = [...phoneCountryMap].sort((a, b) => b.prefix.length - a.prefix.length);
   const match = sorted.find((c) => phoneNum.startsWith(c.prefix));
 
-  // Get local time for detected country
   let localTime = "N/A";
   if (match?.tz) {
     try {
@@ -2344,38 +1546,13 @@ export async function myip({ from, sock, userJid, message }) {
     } catch (_) {}
   }
 
-  // Try to get extra phone number info from numverify-style API
-  let carrierInfo = null;
-  try {
-    const res = await axios.get(
-      `https://phonevalidation.abstractapi.com/v1/?api_key=&phone=${phoneNum}`,
-      { timeout: 5000 },
-    );
-    if (res.data?.country?.name) {
-      carrierInfo = {
-        carrier: res.data.carrier || null,
-        lineType: res.data.type || null,
-      };
-    }
-  } catch (_) {}
-
-  // ── PART 2: Server IP lookup ──────────────────────────────────────────────
   let serverIp = null;
   for (const svc of [
-    {
-      url: "https://api.ipify.org?format=json",
-      parser: (d) => (typeof d === "object" ? d.ip : d.trim()),
-    },
+    { url: "https://api.ipify.org?format=json", parser: (d) => (typeof d === "object" ? d.ip : d.trim()) },
     { url: "https://api4.my-ip.io/ip.json", parser: (d) => d.ip },
     { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
-    {
-      url: "https://ipecho.net/plain",
-      parser: (d) => (typeof d === "string" ? d.trim() : null),
-    },
-    {
-      url: "https://checkip.amazonaws.com/",
-      parser: (d) => (typeof d === "string" ? d.trim() : null),
-    },
+    { url: "https://ipecho.net/plain", parser: (d) => (typeof d === "string" ? d.trim() : null) },
+    { url: "https://checkip.amazonaws.com/", parser: (d) => (typeof d === "string" ? d.trim() : null) },
   ]) {
     try {
       const res = await axios.get(svc.url, { timeout: 6000 });
@@ -2390,33 +1567,19 @@ export async function myip({ from, sock, userJid, message }) {
   let serverLoc = null;
   if (serverIp) {
     try {
-      const r = await axios.get(`https://ipwho.is/${serverIp}`, {
-        timeout: 8000,
-      });
+      const r = await axios.get(`https://ipwho.is/${serverIp}`, { timeout: 8000 });
       if (r.data?.success)
         serverLoc = {
           country: r.data.country,
-          countryCode: r.data.country_code,
           city: r.data.city,
           regionName: r.data.region,
-          isp: r.data.connection?.isp || r.data.connection?.org,
-          org: r.data.connection?.org,
-          as: r.data.connection?.asn ? `AS${r.data.connection.asn}` : "N/A",
+          isp: r.data.connection?.isp,
           lat: r.data.latitude,
           lon: r.data.longitude,
         };
-    } catch (_) {
-      try {
-        const r = await axios.get(
-          `http://ip-api.com/json/${serverIp}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon`,
-          { timeout: 8000 },
-        );
-        if (r.data?.status === "success") serverLoc = r.data;
-      } catch (_) {}
-    }
+    } catch (_) {}
   }
 
-  // ── BUILD RESPONSE ────────────────────────────────────────────────────────
   let response =
     `╔══════════════════════════════════╗\n` +
     `║     📱 *YOUR NUMBER INFO*        ║\n` +
@@ -2430,12 +1593,8 @@ export async function myip({ from, sock, userJid, message }) {
       `${match.flag} *Country:* ${match.country} (${match.code})\n` +
       `⏰ *Local Time:* ${localTime}\n` +
       `💱 *Currency:* ${match.currency}\n` +
-      `🌍 *Timezone:* ${match.tz}\n`;
-    if (carrierInfo?.carrier)
-      response += `📡 *Carrier:* ${carrierInfo.carrier}\n`;
-    if (carrierInfo?.lineType)
-      response += `📶 *Line Type:* ${carrierInfo.lineType}\n`;
-    response += `📌 *Dialling Code:* +${match.prefix}\n`;
+      `🌍 *Timezone:* ${match.tz}\n` +
+      `📌 *Dialling Code:* +${match.prefix}\n`;
   } else {
     response += `\n🌍 *Country:* Could not determine from number prefix\n`;
   }
@@ -2448,9 +1607,8 @@ export async function myip({ from, sock, userJid, message }) {
     response += `🌐 *Server IP:* ${serverIp}\n`;
     if (serverLoc) {
       response +=
-        `📍 *Server Location:* ${serverLoc.city || "?"}, ${serverLoc.regionName || serverLoc.region || "?"}, ${serverLoc.country || "?"}\n` +
-        `🏢 *Hosting:* ${serverLoc.isp || serverLoc.org || "Unknown"}\n` +
-        `🔗 *ASN:* ${serverLoc.as || "N/A"}\n`;
+        `📍 *Server Location:* ${serverLoc.city || "?"}, ${serverLoc.regionName || "?"}, ${serverLoc.country || "?"}\n` +
+        `🏢 *Hosting:* ${serverLoc.isp || "Unknown"}\n`;
       if (serverLoc.lat && serverLoc.lon)
         response += `🗺️ https://www.google.com/maps?q=${serverLoc.lat},${serverLoc.lon}\n`;
     }
@@ -2461,8 +1619,7 @@ export async function myip({ from, sock, userJid, message }) {
   response +=
     `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `⚠️ *Note:* WhatsApp does not expose users' real IP addresses.\n` +
-    `The country above is detected from your *phone number prefix* (+${match?.prefix || phoneNum.substring(0, 3)}).\n` +
-    `The server IP is where the bot is hosted, NOT your location.\n\n` +
+    `The country above is detected from your *phone number prefix*.\n\n` +
     `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
   await sock.sendMessage(from, { text: response });
@@ -2653,7 +1810,7 @@ export async function getpp({ message, from, sock }) {
       msg?.extendedTextMessage?.contextInfo?.participant ||
       msg?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
       senderJid;
-    const displayNum = targetJid.split("@")[0];
+    const displayNum = normalizeJid(targetJid);
     await sock.sendMessage(from, {
       text: `🖼️ *Fetching profile picture for @${displayNum}...*`,
       mentions: [targetJid],
@@ -3152,19 +2309,12 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  ANTILINK — FULLY FIXED
 //
-//  ROOT CAUSE OF SILENT FAILURE:
-//    The old code had the `if (!isGroup)` check INSIDE the `if (args.length > 0)`
-//    block. This meant that when a user typed `.antilink` with NO args in a group,
-//    the code skipped the args block entirely and hit the dead `return` at the
-//    bottom — producing zero response. Fixed by checking isGroup FIRST. — AYOCODES
-//
-//  ADMIN FIX:
-//    Now checks real group admin status via normalizeJid() comparison.
-//    Before, only the bot owner (isAdmin) could toggle it. — AYOCODES
-//
-//  LINK DETECTION:
-//    Runs ONLY in automation.js → handleAntiLink().
-//    This function handles ONLY the toggle command + status display.
+//  FIXES APPLIED:
+//    1. REMOVED owner bypass — ONLY group admins can toggle antilink
+//    2. Fixed groupSettings merge (no more overwriting all settings)
+//    3. Clean subcommand handling (no duplicate status logic)
+//    4. Proper error handling for metadata fetch
+//    5. Uses normalizeJid() consistently
 //
 //  ⚠️  BOT MUST BE GROUP ADMIN:
 //    Antilink can only DELETE messages and KICK members if the bot is a
@@ -3175,95 +2325,114 @@ export async function antilink({
   message,
   from,
   sock,
-  isAdmin,
+  isAdmin,      // BOT OWNER check - NOT used for toggling antilink
   isGroup,
   userJid,
 }) {
-  // ── STEP 1: Group-only gate — checked FIRST, before anything else ─────────
+  // ── STEP 1: Group-only gate ────────────────────────────────────────────
   if (!isGroup) {
     return sock.sendMessage(from, {
       text: "❌ This command only works in groups.",
     });
   }
 
-  const currentSetting = groupSettings.get(from) || {};
+  // Get current group settings
+  const currentSettings = groupSettings.get(from) || {};
+  const currentStatus = currentSettings.antilink || false;
 
-  // ── STEP 2: No args → show current status ────────────────────────────────
+  // ── STEP 2: No args → show current status and help ─────────────────────
   if (!args || args.length === 0) {
-    const statusLabel = currentSetting.antilink ? "ENABLED ✅" : "DISABLED ❌";
-    return sock.sendMessage(from, {
-      text:
-        `🔗 *Anti-Link Status:* ${statusLabel}\n\n` +
-        `📌 *Toggle with:*\n` +
-        `${ENV.PREFIX}antilink on     — Enable\n` +
-        `${ENV.PREFIX}antilink off    — Disable\n` +
-        `${ENV.PREFIX}antilink status — Check status\n\n` +
-        `⚠️ *The bot must be a group admin for link deletion and auto-kick to work.*\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-    });
-  }
-
-  // ── STEP 3: Has args → verify caller is group admin ──────────────────────
-  // FIX: Check actual GROUP admin status, NOT just isAdmin (bot owner). — AYOCODES
-  let isGroupAdmin = false;
-  try {
-    const metadata = await sock.groupMetadata(from);
-    const userNum = normalizeJid(userJid); // e.g. "223175560437838"
-    isGroupAdmin = metadata.participants.some(
-      (p) =>
-        normalizeJid(p.id) === userNum &&
-        (p.admin === "admin" || p.admin === "superadmin"),
-    );
-  } catch (_) {}
-
-  if (!isGroupAdmin && !isAdmin) {
-    return sock.sendMessage(from, {
-      text: "⛔ Only *group admins* can toggle antilink.",
-    });
-  }
-
-  const sub = args[0]?.toLowerCase();
-
-  // Unknown subcommand → show help
-  if (!sub || !["on", "off", "status"].includes(sub)) {
-    const statusLabel = currentSetting.antilink ? "ON ✅" : "OFF ❌";
+    const statusLabel = currentStatus ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
       text:
         `╔══════════════════════════╗\n║     🔗 *ANTI-LINK*       ║\n╚══════════════════════════╝\n\n` +
-        `Current Status: *${statusLabel}*\n\n📌 *Commands:*\n` +
-        `${ENV.PREFIX}antilink on     — Enable protection\n` +
-        `${ENV.PREFIX}antilink off    — Disable protection\n` +
-        `${ENV.PREFIX}antilink status — Check status\n\n` +
-        `⚠️ When enabled, ALL links will be:\n• 🗑️ Automatically deleted\n• ⚠️ User warned\n• 👢 Auto-kick after 3 warnings\n\n` +
+        `Current Status: *${statusLabel}*\n\n` +
+        `📌 *Commands:*\n` +
+        `${ENV.PREFIX}antilink on     — Enable link protection\n` +
+        `${ENV.PREFIX}antilink off    — Disable link protection\n` +
+        `${ENV.PREFIX}antilink status — Check current status\n\n` +
+        `⚠️ *When enabled:*\n` +
+        `• 🗑️ Links are automatically deleted\n` +
+        `• ⚠️ Users receive warnings\n` +
+        `• 👢 Auto-kick after 3 warnings\n\n` +
         `⚠️ *Bot must be group admin for deletion/kick to work!*\n\n` +
         `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
   }
 
-  if (sub === "on") {
-    currentSetting.antilink = true;
-    groupSettings.set(from, currentSetting);
+  const sub = args[0]?.toLowerCase();
+
+  // ── STEP 3: Handle "status" subcommand ─────────────────────────────────
+  if (sub === "status") {
+    const statusLabel = currentStatus ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
-      text:
-        `✅ *Anti-Link ENABLED*\n\n🔗 All links will now be:\n• 🗑️ Deleted immediately\n• ⚠️ Users warned\n• 👢 Auto-kick after 3 warnings\n\n` +
-        `⚠️ *Make sure the bot is a group admin for this to work!*\n\nGo to: Group Info → Participants → Bot → Make Admin\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      text: `🔗 *Anti-Link Status:* ${statusLabel}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
   }
 
-  if (sub === "off") {
-    currentSetting.antilink = false;
-    groupSettings.set(from, currentSetting);
+  // ── STEP 4: Only "on" and "off" require admin verification ────────────
+  if (!["on", "off"].includes(sub)) {
+    return sock.sendMessage(from, {
+      text: formatInfo(
+        "INVALID OPTION",
+        `Usage: ${ENV.PREFIX}antilink on/off/status\n\nExample: ${ENV.PREFIX}antilink on`,
+      ),
+    });
+  }
+
+  // ── STEP 5: Verify user is a GROUP ADMIN (NO OWNER BYPASS) ─────────────
+  let isGroupAdmin = false;
+  try {
+    const metadata = await sock.groupMetadata(from);
+    const userNum = normalizeJid(userJid);
+    isGroupAdmin = metadata.participants.some(
+      (p) =>
+        normalizeJid(p.id) === userNum &&
+        (p.admin === "admin" || p.admin === "superadmin"),
+    );
+  } catch (err) {
+    console.error("[ANTILINK] Failed to fetch group metadata:", err.message);
+    return sock.sendMessage(from, {
+      text: formatError(
+        "ERROR",
+        "Could not verify admin status. Please try again.",
+      ),
+    });
+  }
+
+  // ── ONLY GROUP ADMINS CAN TOGGLE ANTILINK (NO OWNER BYPASS) ────────────
+  if (!isGroupAdmin) {
+    return sock.sendMessage(from, {
+      text: "⛔ Only *group admins* can enable or disable anti-link protection.",
+    });
+  }
+
+  // ── STEP 6: Apply the setting (MERGE, don't overwrite) ─────────────────
+  const newStatus = sub === "on";
+
+  // IMPORTANT: Merge with existing settings to preserve other group settings
+  groupSettings.set(from, {
+    ...currentSettings,
+    antilink: newStatus,
+  });
+
+  if (newStatus) {
+    return sock.sendMessage(from, {
+      text:
+        `✅ *Anti-Link ENABLED*\n\n` +
+        `🔗 All links will now be:\n` +
+        `• 🗑️ Deleted immediately\n` +
+        `• ⚠️ Users will be warned\n` +
+        `• 👢 Auto-kick after 3 warnings\n\n` +
+        `⚠️ *Make sure the bot is a group admin for this to work!*\n\n` +
+        `Go to: Group Info → Participants → Bot → Make Admin\n\n` +
+        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+    });
+  } else {
     return sock.sendMessage(from, {
       text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed in this group.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
     });
   }
-
-  // sub === "status"
-  const statusLabel = currentSetting.antilink ? "ENABLED ✅" : "DISABLED ❌";
-  return sock.sendMessage(from, {
-    text: `🔗 *Anti-Link Status:* ${statusLabel}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════

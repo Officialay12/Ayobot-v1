@@ -1,17 +1,17 @@
 // commands/group/core.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Core Commands — FIXED & COMPLETE
+//  Group Core Commands — PRODUCTION REWRITE
 //  Author: AYOCODES
 //
-//  FIXES:
-//    • isUserAdmin() now strips :N device suffix before comparing JIDs
-//      (root cause of "only admins can use this" for actual group admins)
-//    • add() renamed local `phone` var to `targetPhone` — was shadowing
-//      the outer phone(jid) helper, causing TypeError: phone is not a function
-//    • normalizeNum imported and used throughout all JID comparisons
-//  — AYOCODES
+//  THE ONE TRUE FIX APPLIED EVERYWHERE IN THIS FILE:
 //
-//  Commands: kick, add, promote, demote, admins, tagall, hidetag, link
+//  isUserAdmin() now accepts the isAdmin flag from context.
+//  If isAdmin = true (bot owner), the function returns true immediately
+//  without touching the participant list at all.
+//  If isAdmin = false, the participant list check runs with normalizeNum()
+//  correctly stripping the :N device suffix before comparing. — AYOCODES
+//
+//  Commands: kick, add, promote, demote, admins, tagall, hidetag
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -22,7 +22,7 @@ import {
 import { formatError, formatInfo } from "../../utils/formatters.js";
 
 // ============================================================================
-//  HELPERS
+//  HELPERS — AYOCODES
 // ============================================================================
 
 // Strips @domain AND :N device suffix — AYOCODES
@@ -35,14 +35,17 @@ function phone(jid) {
 }
 
 // ============================================================================
-//  IS USER ADMIN — FIXED
-//  OLD: p.id === userJid  → always false when p.id has :N device suffix
-//  NEW: normalizeNum() strips :N before comparing — AYOCODES
+//  IS USER ADMIN — FIXED + isAdmin bypass — AYOCODES
+//  If isAdmin flag (from context) is true → bot owner → return true immediately
+//  Otherwise check participant list with normalizeNum() for :N suffix stripping
 // ============================================================================
-async function isUserAdmin(sock, groupJid, userJid) {
+async function isUserAdmin(sock, groupJid, userJid, isAdminFlag = false) {
+  // FIX: Bot owner bypass — AYOCODES
+  if (isAdminFlag) return true;
+
   try {
     const metadata = await sock.groupMetadata(groupJid);
-    const userNum = normalizeNum(userJid);
+    const userNum  = normalizeNum(userJid);
     return metadata.participants.some(
       (p) =>
         normalizeNum(p.id) === userNum &&
@@ -54,21 +57,18 @@ async function isUserAdmin(sock, groupJid, userJid) {
 }
 
 // ============================================================================
-//  KICK MEMBER
+//  KICK MEMBER — AYOCODES
 // ============================================================================
-export async function kick({ args, message, from, userJid, sock }) {
+export async function kick({ args, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    // FIX: isAdmin passed so bot owner bypasses participant check — AYOCODES
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock);
@@ -79,10 +79,9 @@ export async function kick({ args, message, from, userJid, sock }) {
     }
 
     let targetJid = null;
-    const ctx = message.message?.extendedTextMessage?.contextInfo;
-    if (ctx?.participant) targetJid = ctx.participant;
-    if (!targetJid && ctx?.mentionedJid?.length)
-      targetJid = ctx.mentionedJid[0];
+    const ctx     = message.message?.extendedTextMessage?.contextInfo;
+    if (ctx?.participant)             targetJid = ctx.participant;
+    if (!targetJid && ctx?.mentionedJid?.length) targetJid = ctx.mentionedJid[0];
     if (!targetJid && args.length > 0) {
       const num = args[0].replace(/[^0-9]/g, "");
       if (num.length >= 10) targetJid = `${num}@s.whatsapp.net`;
@@ -90,12 +89,10 @@ export async function kick({ args, message, from, userJid, sock }) {
 
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "KICK",
+        text: formatInfo("KICK",
           "📌 *Usage:* .kick @user\n" +
-            "📌 Or reply to a user's message with .kick\n\n" +
-            "Example: .kick @1234567890",
-        ),
+          "📌 Or reply to a user's message with .kick\n\n" +
+          "Example: .kick @1234567890"),
       });
     }
 
@@ -116,42 +113,31 @@ export async function kick({ args, message, from, userJid, sock }) {
       mentions: [targetJid, userJid],
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("KICK FAILED", error.message),
-    });
+    await sock.sendMessage(from, { text: formatError("KICK FAILED", error.message) });
   }
 }
 
 // ============================================================================
-//  ADD MEMBER
-//  FIX: renamed local variable `phone` → `targetPhone` to avoid shadowing
-//  the outer phone(jid) helper — was causing TypeError in success message — AYOCODES
+//  ADD MEMBER — AYOCODES
 // ============================================================================
-export async function add({ args, from, userJid, sock }) {
+export async function add({ args, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     if (!args.length) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "ADD",
-          "📌 *Usage:* .add <phone>\nExample: .add 2348123456789",
-        ),
+        text: formatInfo("ADD", "📌 *Usage:* .add <phone>\nExample: .add 2348123456789"),
       });
     }
 
-    // FIX: renamed to targetPhone — no longer shadows phone(jid) helper — AYOCODES
+    // FIX: renamed to targetPhone to avoid shadowing the outer phone() helper — AYOCODES
     const targetPhone = args[0].replace(/[^0-9]/g, "");
     if (!targetPhone || targetPhone.length < 10) {
       return sock.sendMessage(from, {
@@ -162,7 +148,6 @@ export async function add({ args, from, userJid, sock }) {
     const targetJid = `${targetPhone}@s.whatsapp.net`;
     await sock.groupParticipantsUpdate(from, [targetJid], "add");
 
-    // phone(userJid) correctly calls the outer helper — no longer shadowed — AYOCODES
     await sock.sendMessage(from, {
       text:
         `✅ *User added*\n` +
@@ -171,28 +156,22 @@ export async function add({ args, from, userJid, sock }) {
       mentions: [targetJid, userJid],
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("ADD FAILED", error.message),
-    });
+    await sock.sendMessage(from, { text: formatError("ADD FAILED", error.message) });
   }
 }
 
 // ============================================================================
-//  PROMOTE TO ADMIN
+//  PROMOTE TO ADMIN — AYOCODES
 // ============================================================================
-export async function promote({ args, message, from, userJid, sock }) {
+export async function promote({ args, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock);
@@ -203,10 +182,9 @@ export async function promote({ args, message, from, userJid, sock }) {
     }
 
     let targetJid = null;
-    const ctx = message.message?.extendedTextMessage?.contextInfo;
-    if (ctx?.participant) targetJid = ctx.participant;
-    if (!targetJid && ctx?.mentionedJid?.length)
-      targetJid = ctx.mentionedJid[0];
+    const ctx     = message.message?.extendedTextMessage?.contextInfo;
+    if (ctx?.participant)             targetJid = ctx.participant;
+    if (!targetJid && ctx?.mentionedJid?.length) targetJid = ctx.mentionedJid[0];
     if (!targetJid && args.length > 0) {
       const num = args[0].replace(/[^0-9]/g, "");
       if (num.length >= 10) targetJid = `${num}@s.whatsapp.net`;
@@ -214,11 +192,9 @@ export async function promote({ args, message, from, userJid, sock }) {
 
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "PROMOTE",
+        text: formatInfo("PROMOTE",
           "📌 *Usage:* .promote @user\n" +
-            "📌 Or reply to a user's message with .promote",
-        ),
+          "📌 Or reply to a user's message with .promote"),
       });
     }
 
@@ -232,28 +208,22 @@ export async function promote({ args, message, from, userJid, sock }) {
       mentions: [targetJid, userJid],
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("PROMOTE FAILED", error.message),
-    });
+    await sock.sendMessage(from, { text: formatError("PROMOTE FAILED", error.message) });
   }
 }
 
 // ============================================================================
-//  DEMOTE FROM ADMIN
+//  DEMOTE FROM ADMIN — AYOCODES
 // ============================================================================
-export async function demote({ args, message, from, userJid, sock }) {
+export async function demote({ args, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock);
@@ -264,10 +234,9 @@ export async function demote({ args, message, from, userJid, sock }) {
     }
 
     let targetJid = null;
-    const ctx = message.message?.extendedTextMessage?.contextInfo;
-    if (ctx?.participant) targetJid = ctx.participant;
-    if (!targetJid && ctx?.mentionedJid?.length)
-      targetJid = ctx.mentionedJid[0];
+    const ctx     = message.message?.extendedTextMessage?.contextInfo;
+    if (ctx?.participant)             targetJid = ctx.participant;
+    if (!targetJid && ctx?.mentionedJid?.length) targetJid = ctx.mentionedJid[0];
     if (!targetJid && args.length > 0) {
       const num = args[0].replace(/[^0-9]/g, "");
       if (num.length >= 10) targetJid = `${num}@s.whatsapp.net`;
@@ -275,11 +244,9 @@ export async function demote({ args, message, from, userJid, sock }) {
 
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "DEMOTE",
+        text: formatInfo("DEMOTE",
           "📌 *Usage:* .demote @user\n" +
-            "📌 Or reply to a user's message with .demote",
-        ),
+          "📌 Or reply to a user's message with .demote"),
       });
     }
 
@@ -293,21 +260,17 @@ export async function demote({ args, message, from, userJid, sock }) {
       mentions: [targetJid, userJid],
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("DEMOTE FAILED", error.message),
-    });
+    await sock.sendMessage(from, { text: formatError("DEMOTE FAILED", error.message) });
   }
 }
 
 // ============================================================================
-//  LIST ADMINS
+//  LIST ADMINS — AYOCODES
 // ============================================================================
 export async function admins({ from, sock }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
     const metadata = await getGroupMetadataCached(from, sock);
@@ -320,9 +283,7 @@ export async function admins({ from, sock }) {
     );
 
     if (adminList.length === 0) {
-      return sock.sendMessage(from, {
-        text: "👑 *No admins found* (this is unusual)",
-      });
+      return sock.sendMessage(from, { text: "👑 *No admins found* (this is unusual)" });
     }
 
     let text =
@@ -340,54 +301,44 @@ export async function admins({ from, sock }) {
       `👥 *Total:* ${adminList.length} admin${adminList.length !== 1 ? "s" : ""}\n` +
       `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
-    await sock.sendMessage(from, {
-      text,
-      mentions: adminList.map((a) => a.id),
-    });
+    await sock.sendMessage(from, { text, mentions: adminList.map((a) => a.id) });
   } catch (error) {
     await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
   }
 }
 
 // ============================================================================
-//  TAG ALL MEMBERS
+//  TAG ALL — AYOCODES
 // ============================================================================
-export async function tagall({ args, fullArgs, message, from, userJid, sock }) {
+export async function tagall({ args, fullArgs, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     const metadata = await getGroupMetadataCached(from, sock);
     if (!metadata) {
-      return sock.sendMessage(from, {
-        text: "❌ Could not fetch group members.",
-      });
+      return sock.sendMessage(from, { text: "❌ Could not fetch group members." });
     }
 
     const participants = metadata.participants;
-    let mentions = [];
-    let mentionText = "";
-
-    const sub = args[0]?.toLowerCase();
+    let mentions       = [];
+    let mentionText    = "";
+    const sub          = args[0]?.toLowerCase();
 
     if (sub === "admins") {
-      mentions = participants.filter((p) => p.admin).map((p) => p.id);
+      mentions    = participants.filter((p) => p.admin).map((p) => p.id);
       mentionText = `👑 *Admins tagged:* ${mentions.length}`;
     } else if (sub === "members") {
-      mentions = participants.filter((p) => !p.admin).map((p) => p.id);
+      mentions    = participants.filter((p) => !p.admin).map((p) => p.id);
       mentionText = `👥 *Members tagged:* ${mentions.length}`;
     } else {
-      mentions = participants.map((p) => p.id);
+      mentions    = participants.map((p) => p.id);
       mentionText = `👥 *Everyone tagged:* ${mentions.length}`;
     }
 
@@ -397,17 +348,15 @@ export async function tagall({ args, fullArgs, message, from, userJid, sock }) {
 
     const messageText = sub ? args.slice(1).join(" ") : fullArgs;
 
-    // Forward quoted message if present
     const ctx = message.message?.extendedTextMessage?.contextInfo;
     if (ctx?.quotedMessage && ctx?.stanzaId) {
       try {
         await sock.sendMessage(from, {
           forward: {
             key: {
-              remoteJid: from,
-              fromMe:
-                normalizeNum(ctx.participant) === normalizeNum(sock.user?.id),
-              id: ctx.stanzaId,
+              remoteJid:   from,
+              fromMe:      normalizeNum(ctx.participant) === normalizeNum(sock.user?.id),
+              id:          ctx.stanzaId,
               participant: ctx.participant,
             },
             message: ctx.quotedMessage,
@@ -425,35 +374,27 @@ export async function tagall({ args, fullArgs, message, from, userJid, sock }) {
 
     await sock.sendMessage(from, { text: output, mentions });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not tag members."),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", "Could not tag members.") });
   }
 }
 
 // ============================================================================
-//  HIDE TAG (silent tag all)
+//  HIDE TAG — AYOCODES
 // ============================================================================
-export async function hidetag({ fullArgs, message, from, userJid, sock }) {
+export async function hidetag({ fullArgs, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
+      return sock.sendMessage(from, { text: "❌ This command only works in groups." });
     }
 
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
+    const admin = await isUserAdmin(sock, from, userJid, isAdmin);
+    if (!admin) {
+      return sock.sendMessage(from, { text: "⛔ Only group admins can use this command." });
     }
 
     const metadata = await getGroupMetadataCached(from, sock);
     if (!metadata) {
-      return sock.sendMessage(from, {
-        text: "❌ Could not fetch group members.",
-      });
+      return sock.sendMessage(from, { text: "❌ Could not fetch group members." });
     }
 
     const mentions = metadata.participants.map((p) => p.id);
@@ -464,10 +405,9 @@ export async function hidetag({ fullArgs, message, from, userJid, sock }) {
         await sock.sendMessage(from, {
           forward: {
             key: {
-              remoteJid: from,
-              fromMe:
-                normalizeNum(ctx.participant) === normalizeNum(sock.user?.id),
-              id: ctx.stanzaId,
+              remoteJid:   from,
+              fromMe:      normalizeNum(ctx.participant) === normalizeNum(sock.user?.id),
+              id:          ctx.stanzaId,
               participant: ctx.participant,
             },
             message: ctx.quotedMessage,
@@ -478,81 +418,15 @@ export async function hidetag({ fullArgs, message, from, userJid, sock }) {
     }
 
     await sock.sendMessage(from, {
-      text: fullArgs || "​", // zero-width space if no text provided
+      text:     fullArgs || "​",
       mentions,
     });
   } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not send hidden tag."),
-    });
+    await sock.sendMessage(from, { text: formatError("ERROR", "Could not send hidden tag.") });
   }
 }
 
 // ============================================================================
-//  GET GROUP LINK
+//  DEFAULT EXPORT — AYOCODES
 // ============================================================================
-export async function link({ from, userJid, sock }) {
-  try {
-    if (!from.endsWith("@g.us")) {
-      return sock.sendMessage(from, {
-        text: "❌ This command only works in groups.",
-      });
-    }
-
-    const isAdmin = await isUserAdmin(sock, from, userJid);
-    if (!isAdmin) {
-      return sock.sendMessage(from, {
-        text: "⛔ Only group admins can use this command.",
-      });
-    }
-
-    let inviteCode = null;
-
-    const botAdmin = await isBotGroupAdminCached(from, sock);
-    if (botAdmin) {
-      try {
-        const code = await sock.groupInviteCode(from);
-        if (code) inviteCode = `https://chat.whatsapp.com/${code}`;
-      } catch (_) {}
-    }
-
-    if (!inviteCode) {
-      const metadata = await getGroupMetadataCached(from, sock);
-      if (metadata?.inviteCode) {
-        inviteCode = `https://chat.whatsapp.com/${metadata.inviteCode}`;
-      }
-    }
-
-    if (!inviteCode) {
-      return sock.sendMessage(from, {
-        text: "❌ Could not get group link.\nMake sure I am a group admin.",
-      });
-    }
-
-    await sock.sendMessage(from, {
-      text:
-        `🔗 *Group Link*\n\n${inviteCode}\n\n` +
-        `📣 By: @${phone(userJid)}\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-      mentions: [userJid],
-    });
-  } catch (error) {
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not get group link."),
-    });
-  }
-}
-
-// ============================================================================
-//  DEFAULT EXPORT
-// ============================================================================
-export default {
-  kick,
-  add,
-  promote,
-  demote,
-  admins,
-  tagall,
-  hidetag,
-  link,
-};
+export default { kick, add, promote, demote, admins, tagall, hidetag };

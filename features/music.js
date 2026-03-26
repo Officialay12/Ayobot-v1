@@ -49,7 +49,7 @@ const BROWSER_HEADERS = {
   "Accept-Encoding": "gzip, deflate, br",
 };
 
-const AYOBOT_TAG = "⚡ _AYOBOT v1 by AYOCODES_";
+const AYOBOT_TAG = `⚡ _AYOBOT v1 by AYOCODES_`;
 
 // ─── Cache & Rate Limiting ────────────────────────────────────────────────────
 const musicCache = new Map();
@@ -181,10 +181,10 @@ export async function musicDownload({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "🎵 DOWNLOAD MUSIC",
-        `Usage: .play <song name or URL>\n\n` +
-          `Examples:\n• .play wildflower billie eilish\n• .play Essence Wizkid\n` +
-          `• .play https://youtu.be/xxxxx\n\n` +
-          `💡 Search first: .musicsearch <query>`,
+        `Usage: ${ENV.PREFIX}play <song name or URL>\n\n` +
+          `Examples:\n• ${ENV.PREFIX}play wildflower billie eilish\n• ${ENV.PREFIX}play Essence Wizkid\n` +
+          `• ${ENV.PREFIX}play https://youtu.be/xxxxx\n\n` +
+          `💡 Search first: ${ENV.PREFIX}musicsearch <query>`,
       ),
     });
   }
@@ -344,7 +344,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
       text: formatError(
         "NOT FOUND",
         `Could not find "${query}" on any music service.\n\n` +
-          `Tips:\n• Check spelling\n• Try: .musicsearch ${query}\n• Try with artist: ${query} - Artist Name`,
+          `Tips:\n• Check spelling\n• Try: ${ENV.PREFIX}musicsearch ${query}\n• Try with artist: ${query} - Artist Name`,
       ),
     });
   }
@@ -771,8 +771,8 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       return sock.sendMessage(from, {
         text: formatInfo(
           "🎵 MUSIC LYRICS",
-          `Usage: .lyrics <song name>\nWith artist: .lyrics <song> - <artist>\n\n` +
-            `Examples:\n• .lyrics Shape of You\n• .lyrics Perfect - Ed Sheeran`,
+          `Usage: ${ENV.PREFIX}lyrics <song name>\nWith artist: ${ENV.PREFIX}lyrics <song> - <artist>\n\n` +
+            `Examples:\n• ${ENV.PREFIX}lyrics Shape of You\n• ${ENV.PREFIX}lyrics Perfect - Ed Sheeran`,
         ),
       });
     }
@@ -827,7 +827,7 @@ export async function musicLyrics({ fullArgs, from, sock }) {
         return sock.sendMessage(from, {
           text: formatInfo(
             "🎵 SONG FOUND",
-            `*${info.title}*\nArtist: ${info.artist}\nAlbum: ${info.album || "Unknown"}\n\n_Lyrics not found. Try: .genius ${title}_`,
+            `*${info.title}*\nArtist: ${info.artist}\nAlbum: ${info.album || "Unknown"}\n\n_Lyrics not found. Try: ${ENV.PREFIX}genius ${title}_`,
           ),
         });
       }
@@ -837,7 +837,7 @@ export async function musicLyrics({ fullArgs, from, sock }) {
       text: formatInfo(
         "🎵 LYRICS NOT FOUND",
         `Could not find lyrics for "${title}"${artist ? ` by ${artist}` : ""}.\n\n` +
-          `💡 Tips:\n• Include artist: .lyrics ${title} - Artist Name\n• Try: .genius ${title}`,
+          `💡 Tips:\n• Include artist: ${ENV.PREFIX}lyrics ${title} - Artist Name\n• Try: ${ENV.PREFIX}genius ${title}`,
       ),
     });
   } catch (err) {
@@ -869,7 +869,7 @@ export async function musicTrending({ from, sock }) {
             `   💿 ${t.album.title}\n` +
             `   ⏱️ ${fmtDur(t.duration)}\n\n`;
         });
-        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
         return sock.sendMessage(from, {
           text: formatSuccess("🔥 TRENDING NOW", text),
         });
@@ -892,7 +892,7 @@ export async function musicTrending({ from, sock }) {
           `   💿 ${t.album_name || "Single"}\n` +
           `   ⏱️ ${fmtDur(t.duration)}\n\n`;
       });
-      text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+      text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
       return sock.sendMessage(from, {
         text: formatSuccess("🔥 TRENDING NOW", text),
       });
@@ -929,7 +929,7 @@ export async function musicRandom({ from, sock }) {
               "👤 Artist": t.artist.name,
               "💿 Album": t.album.title,
               "⏱️ Duration": fmtDur(t.duration),
-            }) + `\n\n💡 Use .play ${t.title} to download\n\n${AYOBOT_TAG}`,
+            }) + `\n\n💡 Use ${ENV.PREFIX}play ${t.title} to download\n\n${AYOBOT_TAG}`,
         });
       }
     } catch (err) {
@@ -951,7 +951,7 @@ export async function musicRandom({ from, sock }) {
             "👤 Artist": t.artist_name,
             "💿 Album": t.album_name || "Single",
             "⏱️ Duration": fmtDur(t.duration),
-          }) + `\n\n💡 Use .play ${t.name} to download\n\n${AYOBOT_TAG}`,
+          }) + `\n\n💡 Use ${ENV.PREFIX}play ${t.name} to download\n\n${AYOBOT_TAG}`,
       });
     }
 
@@ -971,7 +971,7 @@ export async function musicArtist({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "👤 ARTIST INFO",
-        "Usage: .artist <name>\nExample: .artist Ed Sheeran",
+        `Usage: ${ENV.PREFIX}artist <name>\nExample: ${ENV.PREFIX}artist Ed Sheeran`,
       ),
     });
   }
@@ -1083,7 +1083,7 @@ export async function musicAlbum({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "💿 ALBUM INFO",
-        "Usage: .album <name>\nExample: .album Divide",
+        `Usage: ${ENV.PREFIX}album <name>\nExample: ${ENV.PREFIX}album Divide`,
       ),
     });
   }
@@ -1190,7 +1190,7 @@ export async function musicSearch({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "🔍 MUSIC SEARCH",
-        "Usage: .musicsearch <query>\nExample: .musicsearch Adele Hello",
+        `Usage: ${ENV.PREFIX}musicsearch <query>\nExample: ${ENV.PREFIX}musicsearch Adele Hello`,
       ),
     });
   }
@@ -1218,7 +1218,7 @@ export async function musicSearch({ fullArgs, from, sock }) {
             `   💿 ${t.album?.name || "Single"}\n` +
             `   ⏱️ ${fmtDur(t.duration)}\n\n`;
         });
-        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
         return sock.sendMessage(from, {
           text: formatSuccess("🔍 MUSIC SEARCH", text),
         });
@@ -1242,7 +1242,7 @@ export async function musicSearch({ fullArgs, from, sock }) {
             `   💿 ${t.album.title}\n` +
             `   ⏱️ ${fmtDur(t.duration)}\n\n`;
         });
-        text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+        text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
         return sock.sendMessage(from, {
           text: formatSuccess("🔍 MUSIC SEARCH", text),
         });
@@ -1265,7 +1265,7 @@ export async function musicSearch({ fullArgs, from, sock }) {
           `   💿 ${t.album_name || "Single"}\n` +
           `   ⏱️ ${fmtDur(t.duration)}\n\n`;
       });
-      text += `💡 Use .play <song name> to download\n\n${AYOBOT_TAG}`;
+      text += `💡 Use ${ENV.PREFIX}play <song name> to download\n\n${AYOBOT_TAG}`;
       return sock.sendMessage(from, {
         text: formatSuccess("🔍 MUSIC SEARCH", text),
       });
@@ -1290,7 +1290,7 @@ export async function musicGenius({ fullArgs, from, sock }) {
     return sock.sendMessage(from, {
       text: formatInfo(
         "🎤 GENIUS LYRICS",
-        "Usage: .genius <song>\nExample: .genius Lose Yourself",
+        `Usage: ${ENV.PREFIX}genius <song>\nExample: ${ENV.PREFIX}genius Lose Yourself`,
       ),
     });
   }
@@ -1471,23 +1471,23 @@ async function showMusicHelp(from, sock) {
     text: formatInfo(
       "🎵 MUSIC HUB",
       `*Music Commands:*\n\n` +
-        `🎵 *.play <song>* — Download & send audio\n` +
-        `📝 *.lyrics <song>* — Get song lyrics\n` +
-        `📝 *.lyrics <song> - <artist>* — Lyrics with artist\n` +
-        `📈 *.trending* — Top 10 trending songs\n` +
-        `🎲 *.random* — Random song info\n` +
-        `🔍 *.musicsearch <query>* — Search songs\n` +
-        `👤 *.artist <name>* — Artist info + top tracks\n` +
-        `💿 *.album <name>* — Album + full tracklist\n` +
-        `🎤 *.genius <song>* — Genius lyrics\n\n` +
-        `*Examples:*\n` +
-        `• .play Essence Wizkid\n` +
-        `• .play wildflower billie eilish\n` +
-        `• .lyrics Perfect - Ed Sheeran\n` +
-        `• .musicsearch Drake God's Plan\n` +
-        `• .artist Burna Boy\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚡ AYOBOT v1 | 👑 Created by AYOCODES`,
+      `🎵 *${ENV.PREFIX}play <song>* — Download & send audio\n` +
+      `📝 *${ENV.PREFIX}lyrics <song>* — Get song lyrics\n` +
+      `📝 *${ENV.PREFIX}lyrics <song> - <artist>* — Lyrics with artist\n` +
+      `📈 *${ENV.PREFIX}trending* — Top 10 trending songs\n` +
+      `🎲 *${ENV.PREFIX}random* — Random song info\n` +
+      `🔍 *${ENV.PREFIX}musicsearch <query>* — Search songs\n` +
+      `👤 *${ENV.PREFIX}artist <name>* — Artist info + top tracks\n` +
+      `💿 *${ENV.PREFIX}album <name>* — Album + full tracklist\n` +
+      `🎤 *${ENV.PREFIX}genius <song>* — Genius lyrics\n\n` +
+      `*Examples:*\n` +
+      `• ${ENV.PREFIX}play Essence Wizkid\n` +
+      `• ${ENV.PREFIX}play wildflower billie eilish\n` +
+      `• ${ENV.PREFIX}lyrics Perfect - Ed Sheeran\n` +
+      `• ${ENV.PREFIX}musicsearch Drake God's Plan\n` +
+      `• ${ENV.PREFIX}artist Burna Boy\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚡ AYOBOT v1 | 👑 Created by AYOCODES`,
     ),
   });
 }
