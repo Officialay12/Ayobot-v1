@@ -10,6 +10,7 @@
 //  4. Detailed module loading logs
 //  5. Fallback handlers for missing modules
 //  6. Fixed normalizeJid function
+//  7. Fixed trivia handler placement (was causing syntax error)
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -609,22 +610,10 @@ export function registerAllCommands() {
     aliases: ["coin", "coinflip", "toss", "heads", "tails", "cointoss"],
   });
 
- // In commandHandler.js, replace the trivia handler with:
-try {
-  const g = MODULES.games;
-  if (typeof g?.handleTriviaAnswer === "function") {
-    await g.handleTriviaAnswer(message, from, sock);
-    return;
-  } else if (typeof g?.triviaAnswer === "function") {
-    await g.triviaAnswer(message, from, sock);
-    return;
-  } else {
-    // No trivia handler available, ignore
-    return;
-  }
-} catch (error) {
-  log.debug(`[${executionId}] Trivia error: ${error.message}`);
-}
+  if (games.trivia) safeRegister("trivia", games.trivia, {
+    category: "games", description: "Trivia question",
+    aliases: ["quiz", "question", "q", "triviaquestion", "triv"],
+  });
 
   // ==================== IMAGETOOLS.JS ====================
   const imgT = MODULES.imageTools;
