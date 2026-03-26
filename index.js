@@ -1,27 +1,6 @@
 // ============================================================
 //   AYOBOT v1 — index.js (Multi-Session Public Edition)
-//   Original single-session build by AYOCODES.
-//   Multi-session upgrade: MongoDB auth state, per-user sessions,
-//   isolated dashboards, permanent storage across Render restarts.
-//
-//   What changed from v1 single:
-//     - useMongoAuthState() replaces useMultiFileAuthState()
-//     - SessionManager class manages N isolated bot instances
-//     - Each visitor gets their own sessionId cookie → own QR → own bot
-//     - Sessions stored in MongoDB → survive Render restarts forever
-//     - Dashboard auto-refresh changed from 10s → 60s
-//     - /dashboard/:sessionId route serves per-user dashboard
-//     - All original features, commands, handlers unchanged
-//   — AYOCODES
-//
-//   FIXES APPLIED (v1.0.1):
-//     - requireAdmin: API routes now return JSON 401 instead of HTML redirect
-//       (was causing dashboard to show "Loading..." forever)
-//     - Admin cookie: Added Secure + SameSite=Lax for Render HTTPS
-//     - New endpoints: /api/delete-offline + /api/delete-all for session cleanup
-//     - adminDashboardHTML: Full rewrite with auth error handling,
-//       DELETE OFFLINE button, DELETE ALL button, offline count card,
-//       owner phone + session ID in table
+//   Complete working version with all fixes
 // ============================================================
 
 import makeWASocket, {
@@ -278,6 +257,7 @@ if (!global.activeTrivia) {
 }
 
 const sessionOwnerMap = new Map();
+const messageQueues = new Map();
 
 // ============================================================
 //   GROUP ACTIVATIONS
@@ -332,7 +312,7 @@ export function loadDatabases() {
 }
 
 export function saveDatabases() {
-  // No-op — keeps submodule imports working
+  // No-op
 }
 
 // ============================================================
@@ -361,7 +341,7 @@ export function isAuthorized(userJid, ownerPhone, sessionMode) {
 export const authorizedUsers = new Set();
 
 // ============================================================
-//   BAD MAC SUPPRESSION + PINO LOGGER
+//   BAD MAC SUPPRESSION
 // ============================================================
 const logger = pino({ level: "silent" });
 const originalConsoleError = console.error;
@@ -467,6 +447,7 @@ function createSessionObject(sessionId) {
     pingInterval: null,
     reconnectTimeout: null,
     pairingCodeTimeout: null,
+    queueTimeout: null,
     mode: process.env.BOT_MODE || "public",
     authorizedUsers: new Set(),
   };
@@ -533,36 +514,48 @@ async function restoreAllSessions() {
 }
 
 // ============================================================
-//   HANDLER LOADER
+//   HANDLER LOADER - FIXED
 // ============================================================
 async function loadHandlersForSession(session) {
   session.handlersReady = false;
+  const sid = session.id.slice(0, 8);
+
   try {
+    log.info(`[${sid}] Loading command handler...`);
     const m = await import("./handlers/commandHandler.js");
     session.commandHandler = m.handleCommand;
-    log.ok(`[${session.id.slice(0, 8)}] Command handler loaded`);
+    log.ok(`[${sid}] Command handler loaded ✓`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0, 8)}] Command handler: ${e.message}`);
+    log.err(`[${sid}] Command handler failed: ${e.message}`);
+    session.commandHandler = null;
   }
+
   try {
-    const m = await import("./handlers/antiDelete.js");
-    session.antiDeleteHandler = m.handleAntiDelete;
-    log.ok(`[${session.id.slice(0, 8)}] Anti-delete handler loaded`);
+    log.info(`[${sid}] Loading anti-delete handler...`);
+    const ad = await import("./handlers/antiDelete.js");
+    session.antiDeleteHandler = ad.handleAntiDelete;
+    log.ok(`[${sid}] Anti-delete handler loaded ✓`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0, 8)}] Anti-delete: ${e.message}`);
+    log.warn(`[${sid}] Anti-delete handler not available: ${e.message}`);
+    session.antiDeleteHandler = null;
   }
+
   try {
-    const m = await import("./commands/group/automation.js");
-    session.groupHandler = m.handleGroupParticipant;
-    log.ok(`[${session.id.slice(0, 8)}] Group handler loaded`);
+    log.info(`[${sid}] Loading group handler...`);
+    const gh = await import("./commands/group/automation.js");
+    session.groupHandler = gh.handleGroupParticipant;
+    log.ok(`[${sid}] Group handler loaded ✓`);
   } catch (e) {
-    log.warn(`[${session.id.slice(0, 8)}] Group handler: ${e.message}`);
+    log.warn(`[${sid}] Group handler not available: ${e.message}`);
+    session.groupHandler = null;
   }
-  session.handlersReady = true;
+
+  session.handlersReady = !!session.commandHandler;
+  log.ok(`[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`);
 }
 
 // ============================================================
-//   ATTACH MESSAGE LISTENERS
+//   ATTACH MESSAGE LISTENERS - FIXED WITH QUEUE
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
@@ -631,8 +624,36 @@ function attachListeners(session) {
         setSessionOwner(session, senderJid, senderNumber, "Owner");
       }
 
+      // Queue messages if handlers not ready
       if (!session.handlersReady || !session.commandHandler) {
-        log.warn(`[${sid}] Handlers not ready — dropped.`);
+        log.warn(`[${sid}] Handlers not ready — queueing message`);
+
+        if (!messageQueues.has(session.id)) {
+          messageQueues.set(session.id, []);
+        }
+        messageQueues.get(session.id).push({ msg, sock });
+
+        if (!session.queueTimeout) {
+          session.queueTimeout = setTimeout(async () => {
+            const queue = messageQueues.get(session.id) || [];
+            if (queue.length > 0 && session.handlersReady && session.commandHandler) {
+              log.info(`[${sid}] Processing ${queue.length} queued messages`);
+              for (const queued of queue) {
+                try {
+                  queued.msg._session = session;
+                  queued.msg._sessionId = session.id;
+                  queued.msg._sessionMode = session.mode || "public";
+                  queued.msg._ownerPhone = session.ownerPhone || "";
+                  await session.commandHandler(queued.msg, queued.sock);
+                } catch (err) {
+                  log.err(`[${sid}] Queued message error: ${err.message}`);
+                }
+              }
+              messageQueues.delete(session.id);
+            }
+            session.queueTimeout = null;
+          }, 3000);
+        }
         return;
       }
 
@@ -1066,7 +1087,26 @@ async function _startSocket(session) {
         }
 
         attachListeners(session);
+
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
+
+        const queue = messageQueues.get(session.id) || [];
+        if (queue.length > 0 && session.handlersReady) {
+          log.info(`[${sid}] Processing ${queue.length} queued messages`);
+          for (const queued of queue) {
+            try {
+              queued.msg._session = session;
+              queued.msg._sessionId = session.id;
+              queued.msg._sessionMode = session.mode || "public";
+              queued.msg._ownerPhone = session.ownerPhone || "";
+              await session.commandHandler(queued.msg, queued.sock);
+            } catch (err) {
+              log.err(`[${sid}] Queued message error: ${err.message}`);
+            }
+          }
+          messageQueues.delete(session.id);
+        }
+
         sendWelcomeMessage(session, sock).catch((err) =>
           log.warn(`[${sid}] Welcome error: ${err.message}`),
         );
@@ -1138,6 +1178,7 @@ async function destroySession(sessionId) {
   if (session.pingInterval) clearInterval(session.pingInterval);
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
   if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
+  if (session.queueTimeout) clearTimeout(session.queueTimeout);
   if (session.sock) {
     try {
       session.sock.end();
@@ -1148,6 +1189,7 @@ async function destroySession(sessionId) {
   await sessionMetaCollection.deleteOne({ sessionId });
   sessions.delete(sessionId);
   groupActivations.delete(sessionId);
+  messageQueues.delete(sessionId);
   log.info(`[${sessionId.slice(0, 8)}] Session destroyed.`);
 }
 
@@ -1237,18 +1279,10 @@ app.use((req, _res, next) => {
 
 const adminTokens = new Set();
 
-// ============================================================
-//   FIX 1 — requireAdmin: JSON 401 for API routes
-//   BEFORE: ALL unauthenticated requests → redirect to login HTML
-//   AFTER: /api/ routes get JSON 401, page routes get the redirect
-//   WHY: fetch() in dashboard was getting HTML, r.json() threw,
-//        dashboard stayed "Loading..." forever
-// ============================================================
 function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
   if (token && adminTokens.has(token)) return next();
   if (req.path.includes("/login")) return next();
-  // API routes must return JSON so fetch() can handle the error gracefully
   if (req.path.includes("/api/")) {
     return res.status(401).json({
       error:
@@ -1270,9 +1304,6 @@ function getOrCreateSessionId(req, res) {
   return sid;
 }
 
-// ============================================================
-//   WEB DASHBOARD ROUTES
-// ============================================================
 function setupWebDashboard() {
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
@@ -1386,26 +1417,18 @@ function setupWebDashboard() {
     }
   });
 
-  // ── Admin routes ────────────────────────────────────────────────────────
+  // Admin routes
   app.get("/ayocodes-admin/login", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(adminLoginHTML());
   });
 
-  // ============================================================
-  //   FIX 2 — Admin login cookie: Secure + SameSite=Lax
-  //   BEFORE: No Secure flag → cookie dropped on Render HTTPS
-  //   AFTER:  Adds Secure on HTTPS + SameSite=Lax
-  //   WHY: Without Secure, browser won't send cookie on HTTPS,
-  //        requireAdmin fails auth on every API call
-  // ============================================================
   app.post("/ayocodes-admin/login-post", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     if (req.body.password !== ENV.AYOCODES_ADMIN_KEY)
       return res.send(adminLoginHTML("Wrong password — try again."));
     const token = crypto.randomBytes(20).toString("hex");
     adminTokens.add(token);
-    // Detect HTTPS (Render sets x-forwarded-proto, or RENDER env var is set)
     const isHttps =
       req.headers["x-forwarded-proto"] === "https" || !!process.env.RENDER;
     const secureFlag = isHttps ? "; Secure" : "";
@@ -1428,7 +1451,6 @@ function setupWebDashboard() {
     res.send(adminDashboardHTML());
   });
 
-  // ── Instances API — lists all sessions ──────────────────────────────────
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
@@ -1452,7 +1474,6 @@ function setupWebDashboard() {
     });
   });
 
-  // ── Kill a single session ────────────────────────────────────────────────
   app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
@@ -1463,11 +1484,6 @@ function setupWebDashboard() {
     res.json({ ok: true });
   });
 
-  // ============================================================
-  //   FIX 3a — New endpoint: delete all OFFLINE sessions
-  //   Clears every disconnected/dead session from memory + MongoDB
-  //   This stops the 408 reconnect loop caused by 28 stale sessions
-  // ============================================================
   app.post(
     "/ayocodes-admin/api/delete-offline",
     requireAdmin,
@@ -1493,10 +1509,6 @@ function setupWebDashboard() {
     },
   );
 
-  // ============================================================
-  //   FIX 3b — New endpoint: delete ALL sessions (nuclear option)
-  //   Requires double-confirmation from the frontend
-  // ============================================================
   app.post("/ayocodes-admin/api/delete-all", requireAdmin, async (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
@@ -1514,7 +1526,6 @@ function setupWebDashboard() {
     res.json({ ok: true, deleted, remaining: sessions.size });
   });
 
-  // ── Users page ──────────────────────────────────────────────────────────
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(userTrackingHTML());
@@ -1617,7 +1628,7 @@ function setupWebDashboard() {
 }
 
 // ============================================================
-//   SHARED HEAD
+//   SHARED HEAD FUNCTION
 // ============================================================
 function sharedHead(title) {
   return `<!DOCTYPE html><html lang="en"><head>
@@ -2167,17 +2178,7 @@ function adminLoginHTML(error = "") {
 }
 
 // ============================================================
-//   FIX 4 — adminDashboardHTML: Full rewrite
-//   BEFORE: loadInstances() had no auth error handling,
-//           no delete buttons, no offline count card,
-//           showed "Loading..." forever on any fetch failure
-//   AFTER:  Checks r.status before r.json() (catches 401),
-//           shows red error banner on failures,
-//           DELETE OFFLINE button (clears dead sessions),
-//           DELETE ALL button (nuclear, double-confirmed),
-//           Offline/Dead count card,
-//           Owner phone + session ID in the table,
-//           credentials:'same-origin' on all fetch calls
+//   ADMIN DASHBOARD HTML
 // ============================================================
 function adminDashboardHTML() {
   return (
@@ -2202,7 +2203,6 @@ function adminDashboardHTML() {
     </h1>
   </div>
 
-  <!-- Stat cards — now includes Offline/Dead count -->
   <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
     <div class="stat-card red-glow">
       <div class="stat-icon">🌐</div>
@@ -2231,30 +2231,17 @@ function adminDashboardHTML() {
     </div>
   </div>
 
-  <!-- Action bar -->
   <div style="margin:24px 0 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
     <div class="section-title">// Live Sessions</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">
-        ↻ REFRESH
-      </button>
-      <button id="btnDelOffline" onclick="deleteOffline()"
-        style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;transition:all .2s"
-        onmouseover="this.style.background='rgba(255,170,0,0.18)'" onmouseout="this.style.background='rgba(255,170,0,0.08)'">
-        🗑️ DELETE OFFLINE
-      </button>
-      <button onclick="deleteAll()"
-        style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,0,0,0.06);border:1px solid rgba(255,0,0,0.3);color:var(--red);transition:all .2s"
-        onmouseover="this.style.background='rgba(255,0,0,0.16)'" onmouseout="this.style.background='rgba(255,0,0,0.06)'">
-        💥 DELETE ALL
-      </button>
+      <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">↻ REFRESH</button>
+      <button id="btnDelOffline" onclick="deleteOffline()" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;transition:all .2s" onmouseover="this.style.background='rgba(255,170,0,0.18)'" onmouseout="this.style.background='rgba(255,170,0,0.08)'">🗑️ DELETE OFFLINE</button>
+      <button onclick="deleteAll()" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,0,0,0.06);border:1px solid rgba(255,0,0,0.3);color:var(--red);transition:all .2s" onmouseover="this.style.background='rgba(255,0,0,0.16)'" onmouseout="this.style.background='rgba(255,0,0,0.06)'">💥 DELETE ALL</button>
     </div>
   </div>
 
-  <!-- Error / status banner -->
   <div id="errBanner" style="display:none;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:10px;padding:14px 18px;color:var(--red);font-size:13px;margin-bottom:16px;font-family:'JetBrains Mono',monospace"></div>
 
-  <!-- Sessions table -->
   <div id="instanceTable">
     <div style="text-align:center;padding:60px;color:var(--text3);font-family:'JetBrains Mono',monospace">
       <div style="font-size:32px;margin-bottom:12px">⏳</div>
@@ -2279,224 +2266,105 @@ function adminDashboardHTML() {
 </style>
 
 <script>
-// ── Main fetch function: loads sessions from backend ─────────────────────
 async function loadInstances() {
   const errBanner = document.getElementById('errBanner');
   errBanner.style.display = 'none';
-
   let d;
   try {
     const r = await fetch('/ayocodes-admin/api/instances', { credentials: 'same-origin' });
-
-    // 401 = admin token expired or cookie dropped — redirect to login
     if (r.status === 401) {
       errBanner.innerHTML = '🔐 <strong>Session expired</strong> — redirecting to login...';
       errBanner.style.display = 'block';
       setTimeout(() => { location.href = '/ayocodes-admin/login'; }, 1800);
       return;
     }
-
-    // Any other non-OK status
     if (!r.ok) {
       errBanner.textContent = '⚠️ Server error ' + r.status + ' — check Render logs';
       errBanner.style.display = 'block';
       return;
     }
-
     d = await r.json();
   } catch (e) {
-    // Network error (offline, CORS, etc.)
     errBanner.textContent = '❌ Network error: ' + e.message + ' — retrying in 5s';
     errBanner.style.display = 'block';
     return;
   }
-
-  // ── Update stat cards ────────────────────────────────────────────────
   const offline = d.total - d.online;
-  document.getElementById('totalI').textContent   = d.total;
-  document.getElementById('onlineI').textContent  = d.online;
+  document.getElementById('totalI').textContent = d.total;
+  document.getElementById('onlineI').textContent = d.online;
   document.getElementById('offlineI').textContent = offline;
-  document.getElementById('totalM').textContent   = d.instances.reduce((a, i) => a + (i.messageCount || 0), 0).toLocaleString();
-  document.getElementById('lastR').textContent    = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  document.getElementById('totalM').textContent = d.instances.reduce((a, i) => a + (i.messageCount || 0), 0).toLocaleString();
+  document.getElementById('lastR').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
   document.getElementById('globalStats').textContent = d.online + ' online / ' + d.total + ' total';
-
-  // Update DELETE OFFLINE button label with count
   const delBtn = document.getElementById('btnDelOffline');
   if (delBtn) delBtn.textContent = '🗑️ DELETE OFFLINE (' + offline + ')';
-
-  // ── Empty state ──────────────────────────────────────────────────────
   if (!d.instances || !d.instances.length) {
-    document.getElementById('instanceTable').innerHTML =
-      '<div style="text-align:center;padding:60px;color:var(--text3);font-family:JetBrains Mono,monospace">' +
-      '<div style="font-size:40px;margin-bottom:12px">🎉</div>' +
-      '<div style="font-size:16px;margin-bottom:8px">No sessions — all clean!</div>' +
-      '<div style="font-size:13px">Visit <a href="/" style="color:var(--red)">the main dashboard</a> to connect a new bot.</div>' +
-      '</div>';
+    document.getElementById('instanceTable').innerHTML = '<div style="text-align:center;padding:60px;color:var(--text3);font-family:JetBrains Mono,monospace"><div style="font-size:40px;margin-bottom:12px">🎉</div><div style="font-size:16px;margin-bottom:8px">No sessions — all clean!</div><div style="font-size:13px">Visit <a href="/" style="color:var(--red)">the main dashboard</a> to connect a new bot.</div></div>';
     return;
   }
-
-  // ── Build table ──────────────────────────────────────────────────────
-  let html =
-    '<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto">' +
-    '<table class="inst-table"><thead><tr>' +
-    '<th>STATUS</th><th>OWNER</th><th>BOT NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>SESSION ID</th><th>ACTION</th>' +
-    '</tr></thead><tbody>';
-
+  let html = '<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>BOT NUMBER</th><th>UPTIME</th><th>MSGS</th><th>AUTH</th><th>SESSION ID</th><th>ACTION</th></tr></thead><tbody>';
   d.instances.forEach(inst => {
     const up = inst.uptime || 0;
-    const h  = Math.floor(up / 3600);
-    const m  = Math.floor((up % 3600) / 60);
+    const h = Math.floor(up / 3600);
+    const m = Math.floor((up % 3600) / 60);
     const isOnline = !!inst.connected;
-
-    const statusCell = isOnline
-      ? '<span style="color:var(--green);font-family:JetBrains Mono,monospace;font-size:12px">● LIVE</span>'
-      : '<span style="color:var(--red);font-family:JetBrains Mono,monospace;font-size:12px">● DEAD</span>';
-
-    const ownerCell =
-      '<span class="mono" style="color:var(--gold)">' + (inst.ownerName || '—') + '</span>' +
-      (inst.ownerPhone
-        ? '<br><span class="mono" style="font-size:11px;color:var(--text2)">+' + inst.ownerPhone + '</span>'
-        : '');
-
+    const statusCell = isOnline ? '<span style="color:var(--green);font-family:JetBrains Mono,monospace;font-size:12px">● LIVE</span>' : '<span style="color:var(--red);font-family:JetBrains Mono,monospace;font-size:12px">● DEAD</span>';
+    const ownerCell = '<span class="mono" style="color:var(--gold)">' + (inst.ownerName || '—') + '</span>' + (inst.ownerPhone ? '<br><span class="mono" style="font-size:11px;color:var(--text2)">+' + inst.ownerPhone + '</span>' : '');
     const shortId = inst.instanceId ? inst.instanceId.slice(0, 8) + '...' : '—';
     const uptimeColor = isOnline ? 'var(--green)' : 'var(--text3)';
-
-    html +=
-      '<tr class="' + (isOnline ? '' : 'row-offline') + '">' +
-      '<td>' + statusCell + '</td>' +
-      '<td>' + ownerCell + '</td>' +
-      '<td><span class="mono">+' + (inst.botNumber || '—') + '</span></td>' +
-      '<td><span class="mono" style="color:' + uptimeColor + '">' + h + 'h ' + m + 'm</span></td>' +
-      '<td><span class="mono">' + (inst.messageCount || 0).toLocaleString() + '</span></td>' +
-      '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod || '—') + '</span></td>' +
-      '<td><span class="mono" style="font-size:11px;color:var(--text3)">' + shortId + '</span></td>' +
-      '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')" title="Disconnect & delete session">⚡ KILL</button></td>' +
-      '</tr>';
+    html += '<tr class="' + (isOnline ? '' : 'row-offline') + '">' + '<td>' + statusCell + '</td>' + '<td>' + ownerCell + '</td>' + '<td><span class="mono">+' + (inst.botNumber || '—') + '</span></td>' + '<td><span class="mono" style="color:' + uptimeColor + '">' + h + 'h ' + m + 'm</span></td>' + '<td><span class="mono">' + (inst.messageCount || 0).toLocaleString() + '</span></td>' + '<td><span class="mono" style="color:var(--text2)">' + (inst.authMethod || '—') + '</span></td>' + '<td><span class="mono" style="font-size:11px;color:var(--text3)">' + shortId + '</span></td>' + '<td><button class="kill-btn" onclick="killSession(\'' + inst.instanceId + '\')" title="Disconnect & delete session">⚡ KILL</button></td>' + '</tr>';
   });
-
   html += '</tbody></table></div>';
   document.getElementById('instanceTable').innerHTML = html;
 }
-
-// ── Kill a single session ────────────────────────────────────────────────
 async function killSession(id) {
   if (!confirm('Kill session ' + id.slice(0, 8) + '...?\nThis disconnects their WhatsApp and removes the session from the server.')) return;
   const allBtns = document.querySelectorAll('.kill-btn');
   allBtns.forEach(b => b.disabled = true);
   try {
-    const r = await fetch('/ayocodes-admin/api/disconnect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ instanceId: id })
-    });
+    const r = await fetch('/ayocodes-admin/api/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ instanceId: id }) });
     if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
     const d = await r.json();
-    if (d.ok) {
-      loadInstances();
-    } else {
-      alert('Error: ' + (d.error || 'unknown error'));
-      allBtns.forEach(b => b.disabled = false);
-    }
-  } catch (e) {
-    alert('Network error: ' + e.message);
-    allBtns.forEach(b => b.disabled = false);
-  }
+    if (d.ok) { loadInstances(); } else { alert('Error: ' + (d.error || 'unknown error')); allBtns.forEach(b => b.disabled = false); }
+  } catch (e) { alert('Network error: ' + e.message); allBtns.forEach(b => b.disabled = false); }
 }
-
-// ── Delete all OFFLINE sessions ──────────────────────────────────────────
 async function deleteOffline() {
   const offlineCount = parseInt(document.getElementById('offlineI').textContent) || 0;
-  if (offlineCount === 0) {
-    alert('✅ No offline sessions to delete — all good!');
-    return;
-  }
-  if (!confirm(
-    '🗑️ Delete ALL ' + offlineCount + ' offline/dead session(s)?\n\n' +
-    'This removes them from MongoDB and stops the 408 reconnect loop.\n' +
-    'Online sessions are NOT affected.'
-  )) return;
-
+  if (offlineCount === 0) { alert('✅ No offline sessions to delete — all good!'); return; }
+  if (!confirm('🗑️ Delete ALL ' + offlineCount + ' offline/dead session(s)?\n\nThis removes them from MongoDB and stops the 408 reconnect loop.\nOnline sessions are NOT affected.')) return;
   const btn = document.getElementById('btnDelOffline');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Deleting...'; }
-
   try {
-    const r = await fetch('/ayocodes-admin/api/delete-offline', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin'
-    });
+    const r = await fetch('/ayocodes-admin/api/delete-offline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
     if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
     const d = await r.json();
-    if (d.ok) {
-      alert('✅ Deleted ' + d.deleted + ' offline session(s).\n' + d.remaining + ' session(s) remaining.\n\nThe 408 reconnect loop will now stop.');
-      loadInstances();
-    } else {
-      alert('Error: ' + (d.error || 'unknown'));
-    }
-  } catch (e) {
-    alert('Network error: ' + e.message);
-  } finally {
-    if (btn) { btn.disabled = false; }
-  }
+    if (d.ok) { alert('✅ Deleted ' + d.deleted + ' offline session(s).\n' + d.remaining + ' session(s) remaining.\n\nThe 408 reconnect loop will now stop.'); loadInstances(); } else { alert('Error: ' + (d.error || 'unknown')); }
+  } catch (e) { alert('Network error: ' + e.message); } finally { if (btn) { btn.disabled = false; } }
 }
-
-// ── Delete ALL sessions (nuclear) ────────────────────────────────────────
 async function deleteAll() {
   const total = parseInt(document.getElementById('totalI').textContent) || 0;
-  if (total === 0) {
-    alert('✅ No sessions to delete — server is already clean!');
-    return;
-  }
-  if (!confirm(
-    '⚠️ DELETE ALL ' + total + ' SESSION(S)?\n\n' +
-    'This disconnects EVERYONE including connected bots.\n' +
-    'You will need to re-scan QR to reconnect.'
-  )) return;
-
+  if (total === 0) { alert('✅ No sessions to delete — server is already clean!'); return; }
+  if (!confirm('⚠️ DELETE ALL ' + total + ' SESSION(S)?\n\nThis disconnects EVERYONE including connected bots.\nYou will need to re-scan QR to reconnect.')) return;
   const confirm2 = prompt('Type "yes" to confirm deleting ALL ' + total + ' sessions:');
-  if (!confirm2 || confirm2.trim().toLowerCase() !== 'yes') {
-    alert('Cancelled.');
-    return;
-  }
-
+  if (!confirm2 || confirm2.trim().toLowerCase() !== 'yes') { alert('Cancelled.'); return; }
   try {
-    const r = await fetch('/ayocodes-admin/api/delete-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin'
-    });
+    const r = await fetch('/ayocodes-admin/api/delete-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
     if (r.status === 401) { location.href = '/ayocodes-admin/login'; return; }
     const d = await r.json();
-    if (d.ok) {
-      alert('✅ Deleted ' + d.deleted + ' session(s).\nServer is now completely clean.\n\nVisit the main dashboard to connect a fresh bot.');
-      loadInstances();
-    } else {
-      alert('Error: ' + (d.error || 'unknown'));
-    }
-  } catch (e) {
-    alert('Network error: ' + e.message);
-  }
+    if (d.ok) { alert('✅ Deleted ' + d.deleted + ' session(s).\nServer is now completely clean.\n\nVisit the main dashboard to connect a fresh bot.'); loadInstances(); } else { alert('Error: ' + (d.error || 'unknown')); }
+  } catch (e) { alert('Network error: ' + e.message); }
 }
-
-// ── Boot + auto-refresh ──────────────────────────────────────────────────
 loadInstances();
 setInterval(loadInstances, 5000);
-
-// ── Clock ────────────────────────────────────────────────────────────────
-function tick() {
-  const e = document.getElementById('footerClock');
-  if (e) e.textContent = new Date().toLocaleTimeString('en-GB', { hour12: false }) + ' UTC';
-}
-tick();
-setInterval(tick, 1000);
+function tick() { const e = document.getElementById('footerClock'); if (e) e.textContent = new Date().toLocaleTimeString('en-GB', { hour12: false }) + ' UTC'; }
+tick(); setInterval(tick, 1000);
 </script>
 </body></html>`
   );
 }
 
 // ============================================================
-//   USER TRACKING PAGE HTML
+//   USER TRACKING HTML
 // ============================================================
 function userTrackingHTML() {
   return (
@@ -2529,8 +2397,7 @@ function userTrackingHTML() {
 
   <div style="margin:24px 0">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <input id="searchInput" class="pair-input" style="flex:1;min-width:200px;margin-bottom:0"
-        placeholder="Search by phone or name..." oninput="debounceSearch()">
+      <input id="searchInput" class="pair-input" style="flex:1;min-width:200px;margin-bottom:0" placeholder="Search by phone or name..." oninput="debounceSearch()">
       <button class="btn btn-red" onclick="loadUsers(1)" style="padding:10px 20px;font-size:10px;white-space:nowrap">🔍 SEARCH</button>
     </div>
     <div id="userTable"><div style="text-align:center;padding:60px;color:var(--text3);font-family:'JetBrains Mono',monospace">Loading users...</div></div>
@@ -2553,10 +2420,7 @@ function userTrackingHTML() {
 </style>
 <script>
 let currentPage=1, searchTimer=null;
-function debounceSearch(){
-  clearTimeout(searchTimer);
-  searchTimer=setTimeout(()=>loadUsers(1),400);
-}
+function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadUsers(1),400);}
 async function loadUsers(page=1){
   currentPage=page;
   const search=document.getElementById('searchInput').value.trim();
@@ -2590,9 +2454,7 @@ async function loadUsers(page=1){
       pag+='<button class="page-btn" onclick="loadUsers('+(d.page+1)+')" '+(d.page>=d.pages?'disabled':'')+'>NEXT →</button>';
     }
     document.getElementById('pagination').innerHTML=pag;
-  }catch(e){
-    document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';
-  }
+  }catch(e){document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';}
 }
 function timeAgo(date){
   const s=Math.floor((Date.now()-date)/1000);
@@ -2625,13 +2487,11 @@ async function loadAndDisplayFeatures() {
     { name: "Encryption", path: "./features/encryption.js", emoji: "🔐" },
     { name: "Games", path: "./features/games.js", emoji: "🎮" },
     { name: "Image Tools", path: "./features/imageTools.js", emoji: "🖼️" },
-    { name: "IP Lookup", path: "./features/ipLookup.js", emoji: "🌐" },
     { name: "Jokes", path: "./features/jokes.js", emoji: "😂" },
     { name: "Movies", path: "./features/movies.js", emoji: "🎬" },
     { name: "Music", path: "./features/music.js", emoji: "🎵" },
     { name: "News", path: "./features/news.js", emoji: "📰" },
     { name: "Notes", path: "./features/notes.js", emoji: "📝" },
-    { name: "QR", path: "./features/qr.js", emoji: "📱" },
     { name: "Quotes", path: "./features/quotes.js", emoji: "💬" },
     { name: "Reminder", path: "./features/reminder.js", emoji: "⏰" },
     { name: "Security", path: "./features/security.js", emoji: "🛡️" },
@@ -2646,9 +2506,7 @@ async function loadAndDisplayFeatures() {
     { name: "Basic", path: "./commands/group/basic.js", emoji: "📋" },
     { name: "Automation", path: "./commands/group/automation.js", emoji: "🤖" },
   ];
-  let loaded = 0,
-    failed = 0,
-    total = 0;
+  let loaded = 0, failed = 0, total = 0;
   for (const f of features) {
     try {
       const mod = await import(f.path);
@@ -2657,18 +2515,12 @@ async function loadAndDisplayFeatures() {
       loaded++;
       total += fns.length;
     } catch (e) {
-      console.log(
-        `❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`,
-      );
+      console.log(`❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`);
       failed++;
     }
   }
   console.log(`\n┏${line}┓`);
-  console.log(
-    `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(
-      55,
-    ) + "┃",
-  );
+  console.log(`┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(55) + "┃");
   console.log(`┗${line}┛\n`);
 }
 
@@ -2676,21 +2528,15 @@ async function loadAndDisplayFeatures() {
 //   STARTUP SEQUENCE
 // ============================================================
 async function main() {
-  console.log(
-    `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 Multi-Session by AYOCODES…${C.reset}\n`,
-  );
+  console.log(`\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 Multi-Session by AYOCODES…${C.reset}\n`);
   checkEnvVars();
   await connectMongo();
   setupWebDashboard();
   setInterval(cleanupRateLimits, 5 * 60 * 1000);
   setInterval(cleanupStores, 30 * 60 * 1000);
   await restoreAllSessions();
-  loadAndDisplayFeatures().catch((e) =>
-    log.warn("Feature display: " + e.message),
-  );
-  console.log(
-    `${C.green}${C.bold}✨ AYOBOT v1.0.0 Multi-Session ready.${C.reset}\n`,
-  );
+  loadAndDisplayFeatures().catch((e) => log.warn("Feature display: " + e.message));
+  console.log(`${C.green}${C.bold}✨ AYOBOT v1.0.0 Multi-Session ready.${C.reset}\n`);
 }
 
 main().catch((e) => {
@@ -2713,6 +2559,7 @@ async function gracefulShutdown(sig) {
     }
     if (session.pingInterval) clearInterval(session.pingInterval);
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+    if (session.queueTimeout) clearTimeout(session.queueTimeout);
   }
   if (mongoClient) await mongoClient.close().catch(() => {});
   console.error = originalConsoleError;
