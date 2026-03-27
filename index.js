@@ -235,11 +235,27 @@ function sanitizeSensitiveData(obj) {
 }
 
 // ============================================================
-//   CONSTANTS
+//   CONSTANTS & EXPORTS FOR VALIDATORS
 // ============================================================
 export const ADMIN_CACHE_TTL = 30000;
 export const GROUP_META_TTL = 60000;
+export const RATE_LIMIT_WINDOW = 2000;
+export const MAX_COMMANDS_PER_WINDOW = 1;
+export const SPAM_TIME_WINDOW = 4000;
+export const MAX_SPAM_MESSAGES = 3;
+export const MAX_SIMILAR_MESSAGES = 2;
+export const RATE_LIMIT_MESSAGES = [
+  "⏳ *CHILL BRO!* Take a breath!",
+  "🧘 *ONE AT A TIME!* Slow down!",
+  "⚡ *EASY DOES IT!* Wait a moment!",
+  "🎯 *PATIENCE!* Commands need spacing!",
+  "🌟 *BREATHE!* You're going too fast!",
+];
 
+// Helper function for validators
+export function getBotOwner() {
+  return ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
+}
 // ============================================================
 //   GLOBAL STATE WITH CLEANUP
 // ============================================================

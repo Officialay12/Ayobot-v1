@@ -16,12 +16,11 @@ import {
   isGroupActivated,
 } from "../index.js";
 
-// ✅ FIX: Direct import instead of dynamic import
+// Import validator functions - DIRECT IMPORT (FIXED)
 import { isBotGroupAdminCached as validatorIsBotGroupAdminCached } from "../utils/validators.js";
 
 // Use the imported function directly
 const isBotGroupAdminCached = validatorIsBotGroupAdminCached;
-
 // ============================================================================
 //  COLOR LOGGER
 // ============================================================================
