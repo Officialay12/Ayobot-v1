@@ -5,29 +5,22 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ============================================================================
-//  IMPORTS — WITH FALLBACKS
+//  IMPORTS — FIXED: Direct import, no circular dependency
 // ============================================================================
 import {
   bannedUsers,
   commandUsage,
   ENV,
-  groupSettings,
-  groupWarnings,
   isAdmin,
   isAuthorized,
   isGroupActivated,
 } from "../index.js";
 
-// Import validator functions with fallback
-let isBotGroupAdminCached = async () => false;
-try {
-  const validators = await import("../utils/validators.js");
-  if (validators.isBotGroupAdminCached) {
-    isBotGroupAdminCached = validators.isBotGroupAdminCached;
-  }
-} catch (_) {
-  console.warn("⚠️ isBotGroupAdminCached not available, using fallback");
-}
+// ✅ FIX: Direct import instead of dynamic import
+import { isBotGroupAdminCached as validatorIsBotGroupAdminCached } from "../utils/validators.js";
+
+// Use the imported function directly
+const isBotGroupAdminCached = validatorIsBotGroupAdminCached;
 
 // ============================================================================
 //  COLOR LOGGER
@@ -2382,4 +2375,4 @@ export function shutdown() {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-export { MODULES as modules, rateLimiter, commandCooldown };
+export { commandCooldown, MODULES as modules, rateLimiter };
