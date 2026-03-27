@@ -7,20 +7,22 @@
 // ============================================================================
 //  IMPORTS — FIXED: Direct import, no circular dependency
 // ============================================================================
+// ============================================================================
+//  IMPORTS — PERMANENT FIX
+// ============================================================================
 import {
   bannedUsers,
   commandUsage,
   ENV,
+  groupSettings,
+  groupWarnings,
   isAdmin,
   isAuthorized,
   isGroupActivated,
 } from "../index.js";
 
-// Import validator functions - DIRECT IMPORT (FIXED)
-import { isBotGroupAdminCached as validatorIsBotGroupAdminCached } from "../utils/validators.js";
-
-// Use the imported function directly
-const isBotGroupAdminCached = validatorIsBotGroupAdminCached;
+// Direct import - NO try/catch, NO fallback
+import { isBotGroupAdminCached } from "../utils/validators.js";
 // ============================================================================
 //  COLOR LOGGER
 // ============================================================================
