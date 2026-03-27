@@ -1,4 +1,4 @@
-// handlers/commandHandler.js — AYOBOT v2.0.0 (COMPLETE)
+// handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
 //  Command Handler — COMPLETE FIXED VERSION
 //  Author: AYOCODES
@@ -66,7 +66,7 @@ if (!ENV.PREFIX) {
   ENV.PREFIX = "!";
 }
 
-// Fix ownerPhone: Use ENV.ADMIN as primary, fallback to ENV.OWNER_PHONE
+// Use ENV.ADMIN as primary, fallback to ENV.OWNER_PHONE / ENV.OWNER_NUMBER
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
 if (!OWNER_PHONE) {
   log.warn(
@@ -108,11 +108,14 @@ class RateLimiter {
     return true;
   }
 
+  // FIX: Only returns > 0 when actually rate-limited (hits >= max).
+  // Previously returned non-zero even when slots were available.
   remaining(id) {
-    const hits = this.map.get(id) || [];
-    if (!hits.length) return 0;
+    const now = Date.now();
+    const hits = (this.map.get(id) || []).filter((t) => now - t < this.window);
+    if (hits.length < this.max) return 0;
     const oldest = Math.min(...hits);
-    return Math.max(0, this.window - (Date.now() - oldest));
+    return Math.max(0, this.window - (now - oldest));
   }
 
   cleanup() {
@@ -154,17 +157,20 @@ class CommandCooldown {
 
   isOnCooldown(userId, commandName) {
     const key = `${userId}:${commandName}`;
-    const cooldown = this.cooldowns.get(key);
-    if (!cooldown) return false;
-    return Date.now() < cooldown;
+    const expiry = this.cooldowns.get(key);
+    if (!expiry) return false;
+    return Date.now() < expiry;
   }
 
   setCooldown(userId, commandName) {
     const key = `${userId}:${commandName}`;
     const duration = this.getCooldown(commandName);
-    this.cooldowns.set(key, Date.now() + duration);
+    const expiry = Date.now() + duration;
+    this.cooldowns.set(key, expiry);
+    // FIX: Store expiry value and compare on cleanup to avoid
+    // deleting a refreshed cooldown set by a later call.
     setTimeout(() => {
-      if (this.cooldowns.get(key) <= Date.now()) {
+      if (this.cooldowns.get(key) === expiry) {
         this.cooldowns.delete(key);
       }
     }, duration);
@@ -172,9 +178,9 @@ class CommandCooldown {
 
   getRemaining(userId, commandName) {
     const key = `${userId}:${commandName}`;
-    const cooldown = this.cooldowns.get(key);
-    if (!cooldown) return 0;
-    return Math.max(0, cooldown - Date.now());
+    const expiry = this.cooldowns.get(key);
+    if (!expiry) return 0;
+    return Math.max(0, expiry - Date.now());
   }
 }
 
@@ -188,7 +194,7 @@ if (!global.activeTrivia) {
 }
 
 // ============================================================================
-//  HELPER: normalizeJid
+//  HELPERS
 // ============================================================================
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
@@ -304,6 +310,11 @@ class CommandMeta {
     this.description = options.description || "";
     this.adminOnly = options.adminOnly === true;
     this.groupOnly = options.groupOnly === true;
+    // FIX: Split the original ambiguous `requireBotAdmin` into two distinct flags:
+    //   requireGroupAdmin → the *user* must be a group admin to run this command
+    //   requireBotAdmin   → the *bot* must be a group admin to run this command
+    // Both can be true at once (e.g. kick/ban).
+    this.requireGroupAdmin = options.requireGroupAdmin === true;
     this.requireBotAdmin = options.requireBotAdmin === true;
     this.aliases = (options.aliases || []).map((a) => a.toLowerCase());
     this.createdAt = Date.now();
@@ -1130,7 +1141,7 @@ export function registerAllCommands() {
       aliases: ["series", "show", "tvshow", "tvseries", "tvguide"],
     });
 
-  // ==================== MUSIC.JS — FIXED ====================
+  // ==================== MUSIC.JS ====================
   const music = MODULES.music;
 
   const lyricsFn = getModuleFunction(music, "musicLyrics", "lyrics");
@@ -1187,7 +1198,6 @@ export function registerAllCommands() {
       ],
     });
 
-  // CRITICAL: play command uses musicDownload (renamed from dl.play)
   const playFn = getModuleFunction(music, "musicDownload", "play");
   if (playFn)
     safeRegister("play", playFn, {
@@ -1271,7 +1281,7 @@ export function registerAllCommands() {
       aliases: ["motivation", "inspire", "wisdom", "motivate", "inspiration"],
     });
 
-  // ==================== REMINDER.JS — FIXED ====================
+  // ==================== REMINDER.JS ====================
   const reminder = MODULES.reminder;
 
   const remindFn = getModuleFunction(reminder, "reminder", null);
@@ -1408,6 +1418,7 @@ export function registerAllCommands() {
     safeRegister("kick", gc.kick, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Kick member",
       aliases: ["remove", "kickmember", "removemember", "boot", "kickout"],
@@ -1417,6 +1428,7 @@ export function registerAllCommands() {
     safeRegister("add", gc.add, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Add member",
       aliases: [
@@ -1432,6 +1444,7 @@ export function registerAllCommands() {
     safeRegister("promote", gc.promote, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Promote to admin",
       aliases: ["makeadmin", "adminpromote", "setadmin", "promoteadmin"],
@@ -1441,6 +1454,7 @@ export function registerAllCommands() {
     safeRegister("demote", gc.demote, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Demote admin",
       aliases: ["unadmin", "removeadmin", "deadmin", "demoteadmin"],
@@ -1497,6 +1511,7 @@ export function registerAllCommands() {
     safeRegister("ban", gm.ban, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Ban user from group",
       aliases: ["block", "banuser", "blacklist", "banmember"],
@@ -1506,6 +1521,7 @@ export function registerAllCommands() {
     safeRegister("unban", gm.unban, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Unban user from group",
       aliases: ["unblock", "unbanuser", "whitelist", "removeban"],
     });
@@ -1514,6 +1530,7 @@ export function registerAllCommands() {
     safeRegister("warn", gm.warn, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Warn user",
       aliases: ["warning", "warnuser", "givewarn", "addwarn", "warnmember"],
     });
@@ -1530,6 +1547,7 @@ export function registerAllCommands() {
     safeRegister("clearwarns", gm.clearWarns, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Clear warnings",
       aliases: ["resetwarns", "clearwarnings", "rmwarns", "deletewarns"],
     });
@@ -1549,6 +1567,7 @@ export function registerAllCommands() {
     safeRegister("mute", gs.mute, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Mute group",
       aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"],
@@ -1558,6 +1577,7 @@ export function registerAllCommands() {
     safeRegister("unmute", gs.unmute, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Unmute group",
       aliases: ["unlockgroup", "groupunlock", "unmuteall", "unmutechat"],
@@ -1567,6 +1587,7 @@ export function registerAllCommands() {
     safeRegister("lock", gs.lock, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Lock group info editing",
       aliases: ["lockinfo", "restrict"],
@@ -1576,6 +1597,7 @@ export function registerAllCommands() {
     safeRegister("unlock", gs.unlock, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Unlock group info editing",
       aliases: ["unlockinfo", "unrestrict"],
@@ -1585,6 +1607,7 @@ export function registerAllCommands() {
     safeRegister("antispam", gs.antiSpam, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Toggle anti-spam",
       aliases: ["nospam", "blockspam", "toggleantispam", "stopspam"],
     });
@@ -1593,6 +1616,7 @@ export function registerAllCommands() {
     safeRegister("welcome", gs.welcomeToggle, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Toggle welcome messages",
       aliases: ["togglewelcome", "welcomeon", "welcomeoff"],
     });
@@ -1601,6 +1625,7 @@ export function registerAllCommands() {
     safeRegister("setwelcome", gs.setWelcome, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Set welcome message",
       aliases: ["setwelcomemsg", "welcometext"],
     });
@@ -1609,6 +1634,7 @@ export function registerAllCommands() {
     safeRegister("goodbye", gs.goodbyeToggle, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Toggle goodbye messages",
       aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff"],
     });
@@ -1617,6 +1643,7 @@ export function registerAllCommands() {
     safeRegister("setgoodbye", gs.setGoodbye, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Set goodbye message",
       aliases: ["setgoodbyemsg", "goodbyetext"],
     });
@@ -1641,6 +1668,7 @@ export function registerAllCommands() {
     safeRegister("setrules", gs.setRules, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Set group rules",
       aliases: ["setgrules", "addrules"],
     });
@@ -1657,6 +1685,7 @@ export function registerAllCommands() {
     safeRegister("revoke", gs.revoke, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Revoke group invite link",
       aliases: ["revokelink", "resetlink", "newlink"],
@@ -1666,6 +1695,7 @@ export function registerAllCommands() {
     safeRegister("pin", gs.pin, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Pin a message",
       aliases: ["pinmsg", "pinmessage"],
@@ -1675,6 +1705,7 @@ export function registerAllCommands() {
     safeRegister("unpin", gs.unpin, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       requireBotAdmin: true,
       description: "Unpin a message",
       aliases: ["unpinmsg", "unpinmessage"],
@@ -1684,6 +1715,7 @@ export function registerAllCommands() {
     safeRegister("delete", gs.deleteMsg, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Delete a message",
       aliases: ["delmsg", "deletemessage", "rmmsg"],
     });
@@ -1700,6 +1732,7 @@ export function registerAllCommands() {
     safeRegister("resetsettings", gs.resetSettings, {
       category: "group",
       groupOnly: true,
+      requireGroupAdmin: true,
       description: "Reset all group settings",
       aliases: ["resetgroupsettings", "clearsettings", "resetall"],
     });
@@ -1708,6 +1741,7 @@ export function registerAllCommands() {
     safeRegister("leave", gs.leave, {
       category: "group",
       groupOnly: true,
+      adminOnly: true,
       description: "Make bot leave the group",
       aliases: ["botleave", "leavegroup", "exit"],
     });
@@ -1904,7 +1938,7 @@ const ACTIVATION_EXEMPT = new Set([
 ]);
 
 // ============================================================================
-//  MAIN COMMAND HANDLER — COMPLETE
+//  MAIN COMMAND HANDLER
 // ============================================================================
 export async function handleCommand(message, sock) {
   const executionStart = Date.now();
@@ -1924,7 +1958,7 @@ export async function handleCommand(message, sock) {
     const sessionMode = session?.mode || ENV.BOT_MODE || "public";
     const sessionId = session?.id || "";
 
-    // ── PHASE 2: Determine sender JID — STRIPS :5 SUFFIX ────────────────────
+    // ── PHASE 2: Determine sender JID ────────────────────────────────────────
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -1947,7 +1981,7 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 4: Extract message text ────────────────────────────────────────
     const m = message.message || {};
-    let msgText =
+    const msgText =
       m.conversation ||
       m.extendedTextMessage?.text ||
       m.imageMessage?.caption ||
@@ -1958,15 +1992,12 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // ── PHASE 5: TRIVIA HANDLER — MOVED BEFORE PREFIX CHECK ─────────────────
+    // ── PHASE 5: TRIVIA HANDLER (runs before prefix check) ───────────────────
     if (!trimmed.startsWith(ENV.PREFIX)) {
-      if (global.activeTrivia && global.activeTrivia instanceof Map) {
+      if (global.activeTrivia instanceof Map && global.activeTrivia.has(from)) {
+        // FIX: Deduplicated — single check is sufficient
         const upperMsg = trimmed.toUpperCase();
-        const isTriviaAnswer =
-          ["A", "B", "C", "D"].includes(upperMsg) ||
-          (upperMsg.length === 1 && ["A", "B", "C", "D"].includes(upperMsg));
-
-        if (isTriviaAnswer && global.activeTrivia.has(from)) {
+        if (["A", "B", "C", "D"].includes(upperMsg)) {
           if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from))
             return;
           if (sessionMode === "private" && !isAdminUser) return;
@@ -1986,16 +2017,19 @@ export async function handleCommand(message, sock) {
       return;
     }
 
-    // ── PHASE 6: Prefix check ────────────────────────────────────────────────
+    // ── PHASE 6: Prefix & command parsing ────────────────────────────────────
     const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
     const parts = body.split(/\s+/);
     const commandName = parts[0].toLowerCase();
-    const args = parts.slice(1).map((a) => sanitizeInput(a));
-    const fullArgs = args.join(" ");
-
     if (!commandName) return;
+
+    // FIX: Preserve raw args before sanitizing so fullArgs reflects
+    // the original input (sanitize is only for individual arg safety).
+    const rawArgs = parts.slice(1);
+    const fullArgs = rawArgs.join(" ");
+    const args = rawArgs.map((a) => sanitizeInput(a));
 
     // ── PHASE 7: Banned user check ───────────────────────────────────────────
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
@@ -2039,26 +2073,24 @@ export async function handleCommand(message, sock) {
             .map((c) => `*${ENV.PREFIX}${c}*`)
             .join(", ")}`;
       }
-
       await sock.sendMessage(from, {
         text: `❓ *Unknown Command:* ${ENV.PREFIX}${commandName}${suggestion}\n\nType *${ENV.PREFIX}menu* to see all commands!`,
       });
       return;
     }
 
-    // ── PHASE 11: Resolve handler ────────────────────────────────────────────
-    let handlerFunction = commandMeta.handler;
-    let primaryName = commandMeta.primaryName || commandName;
-
-    if (commandMeta.isAlias && commandMeta.primaryName) {
-      primaryName = commandMeta.primaryName;
-    }
+    // ── PHASE 11: Resolve handler & primary name ─────────────────────────────
+    const handlerFunction = commandMeta.handler;
+    const primaryName = commandMeta.isAlias
+      ? commandMeta.primaryName
+      : commandMeta.primaryName || commandName;
 
     // ── PHASE 12: Track usage ────────────────────────────────────────────────
     if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
     commandUsage.get(userJid)[primaryName] =
       (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
+    // Get or initialise stats object (single source of truth for this execution)
     const stats = commandStats.get(primaryName) || {
       uses: 0,
       errors: 0,
@@ -2085,27 +2117,32 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 14: Command cooldown ───────────────────────────────────────────
     if (!isAdminUser && commandCooldown.isOnCooldown(userJid, primaryName)) {
-      const remaining = commandCooldown.getRemaining(userJid, primaryName);
-      const seconds = Math.ceil(remaining / 1000);
+      const seconds = Math.ceil(
+        commandCooldown.getRemaining(userJid, primaryName) / 1000,
+      );
       return sock.sendMessage(from, {
         text: `⏳ *Cooldown!*\nPlease wait *${seconds}s* before using *${ENV.PREFIX}${primaryName}* again.`,
       });
     }
 
     // ── PHASE 15: Permission checks ──────────────────────────────────────────
+
+    // 15a: Bot-owner-only commands
     if (commandMeta.adminOnly && !isAdminUser) {
       return sock.sendMessage(from, {
         text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.`,
       });
     }
 
+    // 15b: Group-only commands
     if (commandMeta.groupOnly && !isGroup) {
       return sock.sendMessage(from, {
         text: `👥 *${ENV.PREFIX}${commandName}* only works inside a group.`,
       });
     }
 
-    if (commandMeta.requireBotAdmin && isGroup) {
+    // 15c: Commands that require the calling user to be a group admin
+    if (commandMeta.requireGroupAdmin && isGroup && !isAdminUser) {
       let userIsGroupAdmin = false;
       try {
         const groupMetadata = await sock.groupMetadata(from);
@@ -2122,12 +2159,15 @@ export async function handleCommand(message, sock) {
         );
       }
 
-      if (!isAdminUser && !userIsGroupAdmin) {
+      if (!userIsGroupAdmin) {
         return sock.sendMessage(from, {
           text: `⛔ *Group Admin Only*\nYou need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.`,
         });
       }
+    }
 
+    // 15d: Commands that require the BOT itself to be a group admin
+    if (commandMeta.requireBotAdmin && isGroup) {
       let botIsAdmin = false;
       try {
         botIsAdmin = await isBotGroupAdminCached(from, sock);
@@ -2136,8 +2176,8 @@ export async function handleCommand(message, sock) {
       }
 
       if (!botIsAdmin) {
-        await sock.sendMessage(from, {
-          text: `⚠️ *Note:* I am not a group admin yet.\nPlease promote me to admin for this command to work fully.`,
+        return sock.sendMessage(from, {
+          text: `⚠️ *Bot Not Admin*\nI need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.\nPlease promote me and try again.`,
         });
       }
     }
@@ -2189,11 +2229,14 @@ export async function handleCommand(message, sock) {
       const executionTime = Date.now() - handlerStart;
       stats.totalResponseTime += executionTime;
       stats.avgResponseTime = stats.totalResponseTime / stats.uses;
+      // FIX: Single authoritative write after mutation — no redundant set below
+      commandStats.set(primaryName, stats);
       log.success(
         `[${executionId}] ${primaryName} completed (${executionTime}ms)`,
       );
     } catch (cmdError) {
       stats.errors++;
+      commandStats.set(primaryName, stats);
       log.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
 
       const errMsg =
@@ -2205,8 +2248,6 @@ export async function handleCommand(message, sock) {
         await sock.sendMessage(from, { text: errMsg });
       } catch (_) {}
     }
-
-    commandStats.set(primaryName, stats);
 
     if (Date.now() - executionStart > 5000) {
       log.warn(
@@ -2276,6 +2317,8 @@ export function getCommandInfo(name) {
     description: meta.description,
     adminOnly: meta.adminOnly,
     groupOnly: meta.groupOnly,
+    requireGroupAdmin: meta.requireGroupAdmin,
+    requireBotAdmin: meta.requireBotAdmin,
     isAlias: meta.isAlias || false,
     aliases: meta.aliases || [],
   };
@@ -2287,7 +2330,7 @@ export function getCommandStats(name) {
 
 export function getCommandsByCategory(category) {
   const unique = new Map();
-  for (const [_, meta] of commands.entries()) {
+  for (const [, meta] of commands.entries()) {
     if (meta.category === category && !meta.isAlias) {
       unique.set(meta.primaryName, meta);
     }
@@ -2296,8 +2339,8 @@ export function getCommandsByCategory(category) {
 }
 
 export function getAllStats() {
-  let totalUses = 0,
-    totalErrors = 0;
+  let totalUses = 0;
+  let totalErrors = 0;
   for (const stats of commandStats.values()) {
     totalUses += stats.uses;
     totalErrors += stats.errors;
@@ -2312,7 +2355,7 @@ export function getAllStats() {
     topCommands: Array.from(commandStats.entries())
       .sort((a, b) => b[1].uses - a[1].uses)
       .slice(0, 5)
-      .map(([name, stats]) => ({ name, uses: stats.uses })),
+      .map(([name, s]) => ({ name, uses: s.uses })),
   };
 }
 
@@ -2322,13 +2365,15 @@ export async function reloadCommands() {
   primaryCommands.clear();
   aliasMap.clear();
   commandStats.clear();
-  for (const name in MODULES) delete MODULES[name];
+  for (const name of Object.keys(MODULES)) delete MODULES[name];
   await loadAllModules();
   registerAllCommands();
   log.success("✅ Commands reloaded successfully");
 }
 
-// Graceful shutdown
+// ============================================================================
+//  GRACEFUL SHUTDOWN
+// ============================================================================
 export function shutdown() {
   rateLimiter.stopCleanup();
   log.success("Command handler shutdown complete");

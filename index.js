@@ -1,28 +1,26 @@
 // ============================================================
 //   AYOBOT v1 — index.js (Multi-Session Public Edition)
-//   COMPLETE PRODUCTION-READY VERSION — FIXED
+//   COMPLETE PRODUCTION-READY VERSION
 //   Author: AYOCODES
-//
-//   FIXES:
-//   1. isAdmin() — now strips :N device suffix before number comparison
-//   2. attachListeners() — senderJid strips device suffix for fromMe + group
-//   3. ownerPhone correctly passed via session to all handlers
 // ============================================================
 
 import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  initAuthCreds,
   isJidBroadcast,
   makeCacheableSignalKeyStore,
-  initAuthCreds,
+  proto,
 } from "@whiskeysockets/baileys";
-import { proto } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import bodyParser from "body-parser";
+import compression from "compression";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import express from "express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import { MongoClient } from "mongodb";
 import NodeCache from "node-cache";
 import pino from "pino";
@@ -41,6 +39,7 @@ const C = {
   yellow: "\x1b[33m",
   cyan: "\x1b[36m",
   bold: "\x1b[1m",
+  dim: "\x1b[2m",
 };
 
 export const log = {
@@ -50,10 +49,12 @@ export const log = {
   info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
   msg: (m) => console.log(`📨 ${m}`),
   cmd: (m) => console.log(`⚡ ${m}`),
+  debug: (m) =>
+    process.env.DEBUG === "true" && console.log(`${C.dim}🔍${C.reset} ${m}`),
 };
 
 // ============================================================
-//   ENVIRONMENT CONFIG
+//   ENVIRONMENT CONFIG WITH VALIDATION
 // ============================================================
 export const ENV = {
   PREFIX: process.env.PREFIX || ".",
@@ -112,11 +113,21 @@ export const ENV = {
   CENTRAL_SERVER_URL:
     process.env.CENTRAL_SERVER_URL || "https://ayobot-v1-wo21.onrender.com",
   INSTANCE_ID: process.env.INSTANCE_ID || null,
+  DEBUG: process.env.DEBUG === "true",
+  SESSION_TIMEOUT: parseInt(process.env.SESSION_TIMEOUT) || 3600000,
+  MAX_MESSAGE_SIZE: parseInt(process.env.MAX_MESSAGE_SIZE) || 5000,
+  RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX) || 15,
+  RATE_LIMIT_WINDOW: parseInt(process.env.RATE_LIMIT_WINDOW) || 60000,
 };
 
+// Validate required environment variables
 if (!ENV.MONGODB_URI) {
   console.error(`${C.red}❌ MONGODB_URI is required!${C.reset}`);
   process.exit(1);
+}
+
+if (!ENV.ADMIN) {
+  log.warn("⚠️ ADMIN not set! Bot owner features will be limited");
 }
 
 function checkEnvVars() {
@@ -169,25 +180,27 @@ function checkEnvVars() {
     },
     { key: ENV.HF_TOKEN, name: "HF_TOKEN", feature: "HuggingFace" },
   ];
+
   for (const { key, name, feature } of checks) {
     if (key) loaded.push(feature);
     else missing.push(`${name} (${feature} disabled)`);
   }
-  if (loaded.length)
+
+  if (loaded.length) {
     console.log(`\n${C.green}✅ APIs loaded: ${loaded.join(", ")}${C.reset}`);
+  }
   if (missing.length) {
-    console.log(`\n${C.yellow}⚠️  Missing optional ENV vars:${C.reset}`);
+    console.log(`\n${C.yellow}⚠️ Missing optional ENV vars:${C.reset}`);
     missing.forEach((x) => console.log(`   • ${x}`));
     console.log("");
   }
 }
 
 // ============================================================
-//   HELPERS
+//   HELPER FUNCTIONS
 // ============================================================
 export function normalizePhone(raw) {
   if (!raw) return "";
-  // Strip device suffix (:N) AND domain before extracting digits
   return String(raw)
     .split("@")[0]
     .split(":")[0]
@@ -203,9 +216,22 @@ export async function sendMsg(sock, jid, content, opts = {}) {
   try {
     return await sock.sendMessage(jid, content, opts);
   } catch (e) {
-    log.err("sendMsg failed: " + e.message);
+    log.err(`sendMsg failed: ${e.message}`);
     return null;
   }
+}
+
+function sanitizeSensitiveData(obj) {
+  const sensitive = ["api_key", "token", "password", "secret", "key"];
+  const sanitized = { ...obj };
+
+  for (const key of sensitive) {
+    if (sanitized[key]) {
+      sanitized[key] = "***REDACTED***";
+    }
+  }
+
+  return sanitized;
 }
 
 // ============================================================
@@ -213,22 +239,9 @@ export async function sendMsg(sock, jid, content, opts = {}) {
 // ============================================================
 export const ADMIN_CACHE_TTL = 30000;
 export const GROUP_META_TTL = 60000;
-export const RATE_LIMIT_WINDOW = 2000;
-export const MAX_COMMANDS_PER_WINDOW = 1;
-export const SPAM_TIME_WINDOW = 4000;
-export const MAX_SPAM_MESSAGES = 3;
-export const MAX_SIMILAR_MESSAGES = 2;
-
-export const RATE_LIMIT_MESSAGES = [
-  "⏳ *CHILL BRO!* Take a breath!",
-  "🧘 *ONE AT A TIME!* Slow down!",
-  "⚡ *EASY DOES IT!* Wait a moment!",
-  "🎯 *PATIENCE!* Commands need spacing!",
-  "🌟 *BREATHE!* You're going too fast!",
-];
 
 // ============================================================
-//   GLOBAL STATE
+//   GLOBAL STATE WITH CLEANUP
 // ============================================================
 export let messageCount = 0;
 export let botStartTime = Date.now();
@@ -246,24 +259,85 @@ export const autoReplyEnabled = new Map();
 export const spamTracker = new Map();
 export const adminCache = new Map();
 export const groupMetadataCache = new Map();
-export const msgCache = new NodeCache({ stdTTL: 60, maxKeys: 5000 });
+export const msgCache = new NodeCache({
+  stdTTL: 60,
+  maxKeys: 5000,
+  checkperiod: 120,
+});
+export const groupActivations = new Map();
+export const authorizedUsers = new Set();
 
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
-  console.log("✅ [index.js] Created global.activeTrivia");
+  log.debug("Created global.activeTrivia");
 }
 
 const sessionOwnerMap = new Map();
 const messageQueues = new Map();
+const sessions = new Map();
+let mongoClient = null;
+let authCollection = null;
+let sessionMetaCollection = null;
+let userLogCollection = null;
 
 // ============================================================
-//   GROUP ACTIVATIONS
+//   CLEANUP MECHANISMS
 // ============================================================
-export const groupActivations = new Map();
+function cleanupOldData() {
+  const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+  const now = Date.now();
 
+  for (const [user, usage] of commandUsage.entries()) {
+    const lastUse = Math.max(
+      ...Object.values(usage).map((u) => u.timestamp || 0),
+    );
+    if (now - lastUse > MAX_AGE) {
+      commandUsage.delete(user);
+    }
+  }
+
+  for (const [key, data] of deletedMessages.entries()) {
+    if (data && now - (data.timestamp || 0) > MAX_AGE) {
+      deletedMessages.delete(key);
+    }
+  }
+
+  for (const [key, timestamp] of userCooldown.entries()) {
+    if (now - timestamp > MAX_AGE) {
+      userCooldown.delete(key);
+    }
+  }
+
+  for (const [key, data] of spamTracker.entries()) {
+    if (now - (data.timestamp || 0) > MAX_AGE) {
+      spamTracker.delete(key);
+    }
+  }
+
+  for (const [key, data] of adminCache.entries()) {
+    if (now - (data.timestamp || 0) > ADMIN_CACHE_TTL) {
+      adminCache.delete(key);
+    }
+  }
+
+  for (const [key, data] of groupMetadataCache.entries()) {
+    if (now - (data.timestamp || 0) > GROUP_META_TTL) {
+      groupMetadataCache.delete(key);
+    }
+  }
+
+  log.debug(`Cleanup completed: commandUsage=${commandUsage.size}`);
+}
+
+setInterval(cleanupOldData, 60 * 60 * 1000);
+
+// ============================================================
+//   GROUP FUNCTIONS
+// ============================================================
 export function activateGroup(sessionId, groupJid) {
-  if (!groupActivations.has(sessionId))
+  if (!groupActivations.has(sessionId)) {
     groupActivations.set(sessionId, new Set());
+  }
   groupActivations.get(sessionId).add(groupJid);
   log.ok(`[${sessionId.slice(0, 8)}] Group activated: ${groupJid}`);
 }
@@ -279,42 +353,22 @@ export function isGroupActivated(sessionId, groupJid) {
 
 export function saveBann(jid, reason = "") {
   bannedUsers.set(jid, { reason, timestamp: Date.now() });
-  saveDatabases();
 }
+
 export function getBann(jid) {
   return bannedUsers.get(jid) || null;
 }
+
 export function removeBann(jid) {
   bannedUsers.delete(jid);
-  saveDatabases();
 }
-export function saveBannedUsers() {
-  saveDatabases();
-}
-export function saveWarnings() {
-  saveDatabases();
-}
-export function saveGroupSettings() {
-  saveDatabases();
-}
-
-let dbCollection = null;
-export function loadDatabases() {
-  log.ok("Databases ready (MongoDB)");
-}
-export function saveDatabases() {}
 
 // ============================================================
-//   ADMIN HELPERS — FIXED
-//
-//   FIX: normalizePhone() already strips :N device suffix.
-//   The old code used .split(":")[0] only on the left side
-//   of @, but normalizePhone now does the full strip.
+//   ADMIN HELPERS WITH CACHING
 // ============================================================
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
 
-  // Strip BOTH @domain AND :N device suffix before digit extraction
   const u = normalizePhone(userJid);
   const o = normalizePhone(ownerPhone);
 
@@ -324,24 +378,82 @@ export function isAdmin(userJid, ownerPhone) {
 
 export function isAuthorized(userJid, ownerPhone, sessionMode) {
   if (isAdmin(userJid, ownerPhone)) return true;
+
   if (ownerPhone) {
     const session = sessionOwnerMap.get(normalizePhone(ownerPhone));
     if (session?.authorizedUsers?.has(userJid)) return true;
     if (session?.authorizedUsers?.has(normalizePhone(userJid))) return true;
   }
+
   if (authorizedUsers.has(userJid)) return true;
   if (authorizedUsers.has(normalizePhone(userJid))) return true;
+
   const mode = sessionMode || ENV.BOT_MODE || "public";
   if (mode === "public") return true;
+
   return false;
 }
 
-export const authorizedUsers = new Set();
+// ============================================================
+//   CIRCUIT BREAKER FOR EXTERNAL APIS
+// ============================================================
+class CircuitBreaker {
+  constructor(failureThreshold = 5, timeout = 60000) {
+    this.failures = 0;
+    this.failureThreshold = failureThreshold;
+    this.timeout = timeout;
+    this.lastFailureTime = null;
+    this.state = "CLOSED";
+  }
+
+  async call(fn) {
+    if (this.state === "OPEN") {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = "HALF_OPEN";
+      } else {
+        throw new Error(
+          "Circuit breaker is OPEN - service temporarily unavailable",
+        );
+      }
+    }
+
+    try {
+      const result = await fn();
+      if (this.state === "HALF_OPEN") {
+        this.state = "CLOSED";
+        this.failures = 0;
+      }
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+
+      if (this.failures >= this.failureThreshold) {
+        this.state = "OPEN";
+      }
+
+      throw error;
+    }
+  }
+
+  reset() {
+    this.failures = 0;
+    this.state = "CLOSED";
+    this.lastFailureTime = null;
+  }
+}
+
+export const apiCircuitBreakers = {
+  ai: new CircuitBreaker(3, 30000),
+  downloader: new CircuitBreaker(5, 60000),
+  media: new CircuitBreaker(3, 45000),
+  weather: new CircuitBreaker(2, 30000),
+};
 
 // ============================================================
 //   BAD MAC SUPPRESSION
 // ============================================================
-const logger = pino({ level: "silent" });
+const logger = pino({ level: ENV.DEBUG ? "info" : "silent" });
 const originalConsoleError = console.error;
 console.error = function (...args) {
   const m = args[0];
@@ -351,28 +463,47 @@ console.error = function (...args) {
 };
 
 // ============================================================
-//   MONGODB AUTH STATE
+//   MONGODB AUTH STATE WITH POOLING
 // ============================================================
 async function useMongoAuthState(collection, sessionId) {
   const writeData = async (data, id) => {
-    await collection.replaceOne(
-      { _id: `${sessionId}:${id}` },
-      {
-        _id: `${sessionId}:${id}`,
-        data: JSON.stringify(data, BufferJSON.replacer),
-      },
-      { upsert: true },
-    );
+    try {
+      await collection.replaceOne(
+        { _id: `${sessionId}:${id}` },
+        {
+          _id: `${sessionId}:${id}`,
+          data: JSON.stringify(data, BufferJSON.replacer),
+          updatedAt: new Date(),
+        },
+        { upsert: true },
+      );
+    } catch (error) {
+      log.err(`MongoDB write error for ${id}: ${error.message}`);
+      throw error;
+    }
   };
+
   const readData = async (id) => {
-    const item = await collection.findOne({ _id: `${sessionId}:${id}` });
-    if (!item) return null;
-    return JSON.parse(item.data, BufferJSON.reviver);
+    try {
+      const item = await collection.findOne({ _id: `${sessionId}:${id}` });
+      if (!item) return null;
+      return JSON.parse(item.data, BufferJSON.reviver);
+    } catch (error) {
+      log.err(`MongoDB read error for ${id}: ${error.message}`);
+      return null;
+    }
   };
+
   const removeData = async (id) => {
-    await collection.deleteOne({ _id: `${sessionId}:${id}` });
+    try {
+      await collection.deleteOne({ _id: `${sessionId}:${id}` });
+    } catch (error) {
+      log.err(`MongoDB delete error for ${id}: ${error.message}`);
+    }
   };
+
   const creds = (await readData("creds")) || initAuthCreds();
+
   return {
     state: {
       creds,
@@ -444,26 +575,45 @@ function createSessionObject(sessionId) {
     queueTimeout: null,
     mode: process.env.BOT_MODE || "public",
     authorizedUsers: new Set(),
+    lastActivity: Date.now(),
   };
 }
 
-const sessions = new Map();
-let mongoClient = null;
-let authCollection = null;
-let sessionMetaCollection = null;
-let userLogCollection = null;
-
+// ============================================================
+//   DATABASE CONNECTION WITH POOLING
+// ============================================================
 async function connectMongo() {
-  mongoClient = new MongoClient(ENV.MONGODB_URI);
-  await mongoClient.connect();
-  const db = mongoClient.db("ayobot");
-  authCollection = db.collection("auth_states");
-  sessionMetaCollection = db.collection("session_meta");
-  userLogCollection = db.collection("user_log");
-  await authCollection.createIndex({ _id: 1 });
-  await userLogCollection.createIndex({ phone: 1 }, { unique: true });
-  await userLogCollection.createIndex({ lastSeen: -1 });
-  log.ok("MongoDB connected — sessions will survive restarts.");
+  try {
+    mongoClient = new MongoClient(ENV.MONGODB_URI, {
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      maxIdleTimeMS: 60000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 5000,
+      heartbeatFrequencyMS: 10000,
+    });
+
+    await mongoClient.connect();
+    const db = mongoClient.db("ayobot");
+    authCollection = db.collection("auth_states");
+    sessionMetaCollection = db.collection("session_meta");
+    userLogCollection = db.collection("user_log");
+
+    await authCollection.createIndex({ _id: 1 });
+    await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true });
+    await sessionMetaCollection.createIndex({ active: 1 });
+    await sessionMetaCollection.createIndex({ updatedAt: -1 });
+    await userLogCollection.createIndex({ phone: 1 }, { unique: true });
+    await userLogCollection.createIndex({ lastSeen: -1 });
+    await userLogCollection.createIndex({ totalMessages: -1 });
+
+    log.ok("MongoDB connected with connection pooling");
+    return true;
+  } catch (error) {
+    log.err(`MongoDB connection failed: ${error.message}`);
+    throw error;
+  }
 }
 
 // ============================================================
@@ -478,14 +628,12 @@ async function loadHandlersForSession(session) {
     const commandModule = await import("./handlers/commandHandler.js");
     if (commandModule?.handleCommand) {
       session.commandHandler = commandModule.handleCommand;
-      log.ok(`[${sid}] ✅ Command handler loaded`);
+      log.ok(`[${sid}] Command handler loaded`);
     } else {
-      log.err(`[${sid}] ❌ handleCommand not found in module`);
-      session.commandHandler = null;
+      throw new Error("handleCommand not found in module");
     }
   } catch (e) {
-    log.err(`[${sid}] ❌ Command handler import failed: ${e.message}`);
-    console.error(e.stack);
+    log.err(`[${sid}] Command handler import failed: ${e.message}`);
     session.commandHandler = null;
   }
 
@@ -493,7 +641,7 @@ async function loadHandlersForSession(session) {
     const antiDeleteModule = await import("./handlers/antiDelete.js");
     if (antiDeleteModule?.handleAntiDelete) {
       session.antiDeleteHandler = antiDeleteModule.handleAntiDelete;
-      log.ok(`[${sid}] ✅ Anti-delete handler loaded`);
+      log.ok(`[${sid}] Anti-delete handler loaded`);
     }
   } catch (e) {
     log.warn(`[${sid}] Anti-delete handler not available: ${e.message}`);
@@ -504,7 +652,7 @@ async function loadHandlersForSession(session) {
     const groupModule = await import("./commands/group/automation.js");
     if (groupModule?.handleGroupParticipant) {
       session.groupHandler = groupModule.handleGroupParticipant;
-      log.ok(`[${sid}] ✅ Group handler loaded`);
+      log.ok(`[${sid}] Group handler loaded`);
     }
   } catch (e) {
     log.warn(`[${sid}] Group handler not available: ${e.message}`);
@@ -512,17 +660,47 @@ async function loadHandlersForSession(session) {
   }
 
   session.handlersReady = !!session.commandHandler;
-  log.ok(
-    `[${sid}] Handlers ready: ${session.handlersReady ? "YES ✓" : "NO ✗"}`,
-  );
+  log.ok(`[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`);
 
   if (!session.handlersReady) {
-    log.err(`[${sid}] ⚠️ WARNING: Command handler not loaded!`);
+    log.err(`[${sid}] WARNING: Command handler not loaded!`);
   }
 }
 
 // ============================================================
-//   ATTACH MESSAGE LISTENERS — FIXED
+//   MESSAGE QUEUE PROCESSOR
+// ============================================================
+async function processMessageQueue(session) {
+  const queue = messageQueues.get(session.id) || [];
+  if (queue.length === 0) return;
+
+  if (!session.handlersReady || !session.commandHandler) {
+    return;
+  }
+
+  log.info(
+    `[${session.id.slice(0, 8)}] Processing ${queue.length} queued messages`,
+  );
+
+  for (const queued of queue) {
+    try {
+      queued.msg._session = session;
+      queued.msg._sessionId = session.id;
+      queued.msg._sessionMode = session.mode || "public";
+      queued.msg._ownerPhone = session.ownerPhone || ENV.ADMIN || "";
+      await session.commandHandler(queued.msg, queued.sock);
+    } catch (err) {
+      log.err(
+        `[${session.id.slice(0, 8)}] Queued message error: ${err.message}`,
+      );
+    }
+  }
+
+  messageQueues.delete(session.id);
+}
+
+// ============================================================
+//   ATTACH MESSAGE LISTENERS
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
@@ -550,19 +728,20 @@ function attachListeners(session) {
         m.documentMessage?.caption ||
         "";
 
-      // ── FIX: Always strip :N device suffix from sender JID ──────────────
+      if (messageText && messageText.length > ENV.MAX_MESSAGE_SIZE) {
+        log.warn(`[${sid}] Message too long: ${messageText.length} chars`);
+        return;
+      }
+
       let rawSender;
       if (isGroup) {
-        // In groups the participant field is the actual sender
         rawSender = msg.key.participant || msg.participant || "";
       } else if (fromMe) {
-        // Bot owner sending from their own WhatsApp — use botSelfJid but strip suffix
         rawSender = session.botSelfJid || session.ownerJid || from;
       } else {
         rawSender = from;
       }
 
-      // Normalize: strip @domain AND :N device suffix, then extract digits
       const senderPhone = normalizePhone(rawSender);
       const senderJid = senderPhone
         ? `${senderPhone}@s.whatsapp.net`
@@ -570,22 +749,13 @@ function attachListeners(session) {
       const senderNumber = senderPhone || rawSender.split("@")[0];
 
       if (messageText) {
+        const logMessage =
+          messageText.substring(0, 60) + (messageText.length > 60 ? "…" : "");
         log.msg(
-          `[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${messageText.substring(0, 60)}${
-            messageText.length > 60 ? "…" : ""
-          }`,
+          `[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${logMessage}`,
         );
       }
 
-      // Only process outgoing messages if they start with the prefix
-      if (
-        fromMe &&
-        (!messageText || !messageText.trimStart().startsWith(ENV.PREFIX))
-      ) {
-        return;
-      }
-
-      // Banned check
       if (
         bannedUsers.has(senderJid) ||
         bannedUsers.has(senderPhone) ||
@@ -595,12 +765,14 @@ function attachListeners(session) {
         return;
       }
 
+      session.lastActivity = Date.now();
       session.messageCount++;
       messageCount++;
-      if (session.messageCount % 10 === 0)
-        updateUserMessageCount(session).catch(() => {});
 
-      // Auto-set owner if not set yet
+      if (session.messageCount % 10 === 0) {
+        updateUserMessageCount(session).catch(() => {});
+      }
+
       if (
         !session.ownerJid &&
         !isGroup &&
@@ -610,46 +782,24 @@ function attachListeners(session) {
         setSessionOwner(session, senderJid, senderNumber, "Owner");
       }
 
-      // Queue if handlers not ready
       if (!session.handlersReady || !session.commandHandler) {
-        log.warn(`[${sid}] Handlers not ready — queueing message`);
-        if (!messageQueues.has(session.id)) messageQueues.set(session.id, []);
+        if (!messageQueues.has(session.id)) {
+          messageQueues.set(session.id, []);
+        }
         messageQueues.get(session.id).push({ msg, sock });
 
         if (!session.queueTimeout) {
-          session.queueTimeout = setTimeout(async () => {
-            const queue = messageQueues.get(session.id) || [];
-            if (
-              queue.length > 0 &&
-              session.handlersReady &&
-              session.commandHandler
-            ) {
-              log.info(`[${sid}] Processing ${queue.length} queued messages`);
-              for (const queued of queue) {
-                try {
-                  queued.msg._session = session;
-                  queued.msg._sessionId = session.id;
-                  queued.msg._sessionMode = session.mode || "public";
-                  queued.msg._ownerPhone =
-                    session.ownerPhone || ENV.ADMIN || "";
-                  await session.commandHandler(queued.msg, queued.sock);
-                } catch (err) {
-                  log.err(`[${sid}] Queued message error: ${err.message}`);
-                }
-              }
-              messageQueues.delete(session.id);
-            }
+          session.queueTimeout = setTimeout(() => {
+            processMessageQueue(session);
             session.queueTimeout = null;
           }, 5000);
         }
         return;
       }
 
-      // Attach session context to message
       msg._session = session;
       msg._sessionId = session.id;
       msg._sessionMode = session.mode || "public";
-      // FIX: use session.ownerPhone, fall back to ENV.ADMIN
       msg._ownerPhone = session.ownerPhone || ENV.ADMIN || "";
 
       try {
@@ -696,7 +846,7 @@ function attachListeners(session) {
     }
   });
 
-  log.ok(`[${sid}] Listeners attached ✓`);
+  log.ok(`[${sid}] Listeners attached`);
 }
 
 // ============================================================
@@ -704,6 +854,7 @@ function attachListeners(session) {
 // ============================================================
 async function trackUser(session) {
   if (!userLogCollection || !session.ownerPhone) return;
+
   try {
     await userLogCollection.updateOne(
       { phone: session.ownerPhone },
@@ -715,8 +866,12 @@ async function trackUser(session) {
           botNumber: session.botNumber,
           authMethod: session.authMethod,
           lastSeen: new Date(),
+          updatedAt: new Date(),
         },
-        $setOnInsert: { firstSeen: new Date() },
+        $setOnInsert: {
+          firstSeen: new Date(),
+          createdAt: new Date(),
+        },
         $inc: { totalSessions: 1 },
       },
       { upsert: true },
@@ -728,12 +883,18 @@ async function trackUser(session) {
 
 async function updateUserMessageCount(session) {
   if (!userLogCollection || !session.ownerPhone) return;
+
   try {
     await userLogCollection.updateOne(
       { phone: session.ownerPhone },
-      { $set: { lastSeen: new Date(), totalMessages: session.messageCount } },
+      {
+        $set: { lastSeen: new Date() },
+        $inc: { totalMessages: 1 },
+      },
     );
-  } catch (_) {}
+  } catch (err) {
+    log.debug(`User message count update failed: ${err.message}`);
+  }
 }
 
 // ============================================================
@@ -759,6 +920,7 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
           ownerPhone: cleanPhone,
           ownerName: cleanName,
           botNumber: session.botNumber,
+          updatedAt: new Date(),
         },
       },
       { upsert: true },
@@ -777,6 +939,7 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
 async function sendWelcomeMessage(session, sock) {
   try {
     await delay(15000);
+
     let connectionChecked = false;
     for (let i = 0; i < 3; i++) {
       if (session.connected && session.ownerJid) {
@@ -788,6 +951,7 @@ async function sendWelcomeMessage(session, sock) {
       );
       await delay(5000);
     }
+
     if (!connectionChecked || !session.ownerJid) return;
 
     const connectTime = Date.now() - session.startTime;
@@ -804,18 +968,23 @@ async function sendWelcomeMessage(session, sock) {
         ? session.ownerName
         : null;
 
-    const caption =
-      `━━━━━━━━━━━━━━━━━━━━━━\n🤖  *AYOBOT v1*  •  Online\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `${speedIcon} *${connectSecs}s*\n\n` +
-      `┌─ *Bot Info* ──────────────\n` +
-      `│ 📱 +${session.botNumber}\n` +
-      (displayName ? `│ 👤 ${displayName}\n` : ``) +
-      `│ 💾 ${usedMB}/${totalMB} MB\n` +
-      `│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n` +
-      `│ 📦 v${ENV.BOT_VERSION}\n` +
-      `└───────────────────────\n\n` +
-      `👑 *Owner:* +${session.ownerPhone}\n_Full admin access_\n\n` +
-      `Type *${ENV.PREFIX}menu* for commands`;
+    const caption = `━━━━━━━━━━━━━━━━━━━━━━
+🤖  *AYOBOT v1*  •  Online
+━━━━━━━━━━━━━━━━━━━━━━
+
+${speedIcon} *${connectSecs}s*
+
+┌─ *Bot Info* ──────────────
+│ 📱 +${session.botNumber}
+${displayName ? `│ 👤 ${displayName}\n` : ``}│ 💾 ${usedMB}/${totalMB} MB
+│ ⚡ ${session.mode || ENV.BOT_MODE} mode
+│ 📦 v${ENV.BOT_VERSION}
+└───────────────────────
+
+👑 *Owner:* +${session.ownerPhone}
+_Full admin access_
+
+Type *${ENV.PREFIX}menu* for commands`;
 
     try {
       await sock.sendMessage(session.ownerJid, {
@@ -847,59 +1016,9 @@ async function clearSessionAuth(sessionId) {
     await authCollection.deleteMany({
       _id: { $regex: `^${safePrefix}:`, $options: "" },
     });
-    log.info(`[${sessionId.slice(0, 8)}] Auth cleared from MongoDB.`);
+    log.info(`[${sessionId.slice(0, 8)}] Auth cleared from MongoDB`);
   } catch (e) {
     log.warn(`[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`);
-  }
-}
-
-// ============================================================
-//   CLEANUP
-// ============================================================
-function cleanupRateLimits() {
-  const now = Date.now();
-  for (const [key, ts] of commandRateLimit.entries()) {
-    const fresh = ts.filter((t) => now - t < RATE_LIMIT_WINDOW);
-    if (!fresh.length) commandRateLimit.delete(key);
-    else commandRateLimit.set(key, fresh);
-  }
-}
-
-function cleanupStores() {
-  const now = Date.now();
-  const ONE_HOUR = 3600000;
-  for (const [key, data] of deletedMessages.entries()) {
-    if (data && now - (data.timestamp || 0) > ONE_HOUR)
-      deletedMessages.delete(key);
-  }
-  for (const [key, timestamp] of userCooldown.entries()) {
-    if (now - timestamp > ONE_HOUR) userCooldown.delete(key);
-  }
-}
-
-// ============================================================
-//   RESTORE SESSIONS
-// ============================================================
-async function restoreAllSessions() {
-  const saved = await sessionMetaCollection.find({ active: true }).toArray();
-  log.info(`Restoring ${saved.length} saved session(s)...`);
-  for (const s of saved) {
-    try {
-      const session = await startSession(s.sessionId, false);
-      if (session && s.mode) {
-        session.mode = s.mode;
-        for (let i = 0; i < 30 && !session.handlersReady; i++)
-          await delay(1000);
-        if (session.handlersReady)
-          log.info(`[${s.sessionId.slice(0, 8)}] Session restored`);
-        else
-          log.warn(
-            `[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`,
-          );
-      }
-    } catch (e) {
-      log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
-    }
   }
 }
 
@@ -908,19 +1027,30 @@ async function restoreAllSessions() {
 // ============================================================
 async function startSession(sessionId, isNew = true) {
   if (sessions.has(sessionId)) return sessions.get(sessionId);
+
   if (isNew && sessions.size >= ENV.MAX_SESSIONS) {
-    log.warn(`Max sessions (${ENV.MAX_SESSIONS}) reached.`);
+    log.warn(`Max sessions (${ENV.MAX_SESSIONS}) reached`);
     return null;
   }
+
   const session = createSessionObject(sessionId);
   sessions.set(sessionId, session);
+
   if (isNew) {
     await sessionMetaCollection.updateOne(
       { sessionId },
-      { $set: { sessionId, active: true, createdAt: new Date() } },
+      {
+        $set: {
+          sessionId,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
       { upsert: true },
     );
   }
+
   await _startSocket(session);
   return session;
 }
@@ -1005,7 +1135,6 @@ async function _startSocket(session) {
         session.reconnectAttempts = 0;
 
         session.botSelfJid = sock.user?.id || null;
-        // FIX: strip device suffix when setting botNumber
         const botNumber = normalizePhone(session.botSelfJid || "");
         const rawName =
           sock.user?.name ||
@@ -1044,23 +1173,7 @@ async function _startSocket(session) {
 
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
 
-        // Process queued messages
-        const queue = messageQueues.get(session.id) || [];
-        if (queue.length > 0 && session.handlersReady) {
-          log.info(`[${sid}] Processing ${queue.length} queued messages`);
-          for (const queued of queue) {
-            try {
-              queued.msg._session = session;
-              queued.msg._sessionId = session.id;
-              queued.msg._sessionMode = session.mode || "public";
-              queued.msg._ownerPhone = session.ownerPhone || ENV.ADMIN || "";
-              await session.commandHandler(queued.msg, queued.sock);
-            } catch (err) {
-              log.err(`[${sid}] Queued message error: ${err.message}`);
-            }
-          }
-          messageQueues.delete(session.id);
-        }
+        await processMessageQueue(session);
 
         sendWelcomeMessage(session, sock).catch((err) =>
           log.warn(`[${sid}] Welcome error: ${err.message}`),
@@ -1111,8 +1224,9 @@ async function _startSocket(session) {
     sock.ev.on("creds.update", saveCreds);
   } catch (e) {
     log.err(`[${sid}] Socket startup error: ${e.message}`);
-    console.error(e.stack);
-    if (!session.destroyed) setTimeout(() => _startSocket(session), 10000);
+    if (!session.destroyed) {
+      setTimeout(() => _startSocket(session), 10000);
+    }
   }
 }
 
@@ -1122,24 +1236,29 @@ async function _startSocket(session) {
 async function destroySession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
+
   session.destroyed = true;
+
   if (session.ownerPhone) sessionOwnerMap.delete(session.ownerPhone);
   if (session.pingInterval) clearInterval(session.pingInterval);
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
   if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
   if (session.queueTimeout) clearTimeout(session.queueTimeout);
+
   if (session.sock) {
     try {
       session.sock.end();
       session.sock.removeAllListeners();
     } catch (_) {}
   }
+
   await clearSessionAuth(sessionId);
   await sessionMetaCollection.deleteOne({ sessionId });
   sessions.delete(sessionId);
   groupActivations.delete(sessionId);
   messageQueues.delete(sessionId);
-  log.info(`[${sessionId.slice(0, 8)}] Session destroyed.`);
+
+  log.info(`[${sessionId.slice(0, 8)}] Session destroyed`);
 }
 
 // ============================================================
@@ -1147,10 +1266,18 @@ async function destroySession(sessionId) {
 // ============================================================
 async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
-  if (clean.length < 10 || clean.length > 15)
+  if (clean.length < 10 || clean.length > 15) {
     return { success: false, error: "Phone must be 10–15 digits" };
-  if (session.connected) return { success: false, error: "Already connected" };
-  if (!session.sock) return { success: false, error: "Bot starting up — wait" };
+  }
+
+  if (session.connected) {
+    return { success: false, error: "Already connected" };
+  }
+
+  if (!session.sock) {
+    return { success: false, error: "Bot starting up — wait a moment" };
+  }
+
   if (session.pairingCode && session.pairingExpiry > Date.now()) {
     return {
       success: true,
@@ -1160,23 +1287,28 @@ async function requestPairingCode(session, phoneNumber) {
       cached: true,
     };
   }
+
   try {
     const rawCode = await session.sock.requestPairingCode(clean);
     const code =
       String(rawCode)
         .match(/.{1,4}/g)
         ?.join("-") || String(rawCode);
+
     session.pairingCode = code;
     session.pairingPhone = clean;
     session.pairingExpiry = Date.now() + 60000;
     session.authMethod = "pairing";
+
     if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
     session.pairingCodeTimeout = setTimeout(() => {
       session.pairingCode = null;
       session.pairingPhone = null;
       session.pairingExpiry = null;
     }, 60000);
+
     log.ok(`[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`);
+
     return {
       success: true,
       code,
@@ -1191,22 +1323,39 @@ async function requestPairingCode(session, phoneNumber) {
 }
 
 // ============================================================
-//   EXPRESS APP
+//   EXPRESS APP WITH SECURITY MIDDLEWARE
 // ============================================================
 const app = express();
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+app.use(compression());
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", limiter);
 
 function parseCookies(req) {
   const list = {};
   const rc = req.headers.cookie;
-  if (rc)
+  if (rc) {
     rc.split(";").forEach((c) => {
       const parts = c.split("=");
       list[parts.shift().trim()] = decodeURIComponent(parts.join("=").trim());
     });
+  }
   return list;
 }
+
 app.use((req, _res, next) => {
   req.cookies = parseCookies(req);
   next();
@@ -1218,8 +1367,9 @@ function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
   if (token && adminTokens.has(token)) return next();
   if (req.path.includes("/login")) return next();
-  if (req.path.includes("/api/"))
+  if (req.path.includes("/api/")) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
   res.redirect("/ayocodes-admin/login");
 }
 
@@ -1229,15 +1379,820 @@ function getOrCreateSessionId(req, res) {
     sid = crypto.randomBytes(16).toString("hex");
     res.setHeader(
       "Set-Cookie",
-      `ayoSessionId=${sid}; HttpOnly; Path=/; Max-Age=31536000`,
+      `ayoSessionId=${sid}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`,
     );
   }
   return sid;
 }
 
-// ── HTML helpers (unchanged from original) ──────────────────────────────────
+// ============================================================
+//   HTML TEMPLATES - COMPLETE
+// ============================================================
 function sharedHead(title) {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"><style>:root{--red:#ff0000;--red2:#cc0000;--red3:#ff3333;--red-glow:rgba(255,0,0,0.18);--gold:#ffd700;--gold2:#ffaa00;--gold-glow:rgba(255,215,0,0.15);--bg:#060608;--bg2:#0e0e12;--bg3:#16161c;--bg4:#1e1e26;--card:#12121a;--card2:#1a1a24;--text:#e8e8f0;--text2:#9090a8;--text3:#5a5a72;--green:#00ff88;--green-glow:rgba(0,255,136,0.15);--border:rgba(255,0,0,0.2);--border2:rgba(255,0,0,0.08);}*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(255,0,0,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,0,0,0.03) 1px,transparent 1px);background-size:40px 40px;animation:gridMove 20s linear infinite;pointer-events:none;}@keyframes gridMove{to{background-position:40px 40px}}.orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;animation:orbFloat 8s ease-in-out infinite}.orb1{width:400px;height:400px;background:rgba(255,0,0,0.06);top:-100px;right:-100px;}.orb2{width:300px;height:300px;background:rgba(255,215,0,0.04);bottom:-50px;left:-50px;animation-delay:4s}@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(20px,-20px) scale(1.05)}}::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--red2);border-radius:2px}@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(0.95)}}@keyframes glow{0%,100%{box-shadow:0 0 10px var(--red-glow)}50%{box-shadow:0 0 30px var(--red-glow),0 0 60px rgba(255,0,0,0.08)}}@keyframes goldGlow{0%,100%{box-shadow:0 0 10px var(--gold-glow)}50%{box-shadow:0 0 30px var(--gold-glow)}}@keyframes greenPulse{0%,100%{box-shadow:0 0 6px rgba(0,255,136,0.6)}50%{box-shadow:0 0 20px rgba(0,255,136,0.9)}}@keyframes scanline{0%{top:-5%}100%{top:105%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes glitch{0%,100%{clip-path:none;transform:none}2%{clip-path:polygon(0 10%,100% 10%,100% 15%,0 15%);transform:translate(-3px,0)}4%{clip-path:none;transform:none}96%{clip-path:polygon(0 60%,100% 60%,100% 65%,0 65%);transform:translate(3px,0)}98%{clip-path:none;transform:none}}@keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}}.glass{background:var(--card);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(20px);position:relative;overflow:hidden;}.glass::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,rgba(255,255,255,0.03) 0%,transparent 60%);pointer-events:none;}.red-glow{animation:glow 3s ease-in-out infinite}.gold-glow{animation:goldGlow 3s ease-in-out infinite}.btn{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;padding:12px 24px;border-radius:8px;border:none;cursor:pointer;letter-spacing:2px;text-transform:uppercase;transition:all .2s;position:relative;overflow:hidden;}.btn-red{background:linear-gradient(135deg,var(--red),var(--red2));color:#000}.btn-red:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,0,0,0.4)}.btn-red:disabled{opacity:.5;cursor:not-allowed;transform:none}.nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,6,8,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:64px;}.nav-logo{font-family:'Orbitron',sans-serif;font-weight:900;font-size:18px;color:var(--red);letter-spacing:3px}.nav-logo span{color:var(--gold)}.nav-status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2)}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:greenPulse 2s ease-in-out infinite}.dot.offline{background:var(--red);animation:pulse 2s infinite}.main{padding-top:80px;padding-bottom:60px;max-width:1200px;margin:0 auto;padding-left:24px;padding-right:24px;position:relative;z-index:1}.hero{text-align:center;padding:60px 20px 40px}.hero-eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--red);letter-spacing:4px;text-transform:uppercase;margin-bottom:16px;animation:fadeUp .6s ease both}.hero-title{font-family:'Orbitron',sans-serif;font-size:clamp(2.5rem,8vw,5rem);font-weight:900;line-height:1;margin-bottom:16px;animation:fadeUp .6s .1s ease both}.hero-title .line1{display:block;color:var(--text)}.hero-title .line2{display:block;color:var(--red);text-shadow:0 0 40px rgba(255,0,0,0.5);animation:glitch 10s 2s infinite}.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:32px 0}.stat-card{padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border);text-align:center;transition:transform .2s,border-color .2s;}.stat-card:hover{transform:translateY(-4px);border-color:var(--red)}.stat-icon{font-size:28px;margin-bottom:8px}.stat-val{font-family:'Orbitron',sans-serif;font-size:32px;font-weight:900;color:var(--red);line-height:1}.stat-label{font-size:13px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-top:4px}.panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}@media(max-width:700px){.panels{grid-template-columns:1fr}}.panel{padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border);}.panel-title{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border2)}.info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2);font-size:14px}.info-row:last-child{border-bottom:none}.info-row .key{color:var(--text2)}.info-row .val{color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px}.owner-card{padding:24px 28px;border-radius:16px;margin:16px 0;background:linear-gradient(135deg,rgba(255,215,0,0.06),rgba(255,170,0,0.03));border:1px solid rgba(255,215,0,0.3);display:flex;align-items:center;gap:20px;transition:border-color .2s,box-shadow .2s;}.owner-card:hover{border-color:rgba(255,215,0,0.6);box-shadow:0 0 30px rgba(255,215,0,0.1)}.owner-avatar{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold2));display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;box-shadow:0 0 20px rgba(255,215,0,0.3);}.owner-info{flex:1}.owner-name{font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--gold)}.owner-phone{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2);margin-top:2px}.owner-badge{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;padding:4px 10px;border-radius:4px;font-weight:700}.status-live{display:inline-flex;align-items:center;gap:8px;background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);padding:6px 16px;border-radius:999px;font-family:'Orbitron',sans-serif;letter-spacing:2px;font-size:11px;color:var(--green);}.mode-badge{display:inline-flex;align-items:center;gap:6px;background:var(--red-glow);border:1px solid var(--border);padding:4px 12px;border-radius:999px;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);}.roadmap{margin:48px 0}.section-title{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:4px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;}.section-heading{font-family:'Orbitron',sans-serif;font-size:clamp(1.2rem,4vw,2rem);font-weight:900;margin-bottom:32px;color:var(--text)}.section-heading span{color:var(--red)}.timeline{position:relative;padding-left:32px}.timeline::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:linear-gradient(to bottom,var(--red),rgba(255,0,0,0.1))}.version-card{position:relative;margin-bottom:16px;padding:20px 24px;border-radius:12px;background:var(--card);border:1px solid var(--border);transition:all .3s;}.version-card::before{content:'';position:absolute;left:-37px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;border:2px solid var(--red);background:var(--bg);}.version-card.active-v{border-color:var(--red);background:linear-gradient(135deg,rgba(255,0,0,0.05),var(--card))}.version-card.active-v::before{background:var(--red);box-shadow:0 0 12px var(--red)}.version-card.building{border-color:rgba(255,170,0,0.3)}.version-card.building::before{background:var(--gold2);border-color:var(--gold2);box-shadow:0 0 12px rgba(255,170,0,0.5)}.version-card.locked{opacity:.6}.version-card.locked::before{background:var(--bg3);border-color:var(--text3)}.version-card:hover:not(.active-v){transform:translateX(4px);border-color:rgba(255,0,0,0.4)}.v-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.v-name{font-family:'Orbitron',sans-serif;font-weight:900;font-size:15px}.v-badge{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;padding:3px 10px;border-radius:4px;font-weight:700}.badge-live{background:rgba(0,255,136,0.15);color:var(--green);border:1px solid rgba(0,255,136,0.3)}.badge-building{background:rgba(255,170,0,0.15);color:var(--gold2);border:1px solid rgba(255,170,0,0.3)}.badge-soon{background:rgba(90,90,114,0.3);color:var(--text3);border:1px solid rgba(90,90,114,0.3)}.v-desc{font-size:13px;color:var(--text2);line-height:1.5}.v-features{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.v-tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--bg4);color:var(--text3);font-family:'JetBrains Mono',monospace}.v-waitlist{margin-top:12px}.btn-waitlist{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:7px 16px;border-radius:6px;cursor:pointer;transition:all .2s;background:transparent;border:1px solid var(--red);color:var(--red);}.btn-waitlist:hover{background:var(--red-glow);transform:translateY(-1px)}.btn-waitlist.joined{border-color:var(--green);color:var(--green);cursor:default}.footer-bar{text-align:center;padding:32px 24px;color:var(--text3);font-size:13px;border-top:1px solid var(--border2);margin-top:48px;}.footer-bar a{color:var(--red);text-decoration:none}.connect-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:88px}.connect-box{width:100%;max-width:520px;animation:fadeUp .5s ease both}.connect-tabs{display:flex;gap:4px;background:var(--bg3);padding:4px;border-radius:10px;margin-bottom:24px}.ctab{flex:1;text-align:center;padding:10px;cursor:pointer;border-radius:8px;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text2);transition:all .2s;border:none;background:transparent}.ctab.active{background:var(--red);color:#000;font-weight:700}.qr-wrap{background:var(--bg3);border-radius:12px;padding:20px;text-align:center;position:relative;overflow:hidden;border:1px solid var(--border)}.qr-wrap img{width:100%;max-width:260px;border-radius:8px;display:block;margin:0 auto}.qr-scan-line{position:absolute;left:10%;right:10%;height:2px;background:linear-gradient(90deg,transparent,var(--red),transparent);animation:scanline 3s linear infinite;}.pair-input{width:100%;padding:14px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:15px;margin-bottom:12px;outline:none;transition:border-color .2s;}.pair-input:focus{border-color:var(--red);box-shadow:0 0 0 3px rgba(255,0,0,0.1)}.code-display{background:var(--bg3);border:1px solid rgba(255,0,0,0.4);border-radius:12px;padding:28px;text-align:center;margin:16px 0;}.code-digits{font-family:'Orbitron',sans-serif;font-size:42px;font-weight:900;letter-spacing:10px;color:var(--red);text-shadow:0 0 20px rgba(255,0,0,0.5);animation:glow 2s ease-in-out infinite;}.code-timer{color:var(--text2);font-size:13px;margin-top:8px;font-family:'JetBrains Mono',monospace}.step-list{list-style:none;margin-top:16px}.step-list li{padding:10px 0;border-bottom:1px solid var(--border2);font-size:13px;color:var(--text2);display:flex;align-items:center;gap:10px;}.step-list li:last-child{border-bottom:none}.step-num{width:22px;height:22px;border-radius:50%;background:var(--red);color:#000;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}.err-box{background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:8px;padding:12px 16px;color:var(--red);font-size:13px;margin:8px 0;display:none}.ok-box{background:rgba(0,255,136,0.07);border:1px solid rgba(0,255,136,0.25);border-radius:8px;padding:12px 16px;color:var(--green);font-size:13px;margin:8px 0;display:none}.starting-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:88px}.loader-ring{width:80px;height:80px;margin:0 auto 24px;position:relative}.loader-ring::before,.loader-ring::after{content:'';position:absolute;inset:0;border-radius:50%;border:3px solid transparent}.loader-ring::before{border-top-color:var(--red);border-right-color:var(--red);animation:spin .8s linear infinite}.loader-ring::after{border-bottom-color:rgba(255,0,0,0.2);border-left-color:rgba(255,0,0,0.2)}.loading-dots::after{content:'';animation:dots 1.5s steps(4,end) infinite}.logout-btn{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px;cursor:pointer;background:transparent;transition:all .2s;}.logout-btn:hover{background:var(--red-glow)}</style></head>`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #ff0000;
+      --red2: #cc0000;
+      --red3: #ff3333;
+      --red-glow: rgba(255,0,0,0.18);
+      --gold: #ffd700;
+      --gold2: #ffaa00;
+      --gold-glow: rgba(255,215,0,0.15);
+      --bg: #060608;
+      --bg2: #0e0e12;
+      --bg3: #16161c;
+      --bg4: #1e1e26;
+      --card: #12121a;
+      --card2: #1a1a24;
+      --text: #e8e8f0;
+      --text2: #9090a8;
+      --text3: #5a5a72;
+      --green: #00ff88;
+      --green-glow: rgba(0,255,136,0.15);
+      --border: rgba(255,0,0,0.2);
+      --border2: rgba(255,0,0,0.08);
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image: linear-gradient(rgba(255,0,0,0.03) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(255,0,0,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridMove 20s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes gridMove {
+      to { background-position: 40px 40px; }
+    }
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+      animation: orbFloat 8s ease-in-out infinite;
+    }
+    .orb1 {
+      width: 400px;
+      height: 400px;
+      background: rgba(255,0,0,0.06);
+      top: -100px;
+      right: -100px;
+    }
+    .orb2 {
+      width: 300px;
+      height: 300px;
+      background: rgba(255,215,0,0.04);
+      bottom: -50px;
+      left: -50px;
+      animation-delay: 4s;
+    }
+    @keyframes orbFloat {
+      0%, 100% { transform: translate(0,0) scale(1); }
+      50% { transform: translate(20px,-20px) scale(1.05); }
+    }
+    .glass {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      backdrop-filter: blur(20px);
+      position: relative;
+      overflow: hidden;
+    }
+    .glass::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .red-glow { animation: glow 3s ease-in-out infinite; }
+    .gold-glow { animation: goldGlow 3s ease-in-out infinite; }
+    @keyframes glow {
+      0%, 100% { box-shadow: 0 0 10px var(--red-glow); }
+      50% { box-shadow: 0 0 30px var(--red-glow), 0 0 60px rgba(255,0,0,0.08); }
+    }
+    @keyframes goldGlow {
+      0%, 100% { box-shadow: 0 0 10px var(--gold-glow); }
+      50% { box-shadow: 0 0 30px var(--gold-glow); }
+    }
+    @keyframes greenPulse {
+      0%, 100% { box-shadow: 0 0 6px rgba(0,255,136,0.6); }
+      50% { box-shadow: 0 0 20px rgba(0,255,136,0.9); }
+    }
+    @keyframes scanline {
+      0% { top: -5%; }
+      100% { top: 105%; }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .btn {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 12px 24px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      transition: all .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-red {
+      background: linear-gradient(135deg, var(--red), var(--red2));
+      color: #000;
+    }
+    .btn-red:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(255,0,0,0.4);
+    }
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(6,6,8,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      height: 64px;
+    }
+    .nav-logo {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 900;
+      font-size: 18px;
+      color: var(--red);
+      letter-spacing: 3px;
+    }
+    .nav-logo span { color: var(--gold); }
+    .nav-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text2);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: greenPulse 2s ease-in-out infinite;
+    }
+    .dot.offline {
+      background: var(--red);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(0.95); }
+    }
+    .main {
+      padding-top: 80px;
+      padding-bottom: 60px;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding-left: 24px;
+      padding-right: 24px;
+      position: relative;
+      z-index: 1;
+    }
+    .hero {
+      text-align: center;
+      padding: 60px 20px 40px;
+    }
+    .hero-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--red);
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      animation: fadeUp .6s ease both;
+    }
+    .hero-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(2.5rem, 8vw, 5rem);
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 16px;
+      animation: fadeUp .6s .1s ease both;
+    }
+    .hero-title .line1 { display: block; color: var(--text); }
+    .hero-title .line2 { display: block; color: var(--red); text-shadow: 0 0 40px rgba(255,0,0,0.5); }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin: 32px 0;
+    }
+    .stat-card {
+      padding: 24px;
+      border-radius: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      text-align: center;
+      transition: transform .2s, border-color .2s;
+    }
+    .stat-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--red);
+    }
+    .stat-icon { font-size: 28px; margin-bottom: 8px; }
+    .stat-val {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 32px;
+      font-weight: 900;
+      color: var(--red);
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: var(--text2);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .panels { grid-template-columns: 1fr; }
+    }
+    .panel {
+      padding: 24px;
+      border-radius: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+    }
+    .panel-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border2);
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border2);
+      font-size: 14px;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-row .key { color: var(--text2); }
+    .info-row .val {
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+    .owner-card {
+      padding: 24px 28px;
+      border-radius: 16px;
+      margin: 16px 0;
+      background: linear-gradient(135deg, rgba(255,215,0,0.06), rgba(255,170,0,0.03));
+      border: 1px solid rgba(255,215,0,0.3);
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .owner-card:hover {
+      border-color: rgba(255,215,0,0.6);
+      box-shadow: 0 0 30px rgba(255,215,0,0.1);
+    }
+    .owner-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+      box-shadow: 0 0 20px rgba(255,215,0,0.3);
+    }
+    .owner-info { flex: 1; }
+    .owner-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--gold);
+    }
+    .owner-phone {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      margin-top: 2px;
+    }
+    .owner-badge {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 2px;
+      background: linear-gradient(135deg, var(--gold), var(--gold2));
+      color: #000;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .status-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.3);
+      padding: 6px 16px;
+      border-radius: 999px;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 2px;
+      font-size: 11px;
+      color: var(--green);
+    }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--red-glow);
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--red);
+    }
+    .roadmap { margin: 48px 0; }
+    .section-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 8px;
+    }
+    .section-heading {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(1.2rem, 4vw, 2rem);
+      font-weight: 900;
+      margin-bottom: 32px;
+      color: var(--text);
+    }
+    .section-heading span { color: var(--red); }
+    .timeline {
+      position: relative;
+      padding-left: 32px;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--red), rgba(255,0,0,0.1));
+    }
+    .version-card {
+      position: relative;
+      margin-bottom: 16px;
+      padding: 20px 24px;
+      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      transition: all .3s;
+    }
+    .version-card::before {
+      content: '';
+      position: absolute;
+      left: -37px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid var(--red);
+      background: var(--bg);
+    }
+    .version-card.active-v {
+      border-color: var(--red);
+      background: linear-gradient(135deg, rgba(255,0,0,0.05), var(--card));
+    }
+    .version-card.active-v::before { background: var(--red); box-shadow: 0 0 12px var(--red); }
+    .version-card.building {
+      border-color: rgba(255,170,0,0.3);
+    }
+    .version-card.building::before {
+      background: var(--gold2);
+      border-color: var(--gold2);
+      box-shadow: 0 0 12px rgba(255,170,0,0.5);
+    }
+    .version-card.locked { opacity: .6; }
+    .version-card.locked::before {
+      background: var(--bg3);
+      border-color: var(--text3);
+    }
+    .v-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .v-name {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 900;
+      font-size: 15px;
+    }
+    .v-badge {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .badge-live {
+      background: rgba(0,255,136,0.15);
+      color: var(--green);
+      border: 1px solid rgba(0,255,136,0.3);
+    }
+    .badge-building {
+      background: rgba(255,170,0,0.15);
+      color: var(--gold2);
+      border: 1px solid rgba(255,170,0,0.3);
+    }
+    .badge-soon {
+      background: rgba(90,90,114,0.3);
+      color: var(--text3);
+      border: 1px solid rgba(90,90,114,0.3);
+    }
+    .v-desc {
+      font-size: 13px;
+      color: var(--text2);
+      line-height: 1.5;
+    }
+    .v-features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .v-tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--bg4);
+      color: var(--text3);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .v-waitlist { margin-top: 12px; }
+    .btn-waitlist {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      padding: 7px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all .2s;
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+    .btn-waitlist:hover {
+      background: var(--red-glow);
+      transform: translateY(-1px);
+    }
+    .btn-waitlist.joined {
+      border-color: var(--green);
+      color: var(--green);
+      cursor: default;
+    }
+    .footer-bar {
+      text-align: center;
+      padding: 32px 24px;
+      color: var(--text3);
+      font-size: 13px;
+      border-top: 1px solid var(--border2);
+      margin-top: 48px;
+    }
+    .footer-bar a { color: var(--red); text-decoration: none; }
+    .connect-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      padding-top: 88px;
+    }
+    .connect-box {
+      width: 100%;
+      max-width: 520px;
+      animation: fadeUp .5s ease both;
+    }
+    .connect-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg3);
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 24px;
+    }
+    .ctab {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      cursor: pointer;
+      border-radius: 8px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--text2);
+      transition: all .2s;
+      border: none;
+      background: transparent;
+    }
+    .ctab.active {
+      background: var(--red);
+      color: #000;
+      font-weight: 700;
+    }
+    .qr-wrap {
+      background: var(--bg3);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .qr-wrap img {
+      width: 100%;
+      max-width: 260px;
+      border-radius: 8px;
+      display: block;
+      margin: 0 auto;
+    }
+    .qr-scan-line {
+      position: absolute;
+      left: 10%;
+      right: 10%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      animation: scanline 3s linear infinite;
+    }
+    .pair-input {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .pair-input:focus {
+      border-color: var(--red);
+      box-shadow: 0 0 0 3px rgba(255,0,0,0.1);
+    }
+    .code-display {
+      background: var(--bg3);
+      border: 1px solid rgba(255,0,0,0.4);
+      border-radius: 12px;
+      padding: 28px;
+      text-align: center;
+      margin: 16px 0;
+    }
+    .code-digits {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: 10px;
+      color: var(--red);
+      text-shadow: 0 0 20px rgba(255,0,0,0.5);
+      animation: glow 2s ease-in-out infinite;
+    }
+    .code-timer {
+      color: var(--text2);
+      font-size: 13px;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .step-list {
+      list-style: none;
+      margin-top: 16px;
+    }
+    .step-list li {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border2);
+      font-size: 13px;
+      color: var(--text2);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .step-list li:last-child { border-bottom: none; }
+    .step-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--red);
+      color: #000;
+      font-weight: 700;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .err-box {
+      background: rgba(255,0,0,0.1);
+      border: 1px solid rgba(255,0,0,0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--red);
+      font-size: 13px;
+      margin: 8px 0;
+      display: none;
+    }
+    .ok-box {
+      background: rgba(0,255,136,0.07);
+      border: 1px solid rgba(0,255,136,0.25);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--green);
+      font-size: 13px;
+      margin: 8px 0;
+      display: none;
+    }
+    .starting-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      padding-top: 88px;
+    }
+    .loader-ring {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      position: relative;
+    }
+    .loader-ring::before, .loader-ring::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 3px solid transparent;
+    }
+    .loader-ring::before {
+      border-top-color: var(--red);
+      border-right-color: var(--red);
+      animation: spin .8s linear infinite;
+    }
+    .loader-ring::after {
+      border-bottom-color: rgba(255,0,0,0.2);
+      border-left-color: rgba(255,0,0,0.2);
+    }
+    .loading-dots::after {
+      content: '';
+      animation: dots 1.5s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+      100% { content: ''; }
+    }
+    .logout-btn {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--red);
+      border: 1px solid rgba(255,0,0,0.3);
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: transparent;
+      transition: all .2s;
+    }
+    .logout-btn:hover { background: var(--red-glow); }
+    .inst-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .inst-table th {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--text3);
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border2);
+    }
+    .inst-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border2);
+      vertical-align: middle;
+    }
+    .kill-btn {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 1px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: rgba(255,0,0,0.1);
+      border: 1px solid rgba(255,0,0,0.3);
+      color: var(--red);
+    }
+    .user-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .user-table th {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--text3);
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border2);
+    }
+    .user-table td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border2);
+      vertical-align: middle;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+    .page-btn {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text2);
+    }
+    .page-btn.active {
+      background: var(--red);
+      color: #000;
+      border-color: var(--red);
+    }
+  </style>
+</head>`;
 }
 
 function connectedHTML(session) {
@@ -1246,54 +2201,494 @@ function connectedHTML(session) {
   const m = Math.floor((up % 3600) / 60);
   const s = up % 60;
   const SID = session.id;
+
   return (
     sharedHead("AYOBOT v1 — Dashboard") +
-    `<body><div class="orb orb1"></div><div class="orb orb2"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div><div style="display:flex;align-items:center;gap:16px"><div class="mode-badge">⚡ ${(session.mode || ENV.BOT_MODE || "public").toUpperCase()}</div><div class="nav-status"><div class="dot" id="navdot"></div><span id="navtxt">LIVE</span></div><button class="logout-btn" onclick="logout()">⏏ LOGOUT</button></div></nav><div class="main"><div class="hero"><div class="hero-eyebrow">⚡ WhatsApp Automation Suite</div><h1 class="hero-title"><span class="line1">AYOBOT</span><span class="line2">COMMAND CENTER</span></h1><div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:16px;animation:fadeUp .6s .3s ease both"><div class="status-live"><div class="dot"></div>SYSTEM ONLINE</div></div></div><div class="owner-card gold-glow"><div class="owner-avatar">👑</div><div class="owner-info"><div class="owner-name" id="oName">${session.ownerName || "Owner"}</div><div class="owner-phone" id="oPhone">+${session.ownerPhone || "—"}</div></div><div class="owner-badge">BOT OWNER</div></div><div class="stats-grid"><div class="stat-card red-glow"><div class="stat-icon">💬</div><div class="stat-val" id="sMsg">${session.messageCount}</div><div class="stat-label">Messages</div></div><div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-val" id="sCmd" style="color:var(--gold)">${session.commandCount || 0}</div><div class="stat-label">Commands</div></div><div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-val" id="sUp" style="font-size:22px;color:var(--green)">${h}h ${m}m ${s}s</div><div class="stat-label">Uptime</div></div><div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-val" style="font-size:18px;color:var(--text)">${(session.mode || ENV.BOT_MODE).toUpperCase()}</div><div class="stat-label">Mode</div></div></div><div class="panels"><div class="panel"><div class="panel-title">Bot Information</div><div class="info-row"><span class="key">📱 Number</span><span class="val">+${session.botNumber || "—"}</span></div><div class="info-row"><span class="key">👤 Name</span><span class="val">${session.botName || "—"}</span></div><div class="info-row"><span class="key">⚡ Prefix</span><span class="val">${ENV.PREFIX}</span></div><div class="info-row"><span class="key">🔐 Auth</span><span class="val">${session.authMethod || "session"}</span></div><div class="info-row"><span class="key">📦 Version</span><span class="val">v${ENV.BOT_VERSION}</span></div></div><div class="panel"><div class="panel-title">System Status</div><div class="info-row"><span class="key">🟢 Connection</span><span class="val" style="color:var(--green)" id="connStat">STABLE</span></div><div class="info-row"><span class="key">🔧 Handlers</span><span class="val" style="color:var(--green)">ALL READY</span></div><div class="info-row"><span class="key">🛡️ Anti-Delete</span><span class="val" style="color:var(--green)">ACTIVE</span></div><div class="info-row"><span class="key">🔇 Auto-Reply</span><span class="val" style="color:var(--red)">DISABLED</span></div><div class="info-row"><span class="key">🌐 Dashboard</span><span class="val" style="color:var(--green)">ONLINE</span></div></div></div><div class="roadmap"><div class="section-title">// Product Roadmap</div><h2 class="section-heading">VERSION <span>TIMELINE</span></h2><div class="timeline"><div class="version-card active-v red-glow"><div class="v-header"><span class="v-name" style="color:var(--red)">🤖 AYOBOT <span style="color:var(--text)">v1</span></span><span class="v-badge badge-live">🟢 LIVE NOW</span></div><div class="v-desc">The original. 45+ commands, AI integration, group management, media tools, full admin control.</div><div class="v-features"><span class="v-tag">AI Chat</span><span class="v-tag">Group Mod</span><span class="v-tag">Media DL</span><span class="v-tag">45+ Commands</span><span class="v-tag">Anti-Delete</span><span class="v-tag">TTS</span></div></div><div class="version-card building"><div class="v-header"><span class="v-name" style="color:var(--gold2)">🔥 AYOBOT <span style="color:var(--text)">v2</span></span><span class="v-badge badge-building">⚙️ IN DEVELOPMENT</span></div><div class="v-desc">Multi-device, upgraded AI with memory, custom plugin system, real-time analytics dashboard.</div><div class="v-features"><span class="v-tag">Multi-Device</span><span class="v-tag">AI Memory</span><span class="v-tag">Plugin API</span><span class="v-tag">Analytics</span></div><div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v2',this)" id="wl-v2">🔔 JOIN WAITLIST</button><span style="font-size:12px;color:var(--text3);margin-left:10px" id="wc-v2"></span></div></div><div class="version-card locked"><div class="v-header"><span class="v-name" style="color:var(--text2)">🚀 AYOBOT <span style="color:var(--text)">v3</span></span><span class="v-badge badge-soon">🔒 COMING SOON</span></div><div class="v-desc">Cross-platform — Telegram + WhatsApp unified.</div><div class="v-features"><span class="v-tag">Telegram</span><span class="v-tag">Unified Panel</span><span class="v-tag">Cross-Platform</span></div><div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v3',this)" id="wl-v3">🔔 JOIN WAITLIST</button></div></div></div></div><div class="footer-bar">Built by <a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> &nbsp;·&nbsp; AYOBOT v${ENV.BOT_VERSION} &nbsp;·&nbsp; <span id="footerTime"></span></div></div><script>const SID='${SID}';function animCount(el,target,dur){const start=parseInt(el.textContent)||0;if(start===target)return;const step=Math.ceil(Math.abs(target-start)/(dur/16));let cur=start;const t=setInterval(()=>{cur=target>start?Math.min(cur+step,target):Math.max(cur-step,target);el.textContent=cur;if(cur===target)clearInterval(t);},16);}function updateStats(){fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(!d.exists||!d.connected){location.reload();return;}animCount(document.getElementById('sMsg'),d.messageCount||0,600);animCount(document.getElementById('sCmd'),d.commandCount||0,600);const up=d.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s=up%60;document.getElementById('sUp').textContent=h+'h '+m+'m '+s+'s';if(d.ownerName)document.getElementById('oName').textContent=d.ownerName;if(d.ownerPhone)document.getElementById('oPhone').textContent='+'+d.ownerPhone;const dot=document.getElementById('navdot'),txt=document.getElementById('navtxt');if(d.connected){dot.className='dot';txt.textContent='LIVE';}else{dot.className='dot offline';txt.textContent='OFFLINE';}}).catch(()=>{});}updateStats();setInterval(updateStats,60000);function tick(){const n=new Date(),el=document.getElementById('footerTime');if(el)el.textContent=n.toLocaleTimeString('en-GB',{hour12:false})+' UTC';}tick();setInterval(tick,1000);async function logout(){if(!confirm('Disconnect your WhatsApp and reset your bot?'))return;await fetch('/api/logout/'+SID,{method:'POST',credentials:'same-origin'});location.href='/';}function joinWaitlist(v,btn){if(btn.classList.contains('joined'))return;btn.disabled=true;btn.textContent='⏳ JOINING...';fetch('/api/waitlist-join/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({version:v})}).then(r=>r.json()).then(d=>{btn.textContent='✅ JOINED';btn.classList.add('joined');}).catch(()=>{btn.textContent='🔔 JOIN WAITLIST';btn.disabled=false;});}</script></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div class="mode-badge">⚡ ${(session.mode || ENV.BOT_MODE || "public").toUpperCase()}</div>
+        <div class="nav-status">
+          <div class="dot" id="navdot"></div>
+          <span id="navtxt">LIVE</span>
+        </div>
+        <button class="logout-btn" onclick="logout()">⏏ LOGOUT</button>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="hero">
+        <div class="hero-eyebrow">⚡ WhatsApp Automation Suite</div>
+        <h1 class="hero-title"><span class="line1">AYOBOT</span><span class="line2">COMMAND CENTER</span></h1>
+        <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:16px;animation:fadeUp .6s .3s ease both">
+          <div class="status-live"><div class="dot"></div>SYSTEM ONLINE</div>
+        </div>
+      </div>
+      <div class="owner-card gold-glow">
+        <div class="owner-avatar">👑</div>
+        <div class="owner-info">
+          <div class="owner-name" id="oName">${session.ownerName || "Owner"}</div>
+          <div class="owner-phone" id="oPhone">+${session.ownerPhone || "—"}</div>
+        </div>
+        <div class="owner-badge">BOT OWNER</div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card red-glow">
+          <div class="stat-icon">💬</div>
+          <div class="stat-val" id="sMsg">${session.messageCount}</div>
+          <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-val" id="sCmd" style="color:var(--gold)">${session.commandCount || 0}</div>
+          <div class="stat-label">Commands</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏱️</div>
+          <div class="stat-val" id="sUp" style="font-size:22px;color:var(--green)">${h}h ${m}m ${s}s</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🤖</div>
+          <div class="stat-val" style="font-size:18px;color:var(--text)">${(session.mode || ENV.BOT_MODE).toUpperCase()}</div>
+          <div class="stat-label">Mode</div>
+        </div>
+      </div>
+      <div class="panels">
+        <div class="panel">
+          <div class="panel-title">Bot Information</div>
+          <div class="info-row"><span class="key">📱 Number</span><span class="val">+${session.botNumber || "—"}</span></div>
+          <div class="info-row"><span class="key">👤 Name</span><span class="val">${session.botName || "—"}</span></div>
+          <div class="info-row"><span class="key">⚡ Prefix</span><span class="val">${ENV.PREFIX}</span></div>
+          <div class="info-row"><span class="key">🔐 Auth</span><span class="val">${session.authMethod || "session"}</span></div>
+          <div class="info-row"><span class="key">📦 Version</span><span class="val">v${ENV.BOT_VERSION}</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">System Status</div>
+          <div class="info-row"><span class="key">🟢 Connection</span><span class="val" style="color:var(--green)" id="connStat">STABLE</span></div>
+          <div class="info-row"><span class="key">🔧 Handlers</span><span class="val" style="color:var(--green)">ALL READY</span></div>
+          <div class="info-row"><span class="key">🛡️ Anti-Delete</span><span class="val" style="color:var(--green)">ACTIVE</span></div>
+          <div class="info-row"><span class="key">🔇 Auto-Reply</span><span class="val" style="color:var(--red)">DISABLED</span></div>
+          <div class="info-row"><span class="key">🌐 Dashboard</span><span class="val" style="color:var(--green)">ONLINE</span></div>
+        </div>
+      </div>
+      <div class="roadmap">
+        <div class="section-title">// Product Roadmap</div>
+        <h2 class="section-heading">VERSION <span>TIMELINE</span></h2>
+        <div class="timeline">
+          <div class="version-card active-v red-glow">
+            <div class="v-header"><span class="v-name" style="color:var(--red)">🤖 AYOBOT <span style="color:var(--text)">v1</span></span><span class="v-badge badge-live">🟢 LIVE NOW</span></div>
+            <div class="v-desc">The original. 45+ commands, AI integration, group management, media tools, full admin control.</div>
+            <div class="v-features"><span class="v-tag">AI Chat</span><span class="v-tag">Group Mod</span><span class="v-tag">Media DL</span><span class="v-tag">45+ Commands</span><span class="v-tag">Anti-Delete</span><span class="v-tag">TTS</span></div>
+          </div>
+          <div class="version-card building">
+            <div class="v-header"><span class="v-name" style="color:var(--gold2)">🔥 AYOBOT <span style="color:var(--text)">v2</span></span><span class="v-badge badge-building">⚙️ IN DEVELOPMENT</span></div>
+            <div class="v-desc">Multi-device, upgraded AI with memory, custom plugin system, real-time analytics dashboard.</div>
+            <div class="v-features"><span class="v-tag">Multi-Device</span><span class="v-tag">AI Memory</span><span class="v-tag">Plugin API</span><span class="v-tag">Analytics</span></div>
+            <div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v2',this)" id="wl-v2">🔔 JOIN WAITLIST</button><span style="font-size:12px;color:var(--text3);margin-left:10px" id="wc-v2"></span></div>
+          </div>
+          <div class="version-card locked">
+            <div class="v-header"><span class="v-name" style="color:var(--text2)">🚀 AYOBOT <span style="color:var(--text)">v3</span></span><span class="v-badge badge-soon">🔒 COMING SOON</span></div>
+            <div class="v-desc">Cross-platform — Telegram + WhatsApp unified.</div>
+            <div class="v-features"><span class="v-tag">Telegram</span><span class="v-tag">Unified Panel</span><span class="v-tag">Cross-Platform</span></div>
+            <div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v3',this)" id="wl-v3">🔔 JOIN WAITLIST</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bar">Built by <a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> &nbsp;·&nbsp; AYOBOT v${ENV.BOT_VERSION} &nbsp;·&nbsp; <span id="footerTime"></span></div>
+    </div>
+    <script>
+      const SID='${SID}';
+      function animCount(el,target,dur){
+        const start=parseInt(el.textContent)||0;
+        if(start===target)return;
+        const step=Math.ceil(Math.abs(target-start)/(dur/16));
+        let cur=start;
+        const t=setInterval(()=>{
+          cur=target>start?Math.min(cur+step,target):Math.max(cur-step,target);
+          el.textContent=cur;
+          if(cur===target)clearInterval(t);
+        },16);
+      }
+      function updateStats(){
+        fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+          if(!d.exists||!d.connected){location.reload();return;}
+          animCount(document.getElementById('sMsg'),d.messageCount||0,600);
+          animCount(document.getElementById('sCmd'),d.commandCount||0,600);
+          const up=d.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s=up%60;
+          document.getElementById('sUp').textContent=h+'h '+m+'m '+s+'s';
+          if(d.ownerName)document.getElementById('oName').textContent=d.ownerName;
+          if(d.ownerPhone)document.getElementById('oPhone').textContent='+'+d.ownerPhone;
+          const dot=document.getElementById('navdot'),txt=document.getElementById('navtxt');
+          if(d.connected){dot.className='dot';txt.textContent='LIVE';}
+          else{dot.className='dot offline';txt.textContent='OFFLINE';}
+        }).catch(()=>{});
+      }
+      updateStats();
+      setInterval(updateStats,60000);
+      function tick(){
+        const n=new Date(),el=document.getElementById('footerTime');
+        if(el)el.textContent=n.toLocaleTimeString('en-GB',{hour12:false})+' UTC';
+      }
+      tick();
+      setInterval(tick,1000);
+      async function logout(){
+        if(!confirm('Disconnect your WhatsApp and reset your bot?'))return;
+        await fetch('/api/logout/'+SID,{method:'POST',credentials:'same-origin'});
+        location.href='/';
+      }
+      function joinWaitlist(v,btn){
+        if(btn.classList.contains('joined'))return;
+        btn.disabled=true;
+        btn.textContent='⏳ JOINING...';
+        fetch('/api/waitlist-join/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({version:v})})
+          .then(r=>r.json()).then(d=>{
+            btn.textContent='✅ JOINED';
+            btn.classList.add('joined');
+          }).catch(()=>{
+            btn.textContent='🔔 JOIN WAITLIST';
+            btn.disabled=false;
+          });
+      }
+    </script>
+  </body></html>`
   );
 }
 
 function connectHTML(sessionId, qrUrl) {
   return (
     sharedHead("AYOBOT — Connect") +
-    `<body><div class="orb orb1"></div><div class="orb orb2"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div><div class="nav-status"><div class="dot offline"></div><span>AWAITING YOUR WHATSAPP</span></div></nav><div class="connect-wrap"><div class="connect-box"><div style="text-align:center;margin-bottom:28px"><div class="hero-eyebrow">Connect Your WhatsApp</div><h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;margin-top:8px">LINK <span style="color:var(--red)">YOUR DEVICE</span></h1><p style="font-size:13px;color:var(--text2);margin-top:8px">This bot will run on <strong>your</strong> WhatsApp number</p></div><div class="glass" style="padding:24px"><div class="connect-tabs"><button class="ctab active" onclick="showTab('qr',this)">📱 QR CODE</button><button class="ctab" onclick="showTab('pair',this)">🔑 PAIRING CODE</button></div><div id="tab-qr"><div class="qr-wrap"><div class="qr-scan-line"></div>${qrUrl ? `<img src="${qrUrl}" alt="QR Code" id="qrImg">` : `<div style="padding:40px;color:var(--text3);font-size:13px">Generating QR...</div>`}</div><ul class="step-list"><li><span class="step-num">1</span>Open WhatsApp on your phone</li><li><span class="step-num">2</span>Tap <strong>Menu → Linked Devices</strong></li><li><span class="step-num">3</span>Tap <strong>Link a Device</strong></li><li><span class="step-num">4</span>Scan the QR above</li></ul><div style="margin-top:16px;padding:12px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.2);border-radius:8px;font-size:13px;color:var(--gold)">👑 You become the <strong>Bot Owner</strong> with full admin access</div></div><div id="tab-pair" style="display:none"><div id="pairForm"><label style="font-size:12px;color:var(--text2);letter-spacing:1px;display:block;margin-bottom:8px">YOUR PHONE (with country code, no + or spaces)</label><input class="pair-input" id="ph" type="tel" placeholder="e.g. 2349159180375" autocomplete="off"><button class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px" onclick="requestCode()" id="pb">⚡ REQUEST PAIRING CODE</button></div><div id="codeDisplay" style="display:none"><div class="code-display"><div style="font-size:11px;color:var(--text2);letter-spacing:2px;font-family:Orbitron,sans-serif;margin-bottom:12px">ENTER THIS IN WHATSAPP</div><div class="code-digits" id="codeDigits">————</div><div class="code-timer" id="codeTimer">⏳ Expires in 60s</div></div><div class="ok-box" style="display:block">✅ WhatsApp → Linked Devices → Link a Device → Enter the code above</div></div><div class="err-box" id="errBox"></div></div><div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border2)"><span style="font-size:12px;color:var(--text3);font-family:'JetBrains Mono',monospace">⏳ Auto-checks connection every 5s</span></div></div><div class="footer-bar" style="margin-top:24px;border:none"><a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> · AYOBOT v${ENV.BOT_VERSION}</div></div></div><script>const SID='${sessionId}';function showTab(id,el){document.querySelectorAll('.ctab').forEach(t=>t.classList.remove('active'));['tab-qr','tab-pair'].forEach(t=>document.getElementById(t).style.display='none');el.classList.add('active');document.getElementById('tab-'+id).style.display='block';}async function requestCode(){const ph=document.getElementById('ph').value.trim();const pb=document.getElementById('pb');const err=document.getElementById('errBox');err.style.display='none';if(!ph||!/^\d{10,15}$/.test(ph)){err.textContent='⚠️ Enter a valid phone number (10-15 digits)';err.style.display='block';return;}pb.disabled=true;pb.textContent='⏳ REQUESTING…';try{const r=await fetch('/api/request-pairing/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({phoneNumber:ph})});const d=await r.json();if(d.success){document.getElementById('pairForm').style.display='none';document.getElementById('codeDisplay').style.display='block';document.getElementById('codeDigits').textContent=d.code;let t=d.expiresIn||60;const ti=setInterval(()=>{t--;const el=document.getElementById('codeTimer');if(el)el.textContent='⏳ Expires in '+t+'s';if(t<=0){clearInterval(ti);location.reload();}},1000);}else{err.textContent='❌ '+d.error;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE';}}catch(e){err.textContent='❌ Network error: '+e.message;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE';}}setInterval(()=>{fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.connected)location.reload();}).catch(()=>{});},5000);</script></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div>
+      <div class="nav-status"><div class="dot offline"></div><span>AWAITING YOUR WHATSAPP</span></div>
+    </nav>
+    <div class="connect-wrap">
+      <div class="connect-box">
+        <div style="text-align:center;margin-bottom:28px">
+          <div class="hero-eyebrow">Connect Your WhatsApp</div>
+          <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;margin-top:8px">LINK <span style="color:var(--red)">YOUR DEVICE</span></h1>
+          <p style="font-size:13px;color:var(--text2);margin-top:8px">This bot will run on <strong>your</strong> WhatsApp number</p>
+        </div>
+        <div class="glass" style="padding:24px">
+          <div class="connect-tabs">
+            <button class="ctab active" onclick="showTab('qr',this)">📱 QR CODE</button>
+            <button class="ctab" onclick="showTab('pair',this)">🔑 PAIRING CODE</button>
+          </div>
+          <div id="tab-qr">
+            <div class="qr-wrap">
+              <div class="qr-scan-line"></div>
+              ${qrUrl ? `<img src="${qrUrl}" alt="QR Code" id="qrImg">` : `<div style="padding:40px;color:var(--text3);font-size:13px">Generating QR...</div>`}
+            </div>
+            <ul class="step-list">
+              <li><span class="step-num">1</span>Open WhatsApp on your phone</li>
+              <li><span class="step-num">2</span>Tap <strong>Menu → Linked Devices</strong></li>
+              <li><span class="step-num">3</span>Tap <strong>Link a Device</strong></li>
+              <li><span class="step-num">4</span>Scan the QR above</li>
+            </ul>
+            <div style="margin-top:16px;padding:12px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.2);border-radius:8px;font-size:13px;color:var(--gold)">👑 You become the <strong>Bot Owner</strong> with full admin access</div>
+          </div>
+          <div id="tab-pair" style="display:none">
+            <div id="pairForm">
+              <label style="font-size:12px;color:var(--text2);letter-spacing:1px;display:block;margin-bottom:8px">YOUR PHONE (with country code, no + or spaces)</label>
+              <input class="pair-input" id="ph" type="tel" placeholder="e.g. 2349159180375" autocomplete="off">
+              <button class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px" onclick="requestCode()" id="pb">⚡ REQUEST PAIRING CODE</button>
+            </div>
+            <div id="codeDisplay" style="display:none">
+              <div class="code-display">
+                <div style="font-size:11px;color:var(--text2);letter-spacing:2px;font-family:Orbitron,sans-serif;margin-bottom:12px">ENTER THIS IN WHATSAPP</div>
+                <div class="code-digits" id="codeDigits">————</div>
+                <div class="code-timer" id="codeTimer">⏳ Expires in 60s</div>
+              </div>
+              <div class="ok-box" style="display:block">✅ WhatsApp → Linked Devices → Link a Device → Enter the code above</div>
+            </div>
+            <div class="err-box" id="errBox"></div>
+          </div>
+          <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border2)">
+            <span style="font-size:12px;color:var(--text3);font-family:'JetBrains Mono',monospace">⏳ Auto-checks connection every 5s</span>
+          </div>
+        </div>
+        <div class="footer-bar" style="margin-top:24px;border:none"><a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> · AYOBOT v${ENV.BOT_VERSION}</div>
+      </div>
+    </div>
+    <script>
+      const SID='${sessionId}';
+      function showTab(id,el){
+        document.querySelectorAll('.ctab').forEach(t=>t.classList.remove('active'));
+        ['tab-qr','tab-pair'].forEach(t=>document.getElementById(t).style.display='none');
+        el.classList.add('active');
+        document.getElementById('tab-'+id).style.display='block';
+      }
+      async function requestCode(){
+        const ph=document.getElementById('ph').value.trim();
+        const pb=document.getElementById('pb');
+        const err=document.getElementById('errBox');
+        err.style.display='none';
+        if(!ph||!/^\\d{10,15}$/.test(ph)){
+          err.textContent='⚠️ Enter a valid phone number (10-15 digits)';
+          err.style.display='block';
+          return;
+        }
+        pb.disabled=true;
+        pb.textContent='⏳ REQUESTING…';
+        try{
+          const r=await fetch('/api/request-pairing/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({phoneNumber:ph})});
+          const d=await r.json();
+          if(d.success){
+            document.getElementById('pairForm').style.display='none';
+            document.getElementById('codeDisplay').style.display='block';
+            document.getElementById('codeDigits').textContent=d.code;
+            let t=d.expiresIn||60;
+            const ti=setInterval(()=>{
+              t--;
+              const el=document.getElementById('codeTimer');
+              if(el)el.textContent='⏳ Expires in '+t+'s';
+              if(t<=0){clearInterval(ti);location.reload();}
+            },1000);
+          }else{
+            err.textContent='❌ '+d.error;
+            err.style.display='block';
+            pb.disabled=false;
+            pb.textContent='⚡ REQUEST PAIRING CODE';
+          }
+        }catch(e){
+          err.textContent='❌ Network error: '+e.message;
+          err.style.display='block';
+          pb.disabled=false;
+          pb.textContent='⚡ REQUEST PAIRING CODE';
+        }
+      }
+      setInterval(()=>{
+        fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+          if(d.connected)location.reload();
+        }).catch(()=>{});
+      },5000);
+    </script>
+  </body></html>`
   );
 }
 
 function loadingHTML(sessionId) {
   return (
     sharedHead("AYOBOT — Starting") +
-    `<body><div class="orb orb1"></div><div class="orb orb2"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span></div><div class="nav-status"><div class="dot offline" style="animation:pulse 1s infinite"></div><span style="color:var(--text3)">INITIALIZING</span></div></nav><div class="starting-wrap"><div style="text-align:center;animation:fadeIn .6s ease"><div class="loader-ring"></div><h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;color:var(--red)">AYOBOT</h1><p style="color:var(--text2);margin-top:8px;font-size:15px">Starting your bot session<span class="loading-dots"></span></p><div style="margin-top:20px;font-size:12px;color:var(--text3)">Reloading in <span id="rc">3</span>s</div></div></div><script>let rc=3;setInterval(()=>{rc--;const e=document.getElementById('rc');if(e)e.textContent=rc;if(rc<=0)location.reload();},1000);</script></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span></div>
+      <div class="nav-status"><div class="dot offline" style="animation:pulse 1s infinite"></div><span style="color:var(--text3)">INITIALIZING</span></div>
+    </nav>
+    <div class="starting-wrap">
+      <div style="text-align:center;animation:fadeIn .6s ease">
+        <div class="loader-ring"></div>
+        <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;color:var(--red)">AYOBOT</h1>
+        <p style="color:var(--text2);margin-top:8px;font-size:15px">Starting your bot session<span class="loading-dots"></span></p>
+        <div style="margin-top:20px;font-size:12px;color:var(--text3)">Reloading in <span id="rc">3</span>s</div>
+      </div>
+    </div>
+    <script>
+      let rc=3;
+      setInterval(()=>{rc--;const e=document.getElementById('rc');if(e)e.textContent=rc;if(rc<=0)location.reload();},1000);
+    </script>
+  </body></html>`
   );
 }
 
 function maxSessionsHTML() {
   return (
     sharedHead("AYOBOT — At Capacity") +
-    `<body><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px"><div style="font-size:48px;margin-bottom:16px">⚠️</div><h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;color:var(--red)">AT CAPACITY</h1><p style="color:var(--text2);margin-top:12px;max-width:400px">This server has reached its maximum session limit (${ENV.MAX_SESSIONS}). Please try again later.</p></div></body></html>`
+    `<body>
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px">
+      <div style="font-size:48px;margin-bottom:16px">⚠️</div>
+      <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;color:var(--red)">AT CAPACITY</h1>
+      <p style="color:var(--text2);margin-top:12px;max-width:400px">This server has reached its maximum session limit (${ENV.MAX_SESSIONS}). Please try again later.</p>
+    </div>
+  </body></html>`
   );
 }
 
 function adminLoginHTML(error = "") {
   return (
     sharedHead("AYOBOT — Admin Login") +
-    `<body><div class="orb orb1"></div><div class="orb orb2"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">ADMIN</span></div></nav><div class="connect-wrap"><div class="connect-box" style="max-width:400px"><div style="text-align:center;margin-bottom:28px"><h1 style="font-family:'Orbitron',sans-serif;font-size:1.8rem;font-weight:900;margin-top:8px">ADMIN <span style="color:var(--red)">LOGIN</span></h1></div><div class="glass" style="padding:28px">${error ? `<div style="background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:8px;padding:10px 14px;color:var(--red);font-size:13px;margin-bottom:16px">❌ ${error}</div>` : ""}<form method="POST" action="/ayocodes-admin/login-post"><input type="password" name="password" class="pair-input" placeholder="Admin password" autofocus style="margin-bottom:16px"><button type="submit" class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px">🔓 ENTER DASHBOARD</button></form></div></div></div></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">ADMIN</span></div>
+    </nav>
+    <div class="connect-wrap">
+      <div class="connect-box" style="max-width:400px">
+        <div style="text-align:center;margin-bottom:28px">
+          <h1 style="font-family:'Orbitron',sans-serif;font-size:1.8rem;font-weight:900;margin-top:8px">ADMIN <span style="color:var(--red)">LOGIN</span></h1>
+        </div>
+        <div class="glass" style="padding:28px">
+          ${error ? `<div style="background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:8px;padding:10px 14px;color:var(--red);font-size:13px;margin-bottom:16px">❌ ${error}</div>` : ""}
+          <form method="POST" action="/ayocodes-admin/login-post">
+            <input type="password" name="password" class="pair-input" placeholder="Admin password" autofocus style="margin-bottom:16px">
+            <button type="submit" class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px">🔓 ENTER DASHBOARD</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </body></html>`
   );
 }
 
 function adminDashboardHTML() {
   return (
     sharedHead("AYOBOT — Dev Panel") +
-    `<body><div class="orb orb1"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">DEV</span></div><div style="display:flex;align-items:center;gap:16px"><a href="/ayocodes-admin/users" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">👥 USERS</a><a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a></div></nav><div class="main"><div class="hero" style="padding:40px 20px 20px"><h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">INSTANCE</span><span class="line2">MONITOR</span></h1></div><div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="stat-card red-glow"><div class="stat-icon">🌐</div><div class="stat-val" id="totalI">—</div><div class="stat-label">Total Bots</div></div><div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-val" id="onlineI" style="color:var(--green)">—</div><div class="stat-label">Online</div></div><div class="stat-card"><div class="stat-icon">💬</div><div class="stat-val" id="totalM" style="color:var(--gold)">—</div><div class="stat-label">Messages</div></div></div><div style="margin:24px 0 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px"><button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">↻ REFRESH</button><button onclick="deleteOffline()" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;">🗑️ DELETE OFFLINE</button></div><div id="instanceTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading...</div></div></div><style>.inst-table{width:100%;border-collapse:collapse;font-size:13px}.inst-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2)}.inst-table td{padding:12px 14px;border-bottom:1px solid var(--border2);vertical-align:middle}.kill-btn{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:1px;padding:6px 12px;border-radius:6px;cursor:pointer;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);color:var(--red);}</style><script>async function loadInstances(){let d;try{const r=await fetch('/ayocodes-admin/api/instances',{credentials:'same-origin'});if(r.status===401){location.href='/ayocodes-admin/login';return;}d=await r.json();}catch(e){return;}document.getElementById('totalI').textContent=d.total;document.getElementById('onlineI').textContent=d.online;document.getElementById('totalM').textContent=d.instances.reduce((a,i)=>a+(i.messageCount||0),0).toLocaleString();if(!d.instances||!d.instances.length){document.getElementById('instanceTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No sessions</div>';return;}let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>BOT</th><th>UPTIME</th><th>MSGS</th><th>ACTION</th></tr></thead><tbody>';d.instances.forEach(inst=>{const up=inst.uptime||0;const h=Math.floor(up/3600);const m=Math.floor((up%3600)/60);const online=!!inst.connected;html+='<tr><td>'+(online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--red)">● DEAD</span>')+'</td><td><span style="font-family:JetBrains Mono,monospace;color:var(--gold)">'+(inst.ownerPhone?'+'+inst.ownerPhone:'—')+'</span></td><td><span style="font-family:JetBrains Mono,monospace">+'+(inst.botNumber||'—')+'</span></td><td>'+h+'h '+m+'m</td><td>'+(inst.messageCount||0)+'</td><td><button class="kill-btn" onclick="killSession(\''+inst.instanceId+'\')">⚡ KILL</button></td></tr>';});html+='</tbody></table></div>';document.getElementById('instanceTable').innerHTML=html;}async function killSession(id){if(!confirm('Kill this session?'))return;await fetch('/ayocodes-admin/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({instanceId:id})});loadInstances();}async function deleteOffline(){if(!confirm('Delete all offline sessions?'))return;const r=await fetch('/ayocodes-admin/api/delete-offline',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin'});const d=await r.json();alert('Deleted '+d.deleted+' sessions');loadInstances();}loadInstances();setInterval(loadInstances,5000);</script></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">DEV</span></div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <a href="/ayocodes-admin/users" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">👥 USERS</a>
+        <a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="hero" style="padding:40px 20px 20px">
+        <h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">INSTANCE</span><span class="line2">MONITOR</span></h1>
+      </div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div class="stat-card red-glow"><div class="stat-icon">🌐</div><div class="stat-val" id="totalI">—</div><div class="stat-label">Total Bots</div></div>
+        <div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-val" id="onlineI" style="color:var(--green)">—</div><div class="stat-label">Online</div></div>
+        <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-val" id="totalM" style="color:var(--gold)">—</div><div class="stat-label">Messages</div></div>
+      </div>
+      <div style="margin:24px 0 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">↻ REFRESH</button>
+        <button onclick="deleteOffline()" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;">🗑️ DELETE OFFLINE</button>
+      </div>
+      <div id="instanceTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading...</div></div>
+    </div>
+    <script>
+      async function loadInstances(){
+        let d;
+        try{
+          const r=await fetch('/ayocodes-admin/api/instances',{credentials:'same-origin'});
+          if(r.status===401){location.href='/ayocodes-admin/login';return;}
+          d=await r.json();
+        }catch(e){return;}
+        document.getElementById('totalI').textContent=d.total;
+        document.getElementById('onlineI').textContent=d.online;
+        document.getElementById('totalM').textContent=d.instances.reduce((a,i)=>a+(i.messageCount||0),0).toLocaleString();
+        if(!d.instances||!d.instances.length){
+          document.getElementById('instanceTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No sessions</div>';
+          return;
+        }
+        let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>BOT</th><th>UPTIME</th><th>MSGS</th><th>ACTION</th></tr></thead><tbody>';
+        d.instances.forEach(inst=>{
+          const up=inst.uptime||0;
+          const h=Math.floor(up/3600);
+          const m=Math.floor((up%3600)/60);
+          const online=!!inst.connected;
+          html+='<tr><td>'+(online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--red)">● DEAD</span>')+'</td><td><span style="font-family:JetBrains Mono,monospace;color:var(--gold)">'+(inst.ownerPhone?'+'+inst.ownerPhone:'—')+'</span></td><td><span style="font-family:JetBrains Mono,monospace">+'+(inst.botNumber||'—')+'</span></td><td>'+h+'h '+m+'m</td><td>'+(inst.messageCount||0)+'</td><td><button class="kill-btn" onclick="killSession(\\''+inst.instanceId+'\\')">⚡ KILL</button></td></tr>';
+        });
+        html+='</tbody></table></div>';
+        document.getElementById('instanceTable').innerHTML=html;
+      }
+      async function killSession(id){
+        if(!confirm('Kill this session?'))return;
+        await fetch('/ayocodes-admin/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({instanceId:id})});
+        loadInstances();
+      }
+      async function deleteOffline(){
+        if(!confirm('Delete all offline sessions?'))return;
+        const r=await fetch('/ayocodes-admin/api/delete-offline',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin'});
+        const d=await r.json();
+        alert('Deleted '+d.deleted+' sessions');
+        loadInstances();
+      }
+      loadInstances();
+      setInterval(loadInstances,5000);
+    </script>
+  </body></html>`
   );
 }
 
 function userTrackingHTML() {
   return (
     sharedHead("AYOBOT — Users") +
-    `<body><div class="orb orb1"></div><nav class="nav"><div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">USERS</span></div><div style="display:flex;align-items:center;gap:12px"><a href="/ayocodes-admin" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text2);text-decoration:none;border:1px solid var(--border);padding:5px 12px;border-radius:6px">← BACK</a><a href="/ayocodes-admin/api/users/export" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">⬇ EXPORT</a><a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a></div></nav><div class="main"><div class="hero" style="padding:40px 20px 20px"><h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">USER</span><span class="line2">TRACKER</span></h1></div><div style="margin:24px 0"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><input id="searchInput" class="pair-input" style="flex:1;min-width:200px;margin-bottom:0" placeholder="Search by phone or name..." oninput="debounceSearch()"><button class="btn btn-red" onclick="loadUsers(1)" style="padding:10px 20px;font-size:10px">🔍 SEARCH</button></div><div id="userTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading users...</div></div><div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px"></div></div></div><style>.user-table{width:100%;border-collapse:collapse;font-size:13px}.user-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2)}.user-table td{padding:11px 14px;border-bottom:1px solid var(--border2);vertical-align:middle;font-family:'JetBrains Mono',monospace;font-size:12px}.page-btn{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:1px;padding:6px 14px;border-radius:6px;cursor:pointer;background:var(--card);border:1px solid var(--border);color:var(--text2);}.page-btn.active{background:var(--red);color:#000;border-color:var(--red)}</style><script>let currentPage=1,searchTimer=null;function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadUsers(1),400);}async function loadUsers(page=1){currentPage=page;const search=document.getElementById('searchInput').value.trim();const url='/ayocodes-admin/api/users?page='+page+(search?'&search='+encodeURIComponent(search):'');try{const r=await fetch(url,{credentials:'same-origin'});if(r.status===401){location.href='/ayocodes-admin/login';return;}const d=await r.json();if(!d.users.length){document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No users found</div>';document.getElementById('pagination').innerHTML='';return;}let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="user-table"><thead><tr><th>STATUS</th><th>PHONE</th><th>NAME</th><th>LAST SEEN</th><th>MSGS</th></tr></thead><tbody>';d.users.forEach(u=>{const online=u.online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--text3)">○ OFFLINE</span>';const lastSeen=u.lastSeen?timeAgo(new Date(u.lastSeen)):'—';html+='<tr><td>'+online+'</td><td style="color:var(--gold)">+'+(u.phone||'—')+'</td><td style="color:var(--text)">'+(u.name||'—')+'</td><td style="color:var(--text2)">'+lastSeen+'</td><td style="color:var(--green)">'+(u.totalMessages||0).toLocaleString()+'</td></tr>';});html+='</tbody></table></div>';document.getElementById('userTable').innerHTML=html;}catch(e){document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';}}function timeAgo(date){const s=Math.floor((Date.now()-date)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}loadUsers(1);setInterval(()=>loadUsers(currentPage),30000);</script></body></html>`
+    `<body>
+    <div class="orb orb1"></div>
+    <nav class="nav">
+      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">USERS</span></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <a href="/ayocodes-admin" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text2);text-decoration:none;border:1px solid var(--border);padding:5px 12px;border-radius:6px">← BACK</a>
+        <a href="/ayocodes-admin/api/users/export" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">⬇ EXPORT</a>
+        <a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a>
+      </div>
+    </nav>
+    <div class="main">
+      <div class="hero" style="padding:40px 20px 20px">
+        <h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">USER</span><span class="line2">TRACKER</span></h1>
+      </div>
+      <div style="margin:24px 0">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <input id="searchInput" class="pair-input" style="flex:1;min-width:200px;margin-bottom:0" placeholder="Search by phone or name..." oninput="debounceSearch()">
+          <button class="btn btn-red" onclick="loadUsers(1)" style="padding:10px 20px;font-size:10px">🔍 SEARCH</button>
+        </div>
+        <div id="userTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading users...</div></div>
+        <div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px"></div>
+      </div>
+    </div>
+    <script>
+      let currentPage=1,searchTimer=null;
+      function debounceSearch(){
+        clearTimeout(searchTimer);
+        searchTimer=setTimeout(()=>loadUsers(1),400);
+      }
+      async function loadUsers(page=1){
+        currentPage=page;
+        const search=document.getElementById('searchInput').value.trim();
+        const url='/ayocodes-admin/api/users?page='+page+(search?'&search='+encodeURIComponent(search):'');
+        try{
+          const r=await fetch(url,{credentials:'same-origin'});
+          if(r.status===401){location.href='/ayocodes-admin/login';return;}
+          const d=await r.json();
+          if(!d.users.length){
+            document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No users found</div>';
+            document.getElementById('pagination').innerHTML='';
+            return;
+          }
+          let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="user-table"><thead><tr><th>STATUS</th><th>PHONE</th><th>NAME</th><th>LAST SEEN</th><th>MSGS</th></tr></thead><tbody>';
+          d.users.forEach(u=>{
+            const online=u.online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--text3)">○ OFFLINE</span>';
+            const lastSeen=u.lastSeen?timeAgo(new Date(u.lastSeen)):'—';
+            html+='<tr><td>'+online+'</td><td style="color:var(--gold)">+'+(u.phone||'—')+'</td><td style="color:var(--text)">'+(u.name||'—')+'</td><td style="color:var(--text2)">'+lastSeen+'</td><td style="color:var(--green)">'+(u.totalMessages||0).toLocaleString()+'</td></tr>';
+          });
+          html+='</tbody></table></div>';
+          document.getElementById('userTable').innerHTML=html;
+          let pagination='';
+          for(let i=1;i<=Math.min(d.pages,10);i++){
+            pagination+='<button class="page-btn'+(i===currentPage?' active':'')+'" onclick="loadUsers('+i+')">'+i+'</button>';
+          }
+          document.getElementById('pagination').innerHTML=pagination;
+        }catch(e){
+          document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>';
+        }
+      }
+      function timeAgo(date){
+        const s=Math.floor((Date.now()-date)/1000);
+        if(s<60)return s+'s ago';
+        if(s<3600)return Math.floor(s/60)+'m ago';
+        if(s<86400)return Math.floor(s/3600)+'h ago';
+        return Math.floor(s/86400)+'d ago';
+      }
+      loadUsers(1);
+      setInterval(()=>loadUsers(currentPage),30000);
+    </script>
+  </body></html>`
   );
 }
 
+// ============================================================
+//   WEB DASHBOARD ROUTES
+// ============================================================
 function setupWebDashboard() {
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
@@ -1303,20 +2698,25 @@ function setupWebDashboard() {
   app.get("/dashboard/:sessionId", async (req, res) => {
     const { sessionId } = req.params;
     const cookieSid = req.cookies?.ayoSessionId;
+
     if (cookieSid !== sessionId) {
       const correctSid = cookieSid || sessionId;
       res.setHeader(
         "Set-Cookie",
-        `ayoSessionId=${correctSid}; HttpOnly; Path=/; Max-Age=31536000`,
+        `ayoSessionId=${correctSid}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`,
       );
       return res.redirect(`/dashboard/${correctSid}`);
     }
+
     let session = sessions.get(sessionId);
     if (!session) {
-      if (sessions.size >= ENV.MAX_SESSIONS) return res.send(maxSessionsHTML());
+      if (sessions.size >= ENV.MAX_SESSIONS) {
+        return res.send(maxSessionsHTML());
+      }
       session = await startSession(sessionId, true);
       if (!session) return res.send(maxSessionsHTML());
     }
+
     if (session.connected) return res.send(connectedHTML(session));
     if (session.qr) {
       const qrUrl = await QRCode.toDataURL(session.qr).catch(() => null);
@@ -1328,6 +2728,7 @@ function setupWebDashboard() {
   app.get("/api/status/:sessionId", (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ exists: false, connected: false });
+
     res.json({
       exists: true,
       connected: session.connected,
@@ -1340,7 +2741,7 @@ function setupWebDashboard() {
       uptime: Math.floor((Date.now() - session.startTime) / 1000),
       authMethod: session.authMethod,
       hasQr: !!session.qr,
-      pairingCode: session.pairingCode,
+      pairingCode: session.pairingCode ? "available" : null,
       pairingExpiry: session.pairingExpiry,
       mode: session.mode || ENV.BOT_MODE,
       version: ENV.BOT_VERSION,
@@ -1350,18 +2751,26 @@ function setupWebDashboard() {
 
   app.post("/api/request-pairing/:sessionId", async (req, res) => {
     const { phoneNumber } = req.body;
-    if (!phoneNumber)
+    if (!phoneNumber) {
       return res.json({ success: false, error: "Phone number required." });
+    }
+
     let session = sessions.get(req.params.sessionId);
-    if (!session) session = await startSession(req.params.sessionId, true);
-    if (!session)
+    if (!session) {
+      session = await startSession(req.params.sessionId, true);
+    }
+    if (!session) {
       return res.json({ success: false, error: "Could not create session." });
-    res.json(await requestPairingCode(session, phoneNumber));
+    }
+
+    const result = await requestPairingCode(session, phoneNumber);
+    res.json(result);
   });
 
   app.post("/api/logout/:sessionId", async (req, res) => {
-    if (req.cookies?.ayoSessionId !== req.params.sessionId)
+    if (req.cookies?.ayoSessionId !== req.params.sessionId) {
       return res.json({ success: false, error: "Unauthorized" });
+    }
     await destroySession(req.params.sessionId);
     res.setHeader("Set-Cookie", "ayoSessionId=; HttpOnly; Path=/; Max-Age=0");
     res.json({ success: true });
@@ -1371,17 +2780,19 @@ function setupWebDashboard() {
     const { version } = req.body;
     if (!version)
       return res.json({ success: false, error: "version required" });
+
     const session = sessions.get(req.params.sessionId);
-    if (!session?.connected || !session.sock || !session.ownerJid)
+    if (!session?.connected || !session.sock || !session.ownerJid) {
       return res.json({ success: false, error: "Bot not connected" });
+    }
+
     const names = {
       v2: "AYOBOT v2 — Multi-device + AI Memory",
       v3: "AYOBOT v3 — Telegram + WhatsApp",
-      v4: "AYOBOT v4 — Enterprise",
-      v5: "AYOBOT v5 — Full AI Autonomy",
-      v6: "AYOBOT v6 — Web3",
     };
+
     const msg = `🔔 *Waitlist Confirmed!*\n\nYou're on the waitlist for:\n*${names[version] || version}*\n\n— AYOCODES`;
+
     try {
       await session.sock.sendMessage(session.ownerJid, { text: msg });
       res.json({ success: true });
@@ -1397,8 +2808,10 @@ function setupWebDashboard() {
 
   app.post("/ayocodes-admin/login-post", (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
-    if (req.body.password !== ENV.AYOCODES_ADMIN_KEY)
+    if (req.body.password !== ENV.AYOCODES_ADMIN_KEY) {
       return res.send(adminLoginHTML("Wrong password."));
+    }
+
     const token = crypto.randomBytes(20).toString("hex");
     adminTokens.add(token);
     const isHttps =
@@ -1426,6 +2839,7 @@ function setupWebDashboard() {
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
+
     const list = Array.from(sessions.values()).map((s) => ({
       instanceId: s.id,
       ownerPhone: s.ownerPhone,
@@ -1436,6 +2850,7 @@ function setupWebDashboard() {
       uptime: Math.floor((Date.now() - s.startTime) / 1000),
       authMethod: s.authMethod,
     }));
+
     res.json({
       instances: list,
       total: list.length,
@@ -1446,9 +2861,11 @@ function setupWebDashboard() {
   app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
+
     const { instanceId } = req.body;
     if (!instanceId)
       return res.status(400).json({ error: "instanceId required" });
+
     await destroySession(instanceId);
     res.json({ ok: true });
   });
@@ -1459,6 +2876,7 @@ function setupWebDashboard() {
     async (req, res) => {
       if (!ENV.AYOCODES_ADMIN_KEY)
         return res.status(403).json({ error: "Not enabled" });
+
       const offline = Array.from(sessions.values()).filter((s) => !s.connected);
       let deleted = 0;
       for (const session of offline) {
@@ -1471,20 +2889,6 @@ function setupWebDashboard() {
     },
   );
 
-  app.post("/ayocodes-admin/api/delete-all", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY)
-      return res.status(403).json({ error: "Not enabled" });
-    const all = Array.from(sessions.keys());
-    let deleted = 0;
-    for (const id of all) {
-      try {
-        await destroySession(id);
-        deleted++;
-      } catch (_) {}
-    }
-    res.json({ ok: true, deleted, remaining: sessions.size });
-  });
-
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
     res.send(userTrackingHTML());
@@ -1493,6 +2897,7 @@ function setupWebDashboard() {
   app.get("/ayocodes-admin/api/users", requireAdmin, async (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY)
       return res.status(403).json({ error: "Not enabled" });
+
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = 50;
@@ -1506,6 +2911,7 @@ function setupWebDashboard() {
             ],
           }
         : {};
+
       const [users, total] = await Promise.all([
         userLogCollection
           .find(query)
@@ -1515,11 +2921,13 @@ function setupWebDashboard() {
           .toArray(),
         userLogCollection.countDocuments(query),
       ]);
+
       const activeSessions = new Set(
         Array.from(sessions.values())
           .filter((s) => s.connected)
           .map((s) => s.ownerPhone),
       );
+
       res.json({
         users: users.map((u) => ({
           ...u,
@@ -1540,6 +2948,7 @@ function setupWebDashboard() {
     async (req, res) => {
       if (!ENV.AYOCODES_ADMIN_KEY)
         return res.status(403).json({ error: "Not enabled" });
+
       try {
         const users = await userLogCollection
           .find({})
@@ -1560,6 +2969,7 @@ function setupWebDashboard() {
             ].join(","),
           ),
         ].join("\n");
+
         res.setHeader("Content-Type", "text/csv");
         res.setHeader(
           "Content-Disposition",
@@ -1572,11 +2982,44 @@ function setupWebDashboard() {
     },
   );
 
+  app.get("/api/metrics", requireAdmin, (req, res) => {
+    res.json({
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      activeSessions: sessions.size,
+      totalMessages: messageCount,
+      commandStats: {
+        totalCommands: commandUsage.size,
+        totalBanned: bannedUsers.size,
+        totalWarnings: groupWarnings.size,
+      },
+      system: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        cpuCount: require("os").cpus().length,
+        totalMemory: require("os").totalmem(),
+        freeMemory: require("os").freemem(),
+      },
+    });
+  });
+
+  app.get("/health", (req, res) => {
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      sessions: sessions.size,
+      connected: Array.from(sessions.values()).filter((s) => s.connected)
+        .length,
+    });
+  });
+
   const PORT = ENV.PORT;
   app.listen(PORT, "0.0.0.0", () => {
     log.ok(`Dashboard → http://localhost:${PORT}`);
-    if (ENV.AYOCODES_ADMIN_KEY)
+    if (ENV.AYOCODES_ADMIN_KEY) {
       log.ok(`Admin → http://localhost:${PORT}/ayocodes-admin`);
+    }
     const publicUrl = process.env.RENDER_EXTERNAL_URL
       ? process.env.RENDER_EXTERNAL_URL.startsWith("http")
         ? process.env.RENDER_EXTERNAL_URL
@@ -1594,6 +3037,7 @@ async function loadAndDisplayFeatures() {
   console.log(`\n┏${line}┓`);
   console.log(`┃           📦 LOADING ALL FEATURE MODULES            ┃`);
   console.log(`┗${line}┛\n`);
+
   const features = [
     { name: "AI", path: "./features/ai.js", emoji: "🤖" },
     { name: "Calculator", path: "./features/calculator.js", emoji: "🧮" },
@@ -1615,16 +3059,12 @@ async function loadAndDisplayFeatures() {
     { name: "Translation", path: "./features/translation.js", emoji: "🌍" },
     { name: "TTS", path: "./features/tts.js", emoji: "🗣️" },
     { name: "Unit Convert", path: "./features/unitConverter.js", emoji: "📏" },
-    { name: "Group Core", path: "./commands/group/core.js", emoji: "👥" },
-    { name: "Group Mod", path: "./commands/group/moderation.js", emoji: "⚙️" },
-    { name: "Group Sett.", path: "./commands/group/settings.js", emoji: "🔧" },
-    { name: "Admin", path: "./commands/group/admin.js", emoji: "👑" },
-    { name: "Basic", path: "./commands/group/basic.js", emoji: "📋" },
-    { name: "Automation", path: "./commands/group/automation.js", emoji: "🤖" },
   ];
+
   let loaded = 0,
     failed = 0,
     total = 0;
+
   for (const f of features) {
     try {
       const mod = await import(f.path);
@@ -1639,6 +3079,7 @@ async function loadAndDisplayFeatures() {
       failed++;
     }
   }
+
   console.log(`\n┏${line}┓`);
   console.log(
     `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(
@@ -1649,35 +3090,72 @@ async function loadAndDisplayFeatures() {
 }
 
 // ============================================================
+//   RESTORE SESSIONS
+// ============================================================
+async function restoreAllSessions() {
+  const saved = await sessionMetaCollection.find({ active: true }).toArray();
+  log.info(`Restoring ${saved.length} saved session(s)...`);
+
+  for (const s of saved) {
+    try {
+      const session = await startSession(s.sessionId, false);
+      if (session && s.mode) {
+        session.mode = s.mode;
+
+        for (let i = 0; i < 30 && !session.handlersReady; i++) {
+          await delay(1000);
+        }
+
+        if (session.handlersReady) {
+          log.info(`[${s.sessionId.slice(0, 8)}] Session restored`);
+        } else {
+          log.warn(
+            `[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`,
+          );
+        }
+      }
+    } catch (e) {
+      log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
+    }
+  }
+}
+
+// ============================================================
 //   STARTUP SEQUENCE
 // ============================================================
 async function main() {
   console.log(
     `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 by AYOCODES…${C.reset}\n`,
   );
+
   checkEnvVars();
-  await connectMongo();
+
+  try {
+    await connectMongo();
+  } catch (error) {
+    log.err(`Failed to connect to MongoDB: ${error.message}`);
+    process.exit(1);
+  }
+
   setupWebDashboard();
-  setInterval(cleanupRateLimits, 5 * 60 * 1000);
-  setInterval(cleanupStores, 30 * 60 * 1000);
+
+  setInterval(cleanupOldData, 60 * 60 * 1000);
+
   await restoreAllSessions();
-  loadAndDisplayFeatures().catch((e) =>
+
+  await loadAndDisplayFeatures().catch((e) =>
     log.warn("Feature display: " + e.message),
   );
+
   console.log(`${C.green}${C.bold}✨ AYOBOT v1.0.0 ready.${C.reset}\n`);
 }
-
-main().catch((e) => {
-  console.error(`${C.red}❌ Fatal startup error: ${e.message}${C.reset}`);
-  console.error(e);
-  process.exit(1);
-});
 
 // ============================================================
 //   GRACEFUL SHUTDOWN
 // ============================================================
 async function gracefulShutdown(sig) {
   console.log(`\n${C.red}🛑 ${sig} — Shutting down…${C.reset}`);
+
   for (const session of sessions.values()) {
     if (session.sock) {
       try {
@@ -1689,7 +3167,11 @@ async function gracefulShutdown(sig) {
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
     if (session.queueTimeout) clearTimeout(session.queueTimeout);
   }
-  if (mongoClient) await mongoClient.close().catch(() => {});
+
+  if (mongoClient) {
+    await mongoClient.close().catch(() => {});
+  }
+
   console.error = originalConsoleError;
   process.exit(0);
 }
@@ -1697,13 +3179,19 @@ async function gracefulShutdown(sig) {
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("unhandledRejection", (e) => {
-  if (!e?.message?.includes("Bad MAC"))
+  if (!e?.message?.includes("Bad MAC")) {
     log.warn("Unhandled rejection: " + (e?.message || e));
+  }
 });
 process.on("uncaughtException", (e) => {
-  if (!e.message?.includes("Bad MAC"))
+  if (!e.message?.includes("Bad MAC")) {
     log.err("Uncaught exception: " + e.message);
+    console.error(e.stack);
+  }
 });
-process.on("exit", () => {
-  console.error = originalConsoleError;
+
+main().catch((e) => {
+  console.error(`${C.red}❌ Fatal startup error: ${e.message}${C.reset}`);
+  console.error(e);
+  process.exit(1);
 });
