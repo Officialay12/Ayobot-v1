@@ -5,10 +5,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ============================================================================
-//  IMPORTS — FIXED: Direct import, no circular dependency
-// ============================================================================
-// ============================================================================
-//  IMPORTS — PERMANENT FIX
+//  IMPORTS — CORE DEPENDENCIES
 // ============================================================================
 import {
   bannedUsers,
@@ -21,8 +18,6 @@ import {
   isGroupActivated,
 } from "../index.js";
 
-// Direct import - NO try/catch, NO fallback
-import { isBotGroupAdminCached } from "../utils/validators.js";
 // ============================================================================
 //  COLOR LOGGER
 // ============================================================================
@@ -102,8 +97,6 @@ class RateLimiter {
     return true;
   }
 
-  // FIX: Only returns > 0 when actually rate-limited (hits >= max).
-  // Previously returned non-zero even when slots were available.
   remaining(id) {
     const now = Date.now();
     const hits = (this.map.get(id) || []).filter((t) => now - t < this.window);
@@ -161,8 +154,6 @@ class CommandCooldown {
     const duration = this.getCooldown(commandName);
     const expiry = Date.now() + duration;
     this.cooldowns.set(key, expiry);
-    // FIX: Store expiry value and compare on cleanup to avoid
-    // deleting a refreshed cooldown set by a later call.
     setTimeout(() => {
       if (this.cooldowns.get(key) === expiry) {
         this.cooldowns.delete(key);
@@ -289,6 +280,23 @@ async function loadAllModules() {
 await loadAllModules();
 
 // ============================================================================
+//  IMPORT VALIDATOR AFTER MODULES ARE LOADED
+//  This breaks the circular dependency and ensures isBotGroupAdminCached is available
+// ============================================================================
+let isBotGroupAdminCached = async () => false;
+try {
+  const validators = await import("../utils/validators.js");
+  if (validators.isBotGroupAdminCached) {
+    isBotGroupAdminCached = validators.isBotGroupAdminCached;
+    log.ok("✅ Bot admin checker loaded successfully");
+  } else {
+    log.warn("⚠️ isBotGroupAdminCached not found in validators module");
+  }
+} catch (e) {
+  log.err("❌ Failed to load bot admin checker:", e.message);
+}
+
+// ============================================================================
 //  COMMAND REGISTRY
 // ============================================================================
 export const commands = new Map();
@@ -304,10 +312,6 @@ class CommandMeta {
     this.description = options.description || "";
     this.adminOnly = options.adminOnly === true;
     this.groupOnly = options.groupOnly === true;
-    // FIX: Split the original ambiguous `requireBotAdmin` into two distinct flags:
-    //   requireGroupAdmin → the *user* must be a group admin to run this command
-    //   requireBotAdmin   → the *bot* must be a group admin to run this command
-    // Both can be true at once (e.g. kick/ban).
     this.requireGroupAdmin = options.requireGroupAdmin === true;
     this.requireBotAdmin = options.requireBotAdmin === true;
     this.aliases = (options.aliases || []).map((a) => a.toLowerCase());
@@ -1989,7 +1993,6 @@ export async function handleCommand(message, sock) {
     // ── PHASE 5: TRIVIA HANDLER (runs before prefix check) ───────────────────
     if (!trimmed.startsWith(ENV.PREFIX)) {
       if (global.activeTrivia instanceof Map && global.activeTrivia.has(from)) {
-        // FIX: Deduplicated — single check is sufficient
         const upperMsg = trimmed.toUpperCase();
         if (["A", "B", "C", "D"].includes(upperMsg)) {
           if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from))
@@ -2019,8 +2022,6 @@ export async function handleCommand(message, sock) {
     const commandName = parts[0].toLowerCase();
     if (!commandName) return;
 
-    // FIX: Preserve raw args before sanitizing so fullArgs reflects
-    // the original input (sanitize is only for individual arg safety).
     const rawArgs = parts.slice(1);
     const fullArgs = rawArgs.join(" ");
     const args = rawArgs.map((a) => sanitizeInput(a));
@@ -2084,7 +2085,6 @@ export async function handleCommand(message, sock) {
     commandUsage.get(userJid)[primaryName] =
       (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
-    // Get or initialise stats object (single source of truth for this execution)
     const stats = commandStats.get(primaryName) || {
       uses: 0,
       errors: 0,
@@ -2223,7 +2223,6 @@ export async function handleCommand(message, sock) {
       const executionTime = Date.now() - handlerStart;
       stats.totalResponseTime += executionTime;
       stats.avgResponseTime = stats.totalResponseTime / stats.uses;
-      // FIX: Single authoritative write after mutation — no redundant set below
       commandStats.set(primaryName, stats);
       log.success(
         `[${executionId}] ${primaryName} completed (${executionTime}ms)`,
