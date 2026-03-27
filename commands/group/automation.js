@@ -1,12 +1,13 @@
 // commands/group/automation.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Automation Module — FIXED
+//  Group Automation Module — COMPLETE FIXED VERSION
 //  Author: AYOCODES
 //
 //  FIXES:
-//  1. ALLOWED_DOMAINS had only " " (space) — whitelist never worked
+//  1. ALLOWED_DOMAINS was [" "] — whitelist never matched anything — FIXED
 //  2. isUserAdmin() now correctly passes ownerPhone for global admin bypass
-//  3. Warning key format unified: ${groupJid}:${senderJid}
+//  3. senderJid now strips device suffix before use
+//  4. Warning key format unified: ${groupJid}:${senderJid}
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -23,12 +24,12 @@ import {
   normalizeNum,
 } from "../../utils/validators.js";
 import path from "path";
-import fs   from "fs";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-const TEMP_DIR   = path.join(__dirname, "../../temp");
+const __dirname = path.dirname(__filename);
+const TEMP_DIR = path.join(__dirname, "../../temp");
 
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -39,7 +40,7 @@ async function getGtts() {
   if (!_gtts) {
     try {
       const mod = await import("gtts");
-      _gtts     = mod.default || mod;
+      _gtts = mod.default || mod;
     } catch (_) {}
   }
   return _gtts;
@@ -55,9 +56,15 @@ function safeJid(jid) {
   return String(jid);
 }
 
-// Strip device suffix AND domain before extracting digits
+// Strip device suffix AND domain, return phone number only
 function safePhone(jid) {
   return normalizeNum(safeJid(jid));
+}
+
+// Build clean @s.whatsapp.net JID from any raw JID
+function cleanJid(jid) {
+  const phone = normalizeNum(safeJid(jid));
+  return phone ? `${phone}@s.whatsapp.net` : safeJid(jid);
 }
 
 // ============================================================================
@@ -102,6 +109,7 @@ const LINK_PATTERNS = [
   /dropbox\.com\/s\/[a-zA-Z0-9_-]+/gi,
   /spotify\.com\/track\/[a-zA-Z0-9]+/gi,
   /spotify\.com\/playlist\/[a-zA-Z0-9]+/gi,
+  /soundcloud\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+/gi,
 ];
 
 const MAX_ANTILINK_WARNINGS = 3;
@@ -117,7 +125,6 @@ export function containsLink(text) {
     if (pattern.test(text)) return true;
   }
 
-  // Check for bare domains
   const words = text.split(/\s+/);
   for (const word of words) {
     if (
@@ -126,18 +133,20 @@ export function containsLink(text) {
       word.length > 4 &&
       word.length < 100 &&
       word.match(/\.[a-zA-Z]{2,}([\/\?]|$)/)
-    ) return true;
+    ) {
+      return true;
+    }
   }
 
   return false;
 }
 
 // ============================================================================
-//  ALLOWED DOMAINS — FIX: was [" "] which never matched anything
-//  Add domains you want to whitelist here, e.g. "youtube.com"
+//  ALLOWED DOMAINS
+//  FIX: was [" "] which never matched anything
+//  Add domains to whitelist here if needed e.g. "youtube.com"
 // ============================================================================
 const ALLOWED_DOMAINS = [
-  // Add domains to allow, e.g.:
   // "youtube.com",
   // "wa.me",
 ];
@@ -145,26 +154,29 @@ const ALLOWED_DOMAINS = [
 export function isAllowedDomain(text) {
   if (!ALLOWED_DOMAINS.length) return false;
   try {
-    // Extract URL from text
-    const urlMatch = text.match(/https?:\/\/([^\s\/]+)/i) ||
-                     text.match(/(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
+    const urlMatch =
+      text.match(/https?:\/\/([^\s\/]+)/i) ||
+      text.match(/(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
     if (!urlMatch) return false;
-
-    let domain = urlMatch[1].toLowerCase().replace(/^www\./, "");
-
-    for (const allowed of ALLOWED_DOMAINS) {
-      if (domain === allowed || domain.endsWith("." + allowed)) return true;
-    }
-  } catch (_) {}
-  return false;
+    const domain = urlMatch[1].toLowerCase().replace(/^www\./, "");
+    return ALLOWED_DOMAINS.some(
+      (allowed) => domain === allowed || domain.endsWith("." + allowed),
+    );
+  } catch (_) {
+    return false;
+  }
 }
 
 // ============================================================================
-//  IS USER ADMIN — FIX: always pass ownerPhone for global admin bypass
+//  IS USER ADMIN
+//  FIX: always pass ownerPhone for global admin bypass
+//  FIX: strips device suffix before participant list comparison
 // ============================================================================
 async function isUserAdmin(sock, groupJid, userJid, ownerPhone = "") {
-  // FIX: check global admin first using BOTH args
-  if (ownerPhone && normalizeNum(userJid) === normalizeNum(ownerPhone)) return true;
+  // Global admin (bot owner) always passes
+  if (ownerPhone && normalizeNum(userJid) === normalizeNum(ownerPhone)) {
+    return true;
+  }
   if (isGlobalAdmin(userJid, ownerPhone)) return true;
 
   try {
@@ -192,22 +204,22 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
 
     const msgObj = message.message || {};
     const text =
-      msgObj.conversation                    ||
-      msgObj.extendedTextMessage?.text       ||
-      msgObj.imageMessage?.caption           ||
-      msgObj.videoMessage?.caption           ||
-      msgObj.documentMessage?.caption        ||
+      msgObj.conversation ||
+      msgObj.extendedTextMessage?.text ||
+      msgObj.imageMessage?.caption ||
+      msgObj.videoMessage?.caption ||
+      msgObj.documentMessage?.caption ||
       "";
 
     if (!text) return false;
     if (!containsLink(text)) return false;
 
-    // Get sender — strip device suffix
+    // FIX: strip device suffix from sender JID
     const rawSender = message.key?.participant || groupJid;
     const senderPhone = normalizeNum(rawSender);
     const senderJid = senderPhone ? `${senderPhone}@s.whatsapp.net` : rawSender;
 
-    // FIX: pass ownerPhone so bot owner messages are NEVER flagged
+    // FIX: pass ownerPhone so bot owner is never flagged
     const admin = await isUserAdmin(sock, groupJid, senderJid, ownerPhone);
     if (admin) {
       console.log(`👑 Admin/Owner ${senderPhone} posted link — allowed`);
@@ -232,9 +244,9 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
     }
 
     // Track warnings — unified key format
-    const warnKey  = `${groupJid}:${senderJid}`;
+    const warnKey = `${groupJid}:${senderJid}`;
     const userWarn = groupWarnings.get(warnKey) || 0;
-    const newWarn  = userWarn + 1;
+    const newWarn = userWarn + 1;
     groupWarnings.set(warnKey, newWarn);
     saveWarnings();
 
@@ -253,12 +265,14 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
         });
         groupWarnings.delete(warnKey);
         saveWarnings();
-        console.log(`👢 User ${senderPhone} kicked after ${MAX_ANTILINK_WARNINGS} warnings`);
+        console.log(
+          `👢 User ${senderPhone} kicked after ${MAX_ANTILINK_WARNINGS} warnings`,
+        );
       } catch (kickError) {
         await sock.sendMessage(groupJid, {
           text:
-            `⚠️ *WARNING ${newWarn}/${MAX_ANTILINK_WARNINGS}* — @${senderPhone} No links allowed!\n` +
-            `❌ Failed to kick (bot not admin)\n\n` +
+            `⚠️ *WARNING ${newWarn}/${MAX_ANTILINK_WARNINGS}* — @${senderPhone}\n` +
+            `❌ Could not remove (bot not admin)\n\n` +
             `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
           mentions: [senderJid],
         });
@@ -273,11 +287,13 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
           `⚠️ *Warning:* ${newWarn}/${MAX_ANTILINK_WARNINGS}\n` +
           `💢 *Action:* Message deleted ${deleted ? "✅" : "❌"}\n` +
           `━━━━━━━━━━━━━━━━━━━━━\n` +
-          `⚠️ ${warningsLeft} more warning(s) and you'll be removed.\n\n` +
+          `⚠️ ${warningsLeft} more warning(s) before removal.\n\n` +
           `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
         mentions: [senderJid],
       });
-      console.log(`⚠️ Warning ${newWarn}/${MAX_ANTILINK_WARNINGS} sent to ${senderPhone}`);
+      console.log(
+        `⚠️ Warning ${newWarn}/${MAX_ANTILINK_WARNINGS} sent to ${senderPhone}`,
+      );
     }
 
     return true;
@@ -316,11 +332,15 @@ export async function handleGroupParticipant(update, sock) {
 async function handleGroupJoin(groupJid, participantJid, sock) {
   try {
     const settings = groupSettings.get(groupJid) || {};
-    const banKey   = `${groupJid}_${participantJid}`;
+    const banKey = `${groupJid}_${participantJid}`;
 
     if (bannedUsers.has(banKey)) {
       try {
-        await sock.groupParticipantsUpdate(groupJid, [participantJid], "remove");
+        await sock.groupParticipantsUpdate(
+          groupJid,
+          [participantJid],
+          "remove",
+        );
         console.log("🚫 Auto-kicked banned user", participantJid);
       } catch (_) {}
       return;
@@ -331,7 +351,7 @@ async function handleGroupJoin(groupJid, participantJid, sock) {
     }
 
     if (settings.voiceWelcome) {
-      await sendVoiceWelcome(groupJid, participantJid, sock, settings);
+      await sendVoiceWelcome(groupJid, participantJid, sock);
     }
   } catch (err) {
     console.error("❌ Join handler error:", err.message);
@@ -344,10 +364,12 @@ async function handleGroupJoin(groupJid, participantJid, sock) {
 async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
   try {
     let metadata = null;
-    try { metadata = await getGroupMetadataCached(groupJid, sock); } catch (_) {}
+    try {
+      metadata = await getGroupMetadataCached(groupJid, sock);
+    } catch (_) {}
 
-    const groupName   = metadata?.subject || "the group";
-    const userPhone   = safePhone(participantJid);
+    const groupName = metadata?.subject || "the group";
+    const userPhone = safePhone(participantJid);
     const memberCount = metadata?.participants?.length || 0;
 
     let welcomeText =
@@ -355,11 +377,11 @@ async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
       `Welcome to *${groupName}*! 🎉\n\nHey @${userPhone}! Welcome to the group! You are member #${memberCount}.`;
 
     welcomeText = welcomeText
-      .replace(/@user/gi,  `@${userPhone}`)
+      .replace(/@user/gi, `@${userPhone}`)
       .replace(/@group/gi, groupName)
       .replace(/@count/gi, memberCount.toString())
-      .replace(/@time/gi,  new Date().toLocaleTimeString())
-      .replace(/@date/gi,  new Date().toLocaleDateString());
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
 
     const caption =
       `👋 *Welcome to ${groupName}* 👋\n\n${welcomeText}\n\n` +
@@ -368,12 +390,15 @@ async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
 
     try {
       await sock.sendMessage(groupJid, {
-        image:    { url: ENV.WELCOME_IMAGE_URL },
+        image: { url: ENV.WELCOME_IMAGE_URL },
         caption,
         mentions: [participantJid],
       });
     } catch (_) {
-      await sock.sendMessage(groupJid, { text: caption, mentions: [participantJid] });
+      await sock.sendMessage(groupJid, {
+        text: caption,
+        mentions: [participantJid],
+      });
     }
 
     console.log(`👋 Welcome sent to ${userPhone} in ${groupJid}`);
@@ -391,27 +416,30 @@ async function sendVoiceWelcome(groupJid, participantJid, sock) {
     if (!gtts) return;
 
     const userPhone = safePhone(participantJid);
-    const speech    = new gtts(
+    const speech = new gtts(
       `Welcome to the group, ${userPhone}! We are happy to have you here.`,
       "en",
     );
-    const filePath  = path.join(TEMP_DIR, `welcome_${Date.now()}.mp3`);
+    const filePath = path.join(TEMP_DIR, `welcome_${Date.now()}.mp3`);
 
     await new Promise((resolve, reject) => {
       speech.save(filePath, (err) => {
-        if (err) reject(err); else resolve();
+        if (err) reject(err);
+        else resolve();
       });
     });
 
     const audioBuffer = fs.readFileSync(filePath);
     await sock.sendMessage(groupJid, {
-      audio:    audioBuffer,
+      audio: audioBuffer,
       mimetype: "audio/mpeg",
-      ptt:      true,
+      ptt: true,
       mentions: [participantJid],
     });
 
-    try { fs.unlinkSync(filePath); } catch (_) {}
+    try {
+      fs.unlinkSync(filePath);
+    } catch (_) {}
   } catch (err) {
     console.error("❌ Voice welcome error:", err.message);
   }
@@ -437,20 +465,22 @@ async function handleGroupLeave(groupJid, participantJid, sock) {
 async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
   try {
     let metadata = null;
-    try { metadata = await getGroupMetadataCached(groupJid, sock); } catch (_) {}
+    try {
+      metadata = await getGroupMetadataCached(groupJid, sock);
+    } catch (_) {}
 
     const groupName = metadata?.subject || "the group";
     const userPhone = safePhone(participantJid);
 
     let goodbyeText =
       settings.goodbyeMessage ||
-      `Goodbye, @${userPhone}! 👋\nWe'll miss you in *${groupName}*. Hope to see you again!`;
+      `Goodbye, @${userPhone}! 👋\nWe'll miss you in *${groupName}*.`;
 
     goodbyeText = goodbyeText
-      .replace(/@user/gi,  `@${userPhone}`)
+      .replace(/@user/gi, `@${userPhone}`)
       .replace(/@group/gi, groupName)
-      .replace(/@time/gi,  new Date().toLocaleTimeString())
-      .replace(/@date/gi,  new Date().toLocaleDateString());
+      .replace(/@time/gi, new Date().toLocaleTimeString())
+      .replace(/@date/gi, new Date().toLocaleDateString());
 
     const caption =
       `👋 *Goodbye from ${groupName}* 👋\n\n${goodbyeText}\n\n` +
@@ -459,12 +489,15 @@ async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
 
     try {
       await sock.sendMessage(groupJid, {
-        image:    { url: ENV.WELCOME_IMAGE_URL },
+        image: { url: ENV.WELCOME_IMAGE_URL },
         caption,
         mentions: [participantJid],
       });
     } catch (_) {
-      await sock.sendMessage(groupJid, { text: caption, mentions: [participantJid] });
+      await sock.sendMessage(groupJid, {
+        text: caption,
+        mentions: [participantJid],
+      });
     }
 
     console.log(`👋 Goodbye sent for ${userPhone} in ${groupJid}`);
@@ -476,10 +509,20 @@ async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
 // ============================================================================
 //  BACKWARD-COMPAT WRAPPERS
 // ============================================================================
-export async function checkMessageViolation() { return false; }
+export async function checkMessageViolation() {
+  return false;
+}
 
-export async function handleRuleViolation(type, groupJid, senderJid, sock, message, ownerPhone = "") {
-  if (type === "link") return handleAntiLink(message, groupJid, sock, ownerPhone);
+export async function handleRuleViolation(
+  type,
+  groupJid,
+  senderJid,
+  sock,
+  message,
+  ownerPhone = "",
+) {
+  if (type === "link")
+    return handleAntiLink(message, groupJid, sock, ownerPhone);
   return false;
 }
 
@@ -488,44 +531,52 @@ export async function handleRuleViolation(type, groupJid, senderJid, sock, messa
 // ============================================================================
 export async function setWelcome(groupJid, enabled, message = null) {
   try {
-    const settings   = groupSettings.get(groupJid) || {};
+    const settings = groupSettings.get(groupJid) || {};
     settings.welcome = enabled;
     if (message) settings.welcomeMessage = message;
     groupSettings.set(groupJid, settings);
     saveGroupSettings();
     return true;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 export async function setGoodbye(groupJid, enabled, message = null) {
   try {
-    const settings   = groupSettings.get(groupJid) || {};
+    const settings = groupSettings.get(groupJid) || {};
     settings.goodbye = enabled;
     if (message) settings.goodbyeMessage = message;
     groupSettings.set(groupJid, settings);
     saveGroupSettings();
     return true;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 export async function setAntiLink(groupJid, enabled) {
   try {
-    const settings    = groupSettings.get(groupJid) || {};
+    const settings = groupSettings.get(groupJid) || {};
     settings.antilink = enabled;
     groupSettings.set(groupJid, settings);
     saveGroupSettings();
     return true;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 export async function setAntiSpam(groupJid, enabled) {
   try {
-    const settings    = groupSettings.get(groupJid) || {};
+    const settings = groupSettings.get(groupJid) || {};
     settings.antispam = enabled;
     groupSettings.set(groupJid, settings);
     saveGroupSettings();
     return true;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 export function getGroupSettings(groupJid) {
