@@ -88,8 +88,8 @@ function getSafeStartTime() {
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
   return String(jid)
-    .split("@")[0]           // Remove @s.whatsapp.net / @g.us
-    .split(":")[0]           // Remove :58 device suffix
+    .split("@")[0] // Remove @s.whatsapp.net / @g.us
+    .split(":")[0] // Remove :58 device suffix
     .replace(/[^0-9]/g, ""); // Keep only digits
 }
 
@@ -790,78 +790,109 @@ export async function time({ fullArgs, from, sock }) {
       `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${timeData.source}\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
   });
 }
-
 // ════════════════════════════════════════════════════════════════════════════
-//  SHORTEN
+//  SHORTEN — FULLY FIXED
 // ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock }) {
-  if (!fullArgs)
+  // Check if URL provided
+  if (!fullArgs || !fullArgs.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("URL SHORTENER", `Usage: ${ENV.PREFIX}shorten <url>`),
+      text: `🔗 *URL SHORTENER*\n\nUsage: ${ENV.PREFIX}shorten <url>\n\nExample: ${ENV.PREFIX}shorten https://example.com/long-url-here`,
     });
-  let longUrl = fullArgs.trim().split(" ")[0];
-  if (!longUrl.startsWith("http")) longUrl = "https://" + longUrl;
+  }
+
+  // Extract and validate URL
+  let longUrl = fullArgs.trim().split(/\s+/)[0];
+  if (!longUrl.startsWith("http://") && !longUrl.startsWith("https://")) {
+    longUrl = "https://" + longUrl;
+  }
+
+  // Validate URL format
+  try {
+    new URL(longUrl);
+  } catch (e) {
+    return sock.sendMessage(from, {
+      text: `❌ *Invalid URL*\n\n"${longUrl}" is not a valid URL.\n\nExample: ${ENV.PREFIX}shorten https://example.com`,
+    });
+  }
+
   await sock.sendMessage(from, { text: "🔗 *Shortening URL...*" });
+
+  // Multiple shortening services with fallbacks
   const services = [
     {
       name: "TinyURL",
-      fn: async () =>
-        (
-          await axios.get(
-            `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
-            { timeout: 8_000 },
-          )
-        ).data,
+      url: `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
+      parse: (data) => data.trim(),
     },
     {
       name: "is.gd",
-      fn: async () =>
-        (
-          await axios.get(
-            `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
-            { timeout: 8_000 },
-          )
-        ).data,
+      url: `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
+      parse: (data) => data.trim(),
     },
     {
       name: "v.gd",
-      fn: async () =>
-        (
-          await axios.get(
-            `https://v.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
-            { timeout: 8_000 },
-          )
-        ).data,
+      url: `https://v.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
+      parse: (data) => data.trim(),
+    },
+    {
+      name: "1pt.co",
+      url: `https://1pt.co/api/create?url=${encodeURIComponent(longUrl)}`,
+      parse: (data) => {
+        try {
+          const json = JSON.parse(data);
+          return json.shortenedUrl || null;
+        } catch {
+          return null;
+        }
+      },
     },
     {
       name: "clck.ru",
-      fn: async () =>
-        (
-          await axios.get(
-            `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`,
-            { timeout: 8_000 },
-          )
-        ).data,
+      url: `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`,
+      parse: (data) => data.trim(),
     },
   ];
-  for (const svc of services) {
+
+  let shortUrl = null;
+  let usedService = null;
+
+  for (const service of services) {
     try {
-      const short = (await svc.fn())?.trim();
-      if (short?.startsWith("http"))
-        return sock.sendMessage(from, {
-          text: formatSuccess(
-            "URL SHORTENED",
-            `📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${short}\n\n📊 *Service:* ${svc.name}`,
-          ),
-        });
-    } catch (_) {}
+      const response = await axios.get(service.url, {
+        timeout: 10000,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+
+      const result = service.parse(response.data);
+      if (result && result.startsWith("http")) {
+        shortUrl = result;
+        usedService = service.name;
+        break;
+      }
+    } catch (err) {
+      console.log(`[shorten] ${service.name} failed:`, err.message);
+      continue;
+    }
   }
-  await sock.sendMessage(from, {
-    text: formatError(
-      "ERROR",
-      "All shortener services failed. Please try again later.",
-    ),
-  });
+
+  if (shortUrl) {
+    const originalDisplay =
+      longUrl.length > 50 ? longUrl.substring(0, 47) + "..." : longUrl;
+    const shortDisplay =
+      shortUrl.length > 50 ? shortUrl.substring(0, 47) + "..." : shortUrl;
+
+    await sock.sendMessage(from, {
+      text: `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n📎 *Original:*\n${originalDisplay}\n\n🔗 *Shortened:*\n${shortDisplay}`,
+    });
+  } else {
+    await sock.sendMessage(from, {
+      text: `❌ *SHORTEN FAILED*\n\nCould not shorten the URL. All services are temporarily unavailable.\n\nPlease try again later or use a different URL.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+    });
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1498,35 +1529,219 @@ export async function myip({ from, sock, userJid, message }) {
 
   // Phone number prefix → country mapping
   const phoneCountryMap = [
-    { prefix: "234", country: "Nigeria", code: "NG", flag: "🇳🇬", tz: "Africa/Lagos", currency: "NGN" },
-    { prefix: "233", country: "Ghana", code: "GH", flag: "🇬🇭", tz: "Africa/Accra", currency: "GHS" },
-    { prefix: "254", country: "Kenya", code: "KE", flag: "🇰🇪", tz: "Africa/Nairobi", currency: "KES" },
-    { prefix: "27", country: "South Africa", code: "ZA", flag: "🇿🇦", tz: "Africa/Johannesburg", currency: "ZAR" },
-    { prefix: "1", country: "USA / Canada", code: "US", flag: "🇺🇸", tz: "America/New_York", currency: "USD" },
-    { prefix: "44", country: "United Kingdom", code: "GB", flag: "🇬🇧", tz: "Europe/London", currency: "GBP" },
-    { prefix: "91", country: "India", code: "IN", flag: "🇮🇳", tz: "Asia/Kolkata", currency: "INR" },
-    { prefix: "92", country: "Pakistan", code: "PK", flag: "🇵🇰", tz: "Asia/Karachi", currency: "PKR" },
-    { prefix: "86", country: "China", code: "CN", flag: "🇨🇳", tz: "Asia/Shanghai", currency: "CNY" },
-    { prefix: "81", country: "Japan", code: "JP", flag: "🇯🇵", tz: "Asia/Tokyo", currency: "JPY" },
-    { prefix: "82", country: "South Korea", code: "KR", flag: "🇰🇷", tz: "Asia/Seoul", currency: "KRW" },
-    { prefix: "62", country: "Indonesia", code: "ID", flag: "🇮🇩", tz: "Asia/Jakarta", currency: "IDR" },
-    { prefix: "63", country: "Philippines", code: "PH", flag: "🇵🇭", tz: "Asia/Manila", currency: "PHP" },
-    { prefix: "66", country: "Thailand", code: "TH", flag: "🇹🇭", tz: "Asia/Bangkok", currency: "THB" },
-    { prefix: "84", country: "Vietnam", code: "VN", flag: "🇻🇳", tz: "Asia/Ho_Chi_Minh", currency: "VND" },
-    { prefix: "60", country: "Malaysia", code: "MY", flag: "🇲🇾", tz: "Asia/Kuala_Lumpur", currency: "MYR" },
-    { prefix: "65", country: "Singapore", code: "SG", flag: "🇸🇬", tz: "Asia/Singapore", currency: "SGD" },
-    { prefix: "61", country: "Australia", code: "AU", flag: "🇦🇺", tz: "Australia/Sydney", currency: "AUD" },
-    { prefix: "64", country: "New Zealand", code: "NZ", flag: "🇳🇿", tz: "Pacific/Auckland", currency: "NZD" },
-    { prefix: "55", country: "Brazil", code: "BR", flag: "🇧🇷", tz: "America/Sao_Paulo", currency: "BRL" },
-    { prefix: "52", country: "Mexico", code: "MX", flag: "🇲🇽", tz: "America/Mexico_City", currency: "MXN" },
-    { prefix: "49", country: "Germany", code: "DE", flag: "🇩🇪", tz: "Europe/Berlin", currency: "EUR" },
-    { prefix: "33", country: "France", code: "FR", flag: "🇫🇷", tz: "Europe/Paris", currency: "EUR" },
-    { prefix: "39", country: "Italy", code: "IT", flag: "🇮🇹", tz: "Europe/Rome", currency: "EUR" },
-    { prefix: "34", country: "Spain", code: "ES", flag: "🇪🇸", tz: "Europe/Madrid", currency: "EUR" },
-    { prefix: "7", country: "Russia", code: "RU", flag: "🇷🇺", tz: "Europe/Moscow", currency: "RUB" },
+    {
+      prefix: "234",
+      country: "Nigeria",
+      code: "NG",
+      flag: "🇳🇬",
+      tz: "Africa/Lagos",
+      currency: "NGN",
+    },
+    {
+      prefix: "233",
+      country: "Ghana",
+      code: "GH",
+      flag: "🇬🇭",
+      tz: "Africa/Accra",
+      currency: "GHS",
+    },
+    {
+      prefix: "254",
+      country: "Kenya",
+      code: "KE",
+      flag: "🇰🇪",
+      tz: "Africa/Nairobi",
+      currency: "KES",
+    },
+    {
+      prefix: "27",
+      country: "South Africa",
+      code: "ZA",
+      flag: "🇿🇦",
+      tz: "Africa/Johannesburg",
+      currency: "ZAR",
+    },
+    {
+      prefix: "1",
+      country: "USA / Canada",
+      code: "US",
+      flag: "🇺🇸",
+      tz: "America/New_York",
+      currency: "USD",
+    },
+    {
+      prefix: "44",
+      country: "United Kingdom",
+      code: "GB",
+      flag: "🇬🇧",
+      tz: "Europe/London",
+      currency: "GBP",
+    },
+    {
+      prefix: "91",
+      country: "India",
+      code: "IN",
+      flag: "🇮🇳",
+      tz: "Asia/Kolkata",
+      currency: "INR",
+    },
+    {
+      prefix: "92",
+      country: "Pakistan",
+      code: "PK",
+      flag: "🇵🇰",
+      tz: "Asia/Karachi",
+      currency: "PKR",
+    },
+    {
+      prefix: "86",
+      country: "China",
+      code: "CN",
+      flag: "🇨🇳",
+      tz: "Asia/Shanghai",
+      currency: "CNY",
+    },
+    {
+      prefix: "81",
+      country: "Japan",
+      code: "JP",
+      flag: "🇯🇵",
+      tz: "Asia/Tokyo",
+      currency: "JPY",
+    },
+    {
+      prefix: "82",
+      country: "South Korea",
+      code: "KR",
+      flag: "🇰🇷",
+      tz: "Asia/Seoul",
+      currency: "KRW",
+    },
+    {
+      prefix: "62",
+      country: "Indonesia",
+      code: "ID",
+      flag: "🇮🇩",
+      tz: "Asia/Jakarta",
+      currency: "IDR",
+    },
+    {
+      prefix: "63",
+      country: "Philippines",
+      code: "PH",
+      flag: "🇵🇭",
+      tz: "Asia/Manila",
+      currency: "PHP",
+    },
+    {
+      prefix: "66",
+      country: "Thailand",
+      code: "TH",
+      flag: "🇹🇭",
+      tz: "Asia/Bangkok",
+      currency: "THB",
+    },
+    {
+      prefix: "84",
+      country: "Vietnam",
+      code: "VN",
+      flag: "🇻🇳",
+      tz: "Asia/Ho_Chi_Minh",
+      currency: "VND",
+    },
+    {
+      prefix: "60",
+      country: "Malaysia",
+      code: "MY",
+      flag: "🇲🇾",
+      tz: "Asia/Kuala_Lumpur",
+      currency: "MYR",
+    },
+    {
+      prefix: "65",
+      country: "Singapore",
+      code: "SG",
+      flag: "🇸🇬",
+      tz: "Asia/Singapore",
+      currency: "SGD",
+    },
+    {
+      prefix: "61",
+      country: "Australia",
+      code: "AU",
+      flag: "🇦🇺",
+      tz: "Australia/Sydney",
+      currency: "AUD",
+    },
+    {
+      prefix: "64",
+      country: "New Zealand",
+      code: "NZ",
+      flag: "🇳🇿",
+      tz: "Pacific/Auckland",
+      currency: "NZD",
+    },
+    {
+      prefix: "55",
+      country: "Brazil",
+      code: "BR",
+      flag: "🇧🇷",
+      tz: "America/Sao_Paulo",
+      currency: "BRL",
+    },
+    {
+      prefix: "52",
+      country: "Mexico",
+      code: "MX",
+      flag: "🇲🇽",
+      tz: "America/Mexico_City",
+      currency: "MXN",
+    },
+    {
+      prefix: "49",
+      country: "Germany",
+      code: "DE",
+      flag: "🇩🇪",
+      tz: "Europe/Berlin",
+      currency: "EUR",
+    },
+    {
+      prefix: "33",
+      country: "France",
+      code: "FR",
+      flag: "🇫🇷",
+      tz: "Europe/Paris",
+      currency: "EUR",
+    },
+    {
+      prefix: "39",
+      country: "Italy",
+      code: "IT",
+      flag: "🇮🇹",
+      tz: "Europe/Rome",
+      currency: "EUR",
+    },
+    {
+      prefix: "34",
+      country: "Spain",
+      code: "ES",
+      flag: "🇪🇸",
+      tz: "Europe/Madrid",
+      currency: "EUR",
+    },
+    {
+      prefix: "7",
+      country: "Russia",
+      code: "RU",
+      flag: "🇷🇺",
+      tz: "Europe/Moscow",
+      currency: "RUB",
+    },
   ];
 
-  const sorted = [...phoneCountryMap].sort((a, b) => b.prefix.length - a.prefix.length);
+  const sorted = [...phoneCountryMap].sort(
+    (a, b) => b.prefix.length - a.prefix.length,
+  );
   const match = sorted.find((c) => phoneNum.startsWith(c.prefix));
 
   let localTime = "N/A";
@@ -1548,11 +1763,20 @@ export async function myip({ from, sock, userJid, message }) {
 
   let serverIp = null;
   for (const svc of [
-    { url: "https://api.ipify.org?format=json", parser: (d) => (typeof d === "object" ? d.ip : d.trim()) },
+    {
+      url: "https://api.ipify.org?format=json",
+      parser: (d) => (typeof d === "object" ? d.ip : d.trim()),
+    },
     { url: "https://api4.my-ip.io/ip.json", parser: (d) => d.ip },
     { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
-    { url: "https://ipecho.net/plain", parser: (d) => (typeof d === "string" ? d.trim() : null) },
-    { url: "https://checkip.amazonaws.com/", parser: (d) => (typeof d === "string" ? d.trim() : null) },
+    {
+      url: "https://ipecho.net/plain",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
+    {
+      url: "https://checkip.amazonaws.com/",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
   ]) {
     try {
       const res = await axios.get(svc.url, { timeout: 6000 });
@@ -1567,7 +1791,9 @@ export async function myip({ from, sock, userJid, message }) {
   let serverLoc = null;
   if (serverIp) {
     try {
-      const r = await axios.get(`https://ipwho.is/${serverIp}`, { timeout: 8000 });
+      const r = await axios.get(`https://ipwho.is/${serverIp}`, {
+        timeout: 8000,
+      });
       if (r.data?.success)
         serverLoc = {
           country: r.data.country,
@@ -2325,7 +2551,7 @@ export async function antilink({
   message,
   from,
   sock,
-  isAdmin,      // BOT OWNER check - NOT used for toggling antilink
+  isAdmin, // BOT OWNER check - NOT used for toggling antilink
   isGroup,
   userJid,
 }) {
