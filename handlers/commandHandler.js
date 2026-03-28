@@ -10,6 +10,8 @@
 //  3. Fixed admin permission cascade logic
 //  4. Added refreshadmin command to fix stale admin cache
 //  5. All permission checks now use the centralized admin functions
+//  6. Fixed module loading with detailed error reporting
+//  7. Added multi-name fallback for all commands
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -204,7 +206,7 @@ function sanitizeInput(input) {
 }
 
 // ============================================================================
-//  MODULE LOADER
+//  MODULE LOADER WITH ENHANCED ERROR REPORTING
 // ============================================================================
 cmdLog.title("📦 LOADING COMMAND MODULES");
 
@@ -270,13 +272,16 @@ async function safeImport(moduleName, modulePath) {
       ...mod,
       __default: defaultExport,
       __hasDefault: !!defaultExport && typeof defaultExport === "object",
+      __exportKeys: exportKeys,
     };
   } catch (error) {
     cmdLog.err(`❌ FAILED TO LOAD MODULE: ${moduleName}`);
     cmdLog.err(`   Path : ${modulePath}`);
     cmdLog.err(`   Error: ${error.message}`);
-    if (error.stack)
-      cmdLog.err(`   Stack: ${error.stack.split("\n")[1]?.trim()}`);
+    if (error.stack) {
+      const lines = error.stack.split("\n").slice(0, 5);
+      lines.forEach((l) => cmdLog.err(`   ${l}`));
+    }
     return {};
   }
 }
@@ -299,29 +304,40 @@ async function loadAllModules() {
   cmdLog.div();
   cmdLog.success(`Loaded ${loaded}/${entries.length} modules`);
 
-  const expectedCommands = [
-    "mute",
-    "unmute",
-    "link",
-    "groupdebug",
-    "groupinfo",
-    "rules",
-    "lock",
-    "unlock",
-    "antilink",
-    "antispam",
-  ];
-  const gs = MODULES.groupSettings || {};
-  const missing = expectedCommands.filter(
-    (cmd) =>
-      !gs[cmd] &&
-      !gs[cmd.charAt(0).toUpperCase() + cmd.slice(1)] &&
-      !gs.default?.[cmd],
-  );
-  if (missing.length > 0) {
-    cmdLog.err(
-      `⚠️ MISSING GROUP COMMANDS (settings.js load failure?): ${missing.join(", ")}`,
+  // Critical module check with detailed error reporting
+  const criticalModules = {
+    groupSettings: [
+      "mute",
+      "unmute",
+      "link",
+      "rules",
+      "groupInfo",
+      "settingsOverview",
+    ],
+    groupCore: ["kick", "add", "promote", "demote"],
+    admin: ["mode", "broadcast", "stats"],
+  };
+
+  for (const [modName, fns] of Object.entries(criticalModules)) {
+    const mod = MODULES[modName] || {};
+    const missing = fns.filter(
+      (fn) =>
+        !mod[fn] &&
+        !mod[fn.charAt(0).toUpperCase() + fn.slice(1)] &&
+        !mod.__default?.[fn],
     );
+    if (missing.length > 0) {
+      cmdLog.err(
+        `⚠️  CRITICAL MODULE "${modName}" IS MISSING EXPORTS: ${missing.join(", ")}`,
+      );
+      cmdLog.err(
+        `    → Check ${MODULE_PATHS[modName]} for syntax errors or bad imports`,
+      );
+      const exportedKeys = Object.keys(mod).filter((k) => !k.startsWith("__"));
+      cmdLog.warn(
+        `    → Actual exports: [${exportedKeys.join(", ") || "NONE"}]`,
+      );
+    }
   }
 
   console.log();
@@ -1595,8 +1611,10 @@ export function registerAllCommands() {
   // ==================== GROUP SETTINGS.JS ====================
   const gs = MODULES.groupSettings;
 
-  if (gs.mute)
-    safeRegister("mute", gs.mute, {
+  // Multi-name fallback for each command
+  const muteFn = gs.mute || gs.muteGroup || gs.groupMute || gs.__default?.mute;
+  if (muteFn)
+    safeRegister("mute", muteFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1605,8 +1623,10 @@ export function registerAllCommands() {
       aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"],
     });
 
-  if (gs.unmute)
-    safeRegister("unmute", gs.unmute, {
+  const unmuteFn =
+    gs.unmute || gs.unmuteGroup || gs.groupUnmute || gs.__default?.unmute;
+  if (unmuteFn)
+    safeRegister("unmute", unmuteFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1615,8 +1635,9 @@ export function registerAllCommands() {
       aliases: ["unlockgroup", "groupunlock", "unmuteall", "unmutechat"],
     });
 
-  if (gs.lock)
-    safeRegister("lock", gs.lock, {
+  const lockFn = gs.lock || gs.lockGroup || gs.groupLock || gs.__default?.lock;
+  if (lockFn)
+    safeRegister("lock", lockFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1625,8 +1646,10 @@ export function registerAllCommands() {
       aliases: ["lockinfo", "restrict"],
     });
 
-  if (gs.unlock)
-    safeRegister("unlock", gs.unlock, {
+  const unlockFn =
+    gs.unlock || gs.unlockGroup || gs.groupUnlock || gs.__default?.unlock;
+  if (unlockFn)
+    safeRegister("unlock", unlockFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1635,8 +1658,9 @@ export function registerAllCommands() {
       aliases: ["unlockinfo", "unrestrict"],
     });
 
-  if (gs.antiSpam)
-    safeRegister("antispam", gs.antiSpam, {
+  const antiSpamFn = gs.antiSpam || gs.toggleAntiSpam || gs.__default?.antiSpam;
+  if (antiSpamFn)
+    safeRegister("antispam", antiSpamFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1644,8 +1668,10 @@ export function registerAllCommands() {
       aliases: ["nospam", "blockspam", "toggleantispam", "stopspam"],
     });
 
-  if (gs.welcomeToggle)
-    safeRegister("welcome", gs.welcomeToggle, {
+  const welcomeToggleFn =
+    gs.welcomeToggle || gs.toggleWelcome || gs.__default?.welcomeToggle;
+  if (welcomeToggleFn)
+    safeRegister("welcome", welcomeToggleFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1653,8 +1679,10 @@ export function registerAllCommands() {
       aliases: ["togglewelcome", "welcomeon", "welcomeoff"],
     });
 
-  if (gs.setWelcome)
-    safeRegister("setwelcome", gs.setWelcome, {
+  const setWelcomeFn =
+    gs.setWelcome || gs.setWelcomeMessage || gs.__default?.setWelcome;
+  if (setWelcomeFn)
+    safeRegister("setwelcome", setWelcomeFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1662,8 +1690,10 @@ export function registerAllCommands() {
       aliases: ["setwelcomemsg", "welcometext"],
     });
 
-  if (gs.goodbyeToggle)
-    safeRegister("goodbye", gs.goodbyeToggle, {
+  const goodbyeToggleFn =
+    gs.goodbyeToggle || gs.toggleGoodbye || gs.__default?.goodbyeToggle;
+  if (goodbyeToggleFn)
+    safeRegister("goodbye", goodbyeToggleFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1671,8 +1701,10 @@ export function registerAllCommands() {
       aliases: ["togglegoodbye", "goodbyeon", "goodbyeoff"],
     });
 
-  if (gs.setGoodbye)
-    safeRegister("setgoodbye", gs.setGoodbye, {
+  const setGoodbyeFn =
+    gs.setGoodbye || gs.setGoodbyeMessage || gs.__default?.setGoodbye;
+  if (setGoodbyeFn)
+    safeRegister("setgoodbye", setGoodbyeFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1680,24 +1712,28 @@ export function registerAllCommands() {
       aliases: ["setgoodbyemsg", "goodbyetext"],
     });
 
-  if (gs.groupInfo)
-    safeRegister("groupinfo", gs.groupInfo, {
+  const groupInfoFn =
+    gs.groupInfo || gs.getGroupInfo || gs.__default?.groupInfo;
+  if (groupInfoFn)
+    safeRegister("groupinfo", groupInfoFn, {
       category: "group",
       groupOnly: true,
       description: "Show group information",
       aliases: ["ginfo", "group", "grouppanel"],
     });
 
-  if (gs.rules)
-    safeRegister("rules", gs.rules, {
+  const rulesFn = gs.rules || gs.getRules || gs.__default?.rules;
+  if (rulesFn)
+    safeRegister("rules", rulesFn, {
       category: "group",
       groupOnly: true,
       description: "Show group rules",
       aliases: ["grules", "grouprules"],
     });
 
-  if (gs.setRules)
-    safeRegister("setrules", gs.setRules, {
+  const setRulesFn = gs.setRules || gs.setGroupRules || gs.__default?.setRules;
+  if (setRulesFn)
+    safeRegister("setrules", setRulesFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1705,16 +1741,18 @@ export function registerAllCommands() {
       aliases: ["setgrules", "addrules"],
     });
 
-  if (gs.link)
-    safeRegister("link", gs.link, {
+  const linkFn = gs.link || gs.getLink || gs.getGroupLink || gs.__default?.link;
+  if (linkFn)
+    safeRegister("link", linkFn, {
       category: "group",
       groupOnly: true,
       description: "Get group invite link",
       aliases: ["grouplink", "invitelink"],
     });
 
-  if (gs.revoke)
-    safeRegister("revoke", gs.revoke, {
+  const revokeFn = gs.revoke || gs.revokeLink || gs.__default?.revoke;
+  if (revokeFn)
+    safeRegister("revoke", revokeFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1723,8 +1761,9 @@ export function registerAllCommands() {
       aliases: ["revokelink", "resetlink", "newlink"],
     });
 
-  if (gs.pin)
-    safeRegister("pin", gs.pin, {
+  const pinFn = gs.pin || gs.pinMessage || gs.__default?.pin;
+  if (pinFn)
+    safeRegister("pin", pinFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1733,8 +1772,9 @@ export function registerAllCommands() {
       aliases: ["pinmsg", "pinmessage"],
     });
 
-  if (gs.unpin)
-    safeRegister("unpin", gs.unpin, {
+  const unpinFn = gs.unpin || gs.unpinMessage || gs.__default?.unpin;
+  if (unpinFn)
+    safeRegister("unpin", unpinFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1743,8 +1783,10 @@ export function registerAllCommands() {
       aliases: ["unpinmsg", "unpinmessage"],
     });
 
-  if (gs.deleteMsg)
-    safeRegister("delete", gs.deleteMsg, {
+  const deleteMsgFn =
+    gs.deleteMsg || gs.deleteMessage || gs.__default?.deleteMsg;
+  if (deleteMsgFn)
+    safeRegister("delete", deleteMsgFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1752,16 +1794,20 @@ export function registerAllCommands() {
       aliases: ["delmsg", "deletemessage", "rmmsg"],
     });
 
-  if (gs.settingsOverview)
-    safeRegister("settings", gs.settingsOverview, {
+  const settingsOverviewFn =
+    gs.settingsOverview || gs.getSettings || gs.__default?.settingsOverview;
+  if (settingsOverviewFn)
+    safeRegister("settings", settingsOverviewFn, {
       category: "group",
       groupOnly: true,
       description: "View group settings",
       aliases: ["groupsettings", "gsettings", "settingspanel"],
     });
 
-  if (gs.resetSettings)
-    safeRegister("resetsettings", gs.resetSettings, {
+  const resetSettingsFn =
+    gs.resetSettings || gs.resetGroupSettings || gs.__default?.resetSettings;
+  if (resetSettingsFn)
+    safeRegister("resetsettings", resetSettingsFn, {
       category: "group",
       groupOnly: true,
       requireGroupAdmin: true,
@@ -1769,8 +1815,9 @@ export function registerAllCommands() {
       aliases: ["resetgroupsettings", "clearsettings", "resetall"],
     });
 
-  if (gs.leave)
-    safeRegister("leave", gs.leave, {
+  const leaveFn = gs.leave || gs.leaveGroup || gs.__default?.leave;
+  if (leaveFn)
+    safeRegister("leave", leaveFn, {
       category: "group",
       groupOnly: true,
       adminOnly: true,
@@ -1778,24 +1825,28 @@ export function registerAllCommands() {
       aliases: ["botleave", "leavegroup", "exit"],
     });
 
-  if (gs.debug)
-    safeRegister("groupdebug", gs.debug, {
+  const debugFn = gs.debug || gs.groupDebug || gs.__default?.debug;
+  if (debugFn)
+    safeRegister("groupdebug", debugFn, {
       category: "group",
       groupOnly: true,
       description: "Debug group information",
       aliases: ["gdebug", "groupdbg"],
     });
 
-  if (gs.testAdmin)
-    safeRegister("testadmin", gs.testAdmin, {
+  const testAdminFn = gs.testAdmin || gs.checkAdmin || gs.__default?.testAdmin;
+  if (testAdminFn)
+    safeRegister("testadmin", testAdminFn, {
       category: "group",
       groupOnly: true,
       description: "Test admin status",
       aliases: ["admintest", "checkadmin"],
     });
 
-  if (gs.refreshAdmin)
-    safeRegister("refreshadmin", gs.refreshAdmin, {
+  const refreshAdminFn =
+    gs.refreshAdmin || gs.clearAdminCache || gs.__default?.refreshAdmin;
+  if (refreshAdminFn)
+    safeRegister("refreshadmin", refreshAdminFn, {
       category: "group",
       groupOnly: true,
       description: "Refresh admin cache",
@@ -1829,32 +1880,48 @@ export function registerAllCommands() {
       aliases: ["users", "showusers", "authlist", "listauth"],
     });
 
-  if (adm.mode)
-    safeRegister("mode", adm.mode, {
+  // Multi-name fallback for mode command
+  const modeFn =
+    adm.mode ||
+    adm.setMode ||
+    adm.botMode ||
+    adm.changeMode ||
+    adm.__default?.mode;
+  if (modeFn)
+    safeRegister("mode", modeFn, {
       category: "admin",
       adminOnly: true,
       description: "Change bot mode",
       aliases: ["setmode", "botmode", "changemode", "switchmode"],
     });
+  else
+    cmdLog.err('⚠️  admin.js: no "mode" / "setMode" / "botMode" export found!');
 
-  if (adm.broadcast)
-    safeRegister("broadcast", adm.broadcast, {
+  const broadcastFn =
+    adm.broadcast || adm.sendBroadcast || adm.__default?.broadcast;
+  if (broadcastFn)
+    safeRegister("broadcast", broadcastFn, {
       category: "admin",
       adminOnly: true,
       description: "Broadcast message",
       aliases: ["bc", "announce", "sendall", "massmessage"],
     });
 
-  if (adm.globalBroadcast)
-    safeRegister("globalbc", adm.globalBroadcast, {
+  const globalBroadcastFn =
+    adm.globalBroadcast ||
+    adm.sendGlobalBroadcast ||
+    adm.__default?.globalBroadcast;
+  if (globalBroadcastFn)
+    safeRegister("globalbc", globalBroadcastFn, {
       category: "admin",
       adminOnly: true,
       description: "Global broadcast",
       aliases: ["gbc", "globalbroadcast", "globalannounce", "massbc"],
     });
 
-  if (adm.stats)
-    safeRegister("stats", adm.stats, {
+  const statsFn = adm.stats || adm.getStats || adm.__default?.stats;
+  if (statsFn)
+    safeRegister("stats", statsFn, {
       category: "admin",
       adminOnly: true,
       description: "Bot statistics",
