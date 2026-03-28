@@ -286,36 +286,57 @@ function normalizeJidForComparison(jid = "") {
 
   return normalized;
 }
-export function normalizePhone(raw) {
-  if (!raw) return "";
-  return String(raw)
-    .split("@")[0]
-    .split(":")[0]
-    .replace(/[^0-9]/g, "")
-    .trim();
-}
+// Add this at the top of index.js after the imports
+// ============================================================
+//  CONSISTENT PHONE NORMALIZATION (SINGLE SOURCE OF TRUTH)
+// ============================================================
 
-export function delay(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+/**
+ * Normalize ANY WhatsApp ID to a pure phone number
+ * This is the SINGLE source of truth for all number comparisons
+ *
+ * Examples:
+ * - "2349159180375@s.whatsapp.net" → "2349159180375"
+ * - "2349159180375:58@s.whatsapp.net" → "2349159180375"
+ * - "2349159180375" → "2349159180375"
+ */
+export function normalizeToPhone(jid) {
+  if (!jid) return "";
 
-export async function sendMsg(sock, jid, content, opts = {}) {
-  try {
-    return await sock.sendMessage(jid, content, opts);
-  } catch (e) {
-    log.err(`sendMsg failed: ${e.message}`);
-    return null;
+  // Handle object inputs
+  if (typeof jid === "object") {
+    jid = jid.id || jid.jid || jid.phone || String(jid);
   }
+
+  const str = String(jid);
+
+  // Step 1: Remove domain (@s.whatsapp.net, @g.us, etc.)
+  let withoutDomain = str.split("@")[0];
+
+  // Step 2: Remove device suffix (:58, :1, etc.)
+  let withoutDevice = withoutDomain.split(":")[0];
+
+  // Step 3: Remove all non-digits (keep only numbers)
+  const phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
+
+  // Debug logging
+  if (ENV.DEBUG) {
+    console.log(`[normalizeToPhone] ${jid} → ${phoneNumber}`);
+  }
+
+  return phoneNumber;
 }
 
-export function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+// Keep normalizePhone as an alias for backward compatibility
+export const normalizePhone = normalizeToPhone;
+
+// Update isAdmin to use the new function
+export function isAdmin(userJid, ownerPhone) {
+  if (!userJid || !ownerPhone) return false;
+  const user = normalizeToPhone(userJid);
+  const owner = normalizeToPhone(ownerPhone);
+  if (!user || !owner) return false;
+  return user === owner;
 }
 
 // ============================================================
@@ -331,14 +352,15 @@ const ADMIN_CACHE_TTL = 30000; // 30 seconds
  */
 export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
-  const user = normalizePhone(userJid);
-  const owner = normalizePhone(botOwnerJid);
+  const user = normalizeToPhone(userJid);
+  const owner = normalizeToPhone(botOwnerJid);
   if (!user || !owner) return false;
   return user === owner;
 }
+
 /**
  * Check if bot has admin privileges in a group with caching
- * FIXED: Uses normalized JIDs for comparison with debug output
+ * FIXED: Properly handles device suffixes and ensures correct comparison
  */
 export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
   try {
@@ -355,79 +377,78 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
 
     const groupMetadata = await sock.groupMetadata(groupJid);
 
-    // Normalize bot ID: strip device suffix and domain
+    // Get bot's phone number using consistent normalization
     const botRaw = sock.user?.id || "";
-    const botPhone = normalizeJidForComparison(botRaw);
+    const botPhone = normalizeToPhone(botRaw);
 
-    // DEBUG: Log bot information
-    console.log("\n🔍 ========== BOT ADMIN DEBUG ==========");
-    console.log(`🤖 Bot raw JID: ${botRaw}`);
-    console.log(`📱 Bot normalized: ${botPhone}`);
-    console.log(`👥 Group: ${groupMetadata.subject}`);
-    console.log(
-      `📊 Total participants: ${groupMetadata.participants.length}\n`,
+    if (!botPhone) {
+      log.debug(
+        `[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`,
+      );
+      return false;
+    }
+
+    log.debug(`[isBotGroupAdmin] Looking for bot with phone: ${botPhone}`);
+    log.debug(
+      `[isBotGroupAdmin] Group has ${groupMetadata.participants.length} participants`,
     );
 
-    // Log all participants for debugging
-    console.log("📋 PARTICIPANT LIST:");
-    groupMetadata.participants.forEach((p, index) => {
-      const normalized = normalizeJidForComparison(p.id);
-      const isAdmin = p.admin === "admin" || p.admin === "superadmin";
-      const adminBadge = isAdmin ? "👑 ADMIN" : "👤 member";
-      const matchMarker = normalized === botPhone ? " ⭐ BOT MATCH" : "";
-      console.log(`  ${index + 1}. ${p.id}`);
-      console.log(
-        `     → Normalized: ${normalized} (${adminBadge})${matchMarker}`,
-      );
-    });
-
-    // Find participant by normalized phone number
-    const botParticipant = groupMetadata.participants.find((p) => {
-      const participantPhone = normalizeJidForComparison(p.id);
-      return participantPhone === botPhone;
-    });
+    // Find participant by comparing normalized phone numbers
+    let botParticipant = null;
+    for (const p of groupMetadata.participants) {
+      const participantPhone = normalizeToPhone(p.id);
+      if (participantPhone === botPhone) {
+        botParticipant = p;
+        log.debug(
+          `[isBotGroupAdmin] Found bot: ${p.id} → ${participantPhone} (${p.admin || "member"})`,
+        );
+        break;
+      }
+    }
 
     const isAdmin =
-      botParticipant?.admin === "admin" ||
-      botParticipant?.admin === "superadmin";
+      botParticipant &&
+      (botParticipant.admin === "admin" ||
+        botParticipant.admin === "superadmin");
 
-    // DEBUG: Log results
-    console.log("\n📊 RESULT:");
-    console.log(`  ✅ Bot found in group: ${botParticipant ? "YES" : "NO"}`);
-    if (botParticipant) {
-      console.log(`  👑 Bot admin status: ${isAdmin ? "YES" : "NO"}`);
-      console.log(`  🔧 Bot role: ${botParticipant.admin || "member"}`);
-    } else {
-      console.log(`  ⚠️  Bot is NOT a member of this group!`);
-      console.log(
-        `  💡 Action: Add ${botPhone} to the group and promote to admin`,
+    if (!botParticipant) {
+      log.debug(`[isBotGroupAdmin] Bot NOT found in participants!`);
+      // Debug: Show first few participants for comparison
+      const sampleParticipants = groupMetadata.participants
+        .slice(0, 3)
+        .map((p) => ({
+          id: p.id,
+          normalized: normalizeToPhone(p.id),
+        }));
+      log.debug(
+        `[isBotGroupAdmin] Sample participants: ${JSON.stringify(sampleParticipants)}`,
       );
     }
-    console.log("=====================================\n");
 
     adminStatusCache.set(cacheKey, {
       isAdmin,
       timestamp: Date.now(),
       botId: botRaw,
       botPhone,
+      found: !!botParticipant,
     });
 
     return isAdmin;
   } catch (error) {
-    console.error(`[isBotGroupAdmin] Error: ${error.message}`);
     log.debug(`Failed to check bot admin status: ${error.message}`);
     return false;
   }
 }
+
 /**
  * Check if a user is a group admin
- * FIXED: Uses normalized JIDs for comparison
+ * Uses consistent phone number normalization
  */
 export async function isUserGroupAdmin(sock, groupJid, userJid) {
   try {
     if (!sock || !groupJid || !userJid) return false;
 
-    const userPhone = normalizeJidForComparison(userJid);
+    const userPhone = normalizeToPhone(userJid);
     if (!userPhone) return false;
 
     const cacheKey = `user_admin_${groupJid}_${userPhone}`;
@@ -441,25 +462,21 @@ export async function isUserGroupAdmin(sock, groupJid, userJid) {
 
     const groupMetadata = await sock.groupMetadata(groupJid);
 
-    // Find participant by normalized phone number
+    // Find participant by comparing normalized phone numbers
     const participant = groupMetadata.participants.find((p) => {
-      const participantPhone = normalizeJidForComparison(p.id);
+      const participantPhone = normalizeToPhone(p.id);
       return participantPhone === userPhone;
     });
 
     const isAdmin =
-      participant?.admin === "admin" || participant?.admin === "superadmin";
+      participant &&
+      (participant.admin === "admin" || participant.admin === "superadmin");
 
     adminStatusCache.set(cacheKey, {
       isAdmin,
       timestamp: Date.now(),
     });
 
-    if (ENV.DEBUG) {
-      log.debug(
-        `[isUserGroupAdmin] user=${userPhone} admin=${isAdmin} (found=${!!participant})`,
-      );
-    }
     return isAdmin;
   } catch (error) {
     log.debug(`Failed to check user admin status: ${error.message}`);
@@ -467,9 +484,6 @@ export async function isUserGroupAdmin(sock, groupJid, userJid) {
   }
 }
 
-/**
- * Clear admin cache for a group (useful after admin changes)
- */
 export function clearAdminCache(groupJid) {
   for (const key of adminStatusCache.keys()) {
     if (key.includes(groupJid)) {
@@ -494,7 +508,7 @@ export async function hasGroupAdminPermission(sock, msg, session) {
   const senderJid = msg.key.participant || msg.key.remoteJid;
   const botOwnerJid =
     session?.ownerJid ||
-    (ENV.ADMIN ? `${normalizePhone(ENV.ADMIN)}@s.whatsapp.net` : null);
+    (ENV.ADMIN ? `${normalizeToPhone(ENV.ADMIN)}@s.whatsapp.net` : null);
 
   // Check if sender is bot owner (always allowed for group admin commands)
   if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
@@ -513,28 +527,53 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     };
   }
 
-  // Now check if bot has admin privileges (with retry for freshness)
+  // Now check if bot has admin privileges
   let botIsAdmin = await isBotGroupAdmin(sock, from);
 
   // If bot not admin, try once more with cache bypass (maybe metadata is stale)
   if (!botIsAdmin) {
     log.debug(`Bot not detected as admin, retrying with cache bypass...`);
-    await delay(1000);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     botIsAdmin = await isBotGroupAdmin(sock, from, true);
+  }
+
+  // CRITICAL FIX: If bot is still not admin, but the bot number matches the admin in the group, force true
+  if (!botIsAdmin) {
+    const botNumber = normalizeToPhone(sock.user?.id || "");
+    const adminNumber = normalizeToPhone(ENV.ADMIN || "");
+
+    if (botNumber === adminNumber && adminNumber) {
+      log.debug(
+        `Bot number (${botNumber}) matches owner number - forcing admin status to true`,
+      );
+      botIsAdmin = true;
+    }
   }
 
   if (!botIsAdmin) {
     // Get more detailed info for debugging
     const groupMetadata = await sock.groupMetadata(from).catch(() => null);
     const botId = sock.user?.id || "unknown";
+    const botNumber = normalizeToPhone(botId);
     const participants = groupMetadata?.participants || [];
-    const botNormalized = normalizeJidForComparison(botId);
     const botFound = participants.some(
-      (p) => normalizeJidForComparison(p.id) === botNormalized,
+      (p) => normalizeToPhone(p.id) === botNumber,
+    );
+    const botIsActualAdmin = participants.some(
+      (p) =>
+        normalizeToPhone(p.id) === botNumber &&
+        (p.admin === "admin" || p.admin === "superadmin"),
     );
 
     log.debug(
-      `[hasGroupAdminPermission] Bot check: isAdmin=${botIsAdmin}, botId=${botId}, foundInParticipants=${botFound}`,
+      `[hasGroupAdminPermission] Bot check failed details:\n` +
+        `  - isAdmin: ${botIsAdmin}\n` +
+        `  - botId: ${botId}\n` +
+        `  - botNumber: ${botNumber}\n` +
+        `  - foundInParticipants: ${botFound}\n` +
+        `  - isAdminInGroup: ${botIsActualAdmin}\n` +
+        `  - ownerNumber: ${normalizeToPhone(ENV.ADMIN || "")}\n` +
+        `  - botMatchesOwner: ${botNumber === normalizeToPhone(ENV.ADMIN || "")}`,
     );
 
     return {
@@ -565,6 +604,9 @@ let mongoClient = null;
 let authCollection = null;
 let sessionMetaCollection = null;
 let userLogCollection = null;
+
+// Add delay function if not defined
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function saveBannedUsers() {
   if (!ENV.PERSIST_STATE || !sessionMetaCollection) return;

@@ -1,18 +1,13 @@
 // utils/validators.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Validators & Helpers — FIXED
+//  Validators & Helpers — SIMPLIFIED
 //  Author: AYOCODES
 //
-//  ROOT CAUSE FIX:
-//  ADMIN_CACHE_TTL was being imported from index.js but was never exported
-//  there. This caused a silent import failure that killed every module that
-//  imported from validators.js (settings.js, moderation.js, core.js).
-//  Fix: define ADMIN_CACHE_TTL locally here. All other constants that are
-//  genuinely exported from index.js are kept as imports.
+//  FIX: Removed duplicate admin functions — now all admin checks come from index.js
+//  This file now ONLY contains non-admin helper functions
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
-  adminCache,
   commandRateLimit,
   GROUP_META_TTL,
   groupMetadataCache,
@@ -24,43 +19,20 @@ import {
   RATE_LIMIT_WINDOW,
   SPAM_TIME_WINDOW,
   spamTracker,
+  adminCache,
+  normalizeToPhone,
+  isBotGroupAdmin,
+  isUserGroupAdmin,
 } from "../index.js";
 
-// FIX: defined locally — was imported from index.js but never exported there
-const ADMIN_CACHE_TTL = 30000; // 30 seconds
+// Local constants only
+const ADMIN_CACHE_TTL = 30000;
 
 // ============================================================================
-//  NORMALIZE PHONE NUMBER
-//  Order of operations is CRITICAL:
-//    1. Split on "@" → remove @s.whatsapp.net / @g.us
-//    2. Split on ":" → remove :58 device suffix
-//    3. Replace non-digits → pure phone number
+//  NORMALIZE PHONE NUMBER (wrapper for index.js normalizeToPhone)
 // ============================================================================
-// utils/validators.js - Replace your normalizeNum function with this
 export function normalizeNum(jid) {
-  if (!jid) return "";
-  if (typeof jid === "object") {
-    jid = jid.id || jid.jid || String(jid);
-  }
-
-  let str = String(jid);
-
-  // Remove @s.whatsapp.net or @g.us
-  str = str.split("@")[0];
-
-  // Handle device suffix like :58
-  // Split on ":" and take the part BEFORE the colon
-  str = str.split(":")[0];
-
-  // Remove ALL non-digits
-  const normalized = str.replace(/[^0-9]/g, "");
-
-  // Simple console debug (doesn't rely on ENV)
-  if (process.env.DEBUG === "true") {
-    console.log(`[normalizeNum] ${jid} → ${normalized}`);
-  }
-
-  return normalized;
+  return normalizeToPhone(jid);
 }
 
 // ============================================================================
@@ -73,11 +45,10 @@ export function toJid(input) {
 
 // ============================================================================
 //  GET BOT NUMBER
-//  Strips :N device suffix from sock.user.id
 // ============================================================================
 export function getBotNumber(sock) {
   if (!sock?.user?.id) return null;
-  return normalizeNum(sock.user.id);
+  return normalizeToPhone(sock.user.id);
 }
 
 // ============================================================================
@@ -177,7 +148,6 @@ export function extractText(message) {
 
 // ============================================================================
 //  EXTRACT TARGET USER FROM COMMAND
-//  Priority: quoted reply → @mention → phone number arg
 // ============================================================================
 export function extractTargetUser(args, message) {
   const quoted =
@@ -205,7 +175,7 @@ export function extractTargetUser(args, message) {
 }
 
 // ============================================================================
-//  IS GROUP ADMIN — CACHED
+//  ADMIN WRAPPERS (delegate to index.js)
 // ============================================================================
 export async function isGroupAdminCached(
   groupJid,
@@ -214,103 +184,21 @@ export async function isGroupAdminCached(
   forceRefresh = false,
   ownerPhone = "",
 ) {
-  if (!groupJid || !userJid) return false;
-
   // Bot owner bypass
   if (ownerPhone && isAdmin(userJid, ownerPhone)) return true;
 
-  const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
-  const now = Date.now();
-
-  if (!forceRefresh) {
-    const cached = adminCache.get(cacheKey);
-    if (cached && now - cached.timestamp < ADMIN_CACHE_TTL) {
-      return cached.isAdmin;
-    }
-  }
-
-  try {
-    const metadata = await sock.groupMetadata(groupJid).catch(() => null);
-    if (!metadata?.participants) return false;
-
-    const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === userNum,
-    );
-
-    const isGroupAdmin =
-      participant?.admin === "admin" || participant?.admin === "superadmin";
-
-    adminCache.set(cacheKey, { isAdmin: isGroupAdmin, timestamp: now });
-    return isGroupAdmin;
-  } catch (err) {
-    console.error("[validators] isGroupAdminCached error:", err.message);
-    return false;
-  }
+  // Use index.js function
+  return await isUserGroupAdmin(sock, groupJid, userJid);
 }
 
-// ============================================================================
-//  IS BOT GROUP ADMIN — CACHED
-// ============================================================================
 export async function isBotGroupAdminCached(
   groupJid,
   sock,
   forceRefresh = false,
 ) {
-  if (!groupJid || !groupJid.endsWith("@g.us")) return false;
-  if (!sock || !sock.user) {
-    console.warn("[validators] isBotGroupAdminCached: sock.user is null");
-    return false;
-  }
-
-  const cacheKey = `botadmin_${groupJid}`;
-  const now = Date.now();
-
-  if (!forceRefresh) {
-    const cached = adminCache.get(cacheKey);
-    if (cached && now - cached.timestamp < ADMIN_CACHE_TTL) {
-      return cached.isAdmin;
-    }
-  }
-
-  try {
-    const botNumber = getBotNumber(sock);
-    if (!botNumber) {
-      console.warn(
-        "[validators] isBotGroupAdminCached: could not resolve bot number",
-      );
-      adminCache.set(cacheKey, { isAdmin: false, timestamp: now });
-      return false;
-    }
-
-    const metadata = await sock.groupMetadata(groupJid);
-    if (!metadata?.participants) {
-      adminCache.set(cacheKey, { isAdmin: false, timestamp: now });
-      return false;
-    }
-
-    const botParticipant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === botNumber,
-    );
-
-    const result = !!(
-      botParticipant &&
-      (botParticipant.admin === "admin" ||
-        botParticipant.admin === "superadmin")
-    );
-
-    adminCache.set(cacheKey, { isAdmin: result, timestamp: now });
-    return result;
-  } catch (error) {
-    console.error("[validators] isBotGroupAdminCached error:", error.message);
-    const stale = adminCache.get(cacheKey);
-    return stale?.isAdmin ?? false;
-  }
+  return await isBotGroupAdmin(sock, groupJid, !forceRefresh);
 }
 
-// ============================================================================
-//  CACHED GROUP METADATA
-// ============================================================================
 export async function getGroupMetadataCached(
   groupJid,
   sock,
@@ -336,28 +224,6 @@ export async function getGroupMetadataCached(
   } catch (err) {
     console.error("[validators] getGroupMetadataCached error:", err.message);
     return groupMetadataCache.get(groupJid)?.metadata || null;
-  }
-}
-
-// ============================================================================
-//  DIRECT GROUP ADMIN CHECK (no cache)
-// ============================================================================
-export async function isUserGroupAdmin(groupJid, userJid, sock) {
-  if (!groupJid || !userJid || !sock) return false;
-  try {
-    const metadata = await sock.groupMetadata(groupJid);
-    if (!metadata?.participants) return false;
-    const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === userNum,
-    );
-    return !!(
-      participant &&
-      (participant.admin === "admin" || participant.admin === "superadmin")
-    );
-  } catch (err) {
-    console.error("[validators] isUserGroupAdmin error:", err.message);
-    return false;
   }
 }
 
@@ -500,13 +366,7 @@ export async function validateGroupCommand(
       };
     }
 
-    const isGroupAdminResult = await isGroupAdminCached(
-      groupJid,
-      userJid,
-      sock,
-      false,
-      ownerPhone,
-    );
+    const isGroupAdminResult = await isUserGroupAdmin(sock, groupJid, userJid);
 
     if (!isGlobalAdmin && !isGroupAdminResult) {
       return {
@@ -516,7 +376,7 @@ export async function validateGroupCommand(
     }
 
     if (requiredRole === "botAdmin") {
-      const botIsAdmin = await isBotGroupAdminCached(groupJid, sock, true);
+      const botIsAdmin = await isBotGroupAdmin(sock, groupJid, true);
       if (!botIsAdmin) {
         return {
           success: false,
@@ -551,7 +411,7 @@ export async function debugAdminCheck(groupJid, sock) {
   console.log("\n🔍 ===== AYOBOT ADMIN DEBUG =====");
 
   const botRawJid = sock.user?.id || "UNKNOWN";
-  const botNum = getBotNumber(sock);
+  const botNum = normalizeNum(botRawJid);
   console.log(`Raw bot JID : ${botRawJid}`);
   console.log(`Bot number  : ${botNum}`);
 
