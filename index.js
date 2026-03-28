@@ -286,9 +286,8 @@ function normalizeJidForComparison(jid = "") {
 
   return normalized;
 }
-// Add this at the top of index.js after the imports
 // ============================================================
-//  CONSISTENT PHONE NORMALIZATION (SINGLE SOURCE OF TRUTH)
+//   CONSISTENT PHONE NORMALIZATION (SINGLE SOURCE OF TRUTH)
 // ============================================================
 
 /**
@@ -330,15 +329,6 @@ export function normalizeToPhone(jid) {
 // Keep normalizePhone as an alias for backward compatibility
 export const normalizePhone = normalizeToPhone;
 
-// Update isAdmin to use the new function
-export function isAdmin(userJid, ownerPhone) {
-  if (!userJid || !ownerPhone) return false;
-  const user = normalizeToPhone(userJid);
-  const owner = normalizeToPhone(ownerPhone);
-  if (!user || !owner) return false;
-  return user === owner;
-}
-
 // ============================================================
 //   CRITICAL: ADMIN & PERMISSION HELPERS (COMPLETELY FIXED)
 // ============================================================
@@ -354,6 +344,18 @@ export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
   const user = normalizeToPhone(userJid);
   const owner = normalizeToPhone(botOwnerJid);
+  if (!user || !owner) return false;
+  return user === owner;
+}
+
+/**
+ * Check if a user is an admin (bot owner or co-developer)
+ * SINGLE DEFINITION - NO DUPLICATES
+ */
+export function isAdmin(userJid, ownerPhone) {
+  if (!userJid || !ownerPhone) return false;
+  const user = normalizeToPhone(userJid);
+  const owner = normalizeToPhone(ownerPhone);
   if (!user || !owner) return false;
   return user === owner;
 }
@@ -596,6 +598,9 @@ export async function refreshAdminStatus(sock, groupJid) {
   return await isBotGroupAdmin(sock, groupJid, true);
 }
 
+// Add delay function if not defined
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // ============================================================
 //   PERSISTENCE FUNCTIONS (FULLY IMPLEMENTED)
 // ============================================================
@@ -604,9 +609,6 @@ let mongoClient = null;
 let authCollection = null;
 let sessionMetaCollection = null;
 let userLogCollection = null;
-
-// Add delay function if not defined
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function saveBannedUsers() {
   if (!ENV.PERSIST_STATE || !sessionMetaCollection) return;
@@ -864,13 +866,6 @@ export function removeBann(jid) {
 // ============================================================
 //   ADMIN HELPERS
 // ============================================================
-export function isAdmin(userJid, ownerPhone) {
-  if (!userJid || !ownerPhone) return false;
-  const u = normalizePhone(userJid);
-  const o = normalizePhone(ownerPhone);
-  if (!u || !o) return false;
-  return u === o;
-}
 
 export function isAuthorized(userJid, ownerPhone, sessionMode) {
   if (isAdmin(userJid, ownerPhone)) return true;
