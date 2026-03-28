@@ -36,7 +36,7 @@ const ADMIN_CACHE_TTL = 30000; // 30 seconds
 //    2. Split on ":" → remove :58 device suffix
 //    3. Replace non-digits → pure phone number
 // ============================================================================
-// utils/validators.js
+// utils/validators.js - Replace your normalizeNum function with this
 export function normalizeNum(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
@@ -55,13 +55,14 @@ export function normalizeNum(jid) {
   // Remove ALL non-digits
   const normalized = str.replace(/[^0-9]/g, "");
 
-  // Debug log to see what's happening
-  if (ENV.DEBUG) {
+  // Simple console debug (doesn't rely on ENV)
+  if (process.env.DEBUG === "true") {
     console.log(`[normalizeNum] ${jid} → ${normalized}`);
   }
 
   return normalized;
 }
+
 // ============================================================================
 //  CONVERT TO JID
 // ============================================================================
