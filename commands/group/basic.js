@@ -791,7 +791,7 @@ export async function time({ fullArgs, from, sock }) {
   });
 }
 // ════════════════════════════════════════════════════════════════════════════
-//  SHORTEN — FULLY FIXED
+//  SHORTEN — NO PREVIEW VERSION
 // ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock }) {
   // Check if URL provided
@@ -836,18 +836,6 @@ export async function shorten({ fullArgs, from, sock }) {
       parse: (data) => data.trim(),
     },
     {
-      name: "1pt.co",
-      url: `https://1pt.co/api/create?url=${encodeURIComponent(longUrl)}`,
-      parse: (data) => {
-        try {
-          const json = JSON.parse(data);
-          return json.shortenedUrl || null;
-        } catch {
-          return null;
-        }
-      },
-    },
-    {
       name: "clck.ru",
       url: `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`,
       parse: (data) => data.trim(),
@@ -880,17 +868,17 @@ export async function shorten({ fullArgs, from, sock }) {
   }
 
   if (shortUrl) {
-    const originalDisplay =
-      longUrl.length > 50 ? longUrl.substring(0, 47) + "..." : longUrl;
-    const shortDisplay =
-      shortUrl.length > 50 ? shortUrl.substring(0, 47) + "..." : shortUrl;
-
+    // ✅ FIX: Send as TEXT ONLY to prevent WhatsApp preview
+    // Use document or plain text without link preview
     await sock.sendMessage(from, {
-      text: `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n📎 *Original:*\n${originalDisplay}\n\n🔗 *Shortened:*\n${shortDisplay}`,
+      text: `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${shortUrl}\n\n📊 *Service:* ${usedService}\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      // Disable link preview
+      linkPreview: false,
     });
   } else {
     await sock.sendMessage(from, {
       text: `❌ *SHORTEN FAILED*\n\nCould not shorten the URL. All services are temporarily unavailable.\n\nPlease try again later or use a different URL.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      linkPreview: false,
     });
   }
 }

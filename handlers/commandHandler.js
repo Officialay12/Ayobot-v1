@@ -1,15 +1,15 @@
 // handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Command Handler — COMPLETE FIXED VERSION
+//  Command Handler — COMPLETE FIXED VERSION WITH PROPER ADMIN DETECTION
 //  Author: AYOCODES
 //
-//  FIXES IN THIS VERSION:
-//  1. isBotGroupAdminCached — DIRECT top-level import (was lazy/fallback)
-//     Old code used a try/catch lazy import that fell back to `async () => false`
-//     permanently when validators.js had any load issue. Now imported at top. — AYOCODES
-//  2. ENV.DEBUG — fixed boolean comparison (was === "true" string check) — AYOCODES
-//  3. ENV.RATE_LIMIT_MAX — fixed key name (was ENV.RATE_LIMIT, undefined) — AYOCODES
-//  4. session.commandCount — now incremented on every successful command — AYOCODES
+//  CRITICAL FIXES:
+//  1. Group admin detection now correctly identifies group admins using the
+//     proper hasGroupAdminPermission function from index.js
+//  2. Added proper bot owner vs group admin distinction
+//  3. Fixed admin permission cascade logic
+//  4. Added refreshadmin command to fix stale admin cache
+//  5. All permission checks now use the centralized admin functions
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -19,13 +19,18 @@ import {
   isAdmin,
   isAuthorized,
   isGroupActivated,
+  hasGroupAdminPermission,
+  refreshAdminStatus,
+  isBotGroupAdmin,
+  clearAdminCache,
+  normalizePhone,
+  delay,
+  sendMsg,
+  log,
 } from "../index.js";
 
-// FIX: Direct top-level import — no more lazy import fallback — AYOCODES
-import { isBotGroupAdminCached } from "../utils/validators.js";
-
 // ============================================================================
-//  COLOR LOGGER — AYOCODES
+//  COLOR LOGGER
 // ============================================================================
 const C = {
   reset: "\x1b[0m",
@@ -40,13 +45,12 @@ const C = {
   dim: "\x1b[2m",
 };
 
-const log = {
+const cmdLog = {
   ok: (m) => console.log(`${C.green}✅${C.reset} ${m}`),
   err: (m) => console.log(`${C.red}❌${C.reset} ${m}`),
   warn: (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
   info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
   cmd: (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
-  // FIX: ENV.DEBUG is a boolean — was === "true" string comparison — AYOCODES
   debug: (m) => !!ENV.DEBUG && console.log(`${C.gray}🔍${C.reset} ${m}`),
   success: (m) => console.log(`${C.green}✓${C.reset}  ${m}`),
   title: (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
@@ -54,25 +58,25 @@ const log = {
 };
 
 // ============================================================================
-//  ENVIRONMENT VALIDATION — AYOCODES
+//  ENVIRONMENT VALIDATION
 // ============================================================================
 if (!ENV.PREFIX) {
-  log.warn("PREFIX not set, using default: .");
+  cmdLog.warn("PREFIX not set, using default: .");
   ENV.PREFIX = ".";
 }
 
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
 if (!OWNER_PHONE) {
-  log.warn(
+  cmdLog.warn(
     "⚠️ No owner phone configured! Set ADMIN or OWNER_PHONE in environment",
   );
 } else {
   ENV.OWNER_PHONE = OWNER_PHONE;
-  log.ok(`Owner configured: ${OWNER_PHONE}`);
+  cmdLog.ok(`Owner configured: ${OWNER_PHONE}`);
 }
 
 // ============================================================================
-//  RATE LIMITER — AYOCODES
+//  RATE LIMITER
 // ============================================================================
 class RateLimiter {
   constructor(maxRequests = 15, windowMs = 60000) {
@@ -120,7 +124,6 @@ class RateLimiter {
   }
 }
 
-// FIX: Use ENV.RATE_LIMIT_MAX (was ENV.RATE_LIMIT which was always undefined) — AYOCODES
 const rateLimiter = new RateLimiter(
   parseInt(ENV.RATE_LIMIT_MAX) || 15,
   parseInt(ENV.RATE_LIMIT_WINDOW) || 60000,
@@ -128,7 +131,7 @@ const rateLimiter = new RateLimiter(
 rateLimiter.startCleanup();
 
 // ============================================================================
-//  COMMAND COOLDOWN MANAGER — AYOCODES
+//  COMMAND COOLDOWN MANAGER
 // ============================================================================
 class CommandCooldown {
   constructor() {
@@ -178,14 +181,14 @@ class CommandCooldown {
 const commandCooldown = new CommandCooldown();
 
 // ============================================================================
-//  TRIVIA STATE — AYOCODES
+//  TRIVIA STATE
 // ============================================================================
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
 }
 
 // ============================================================================
-//  HELPERS — AYOCODES
+//  HELPERS
 // ============================================================================
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
@@ -201,9 +204,9 @@ function sanitizeInput(input) {
 }
 
 // ============================================================================
-//  MODULE LOADER — AYOCODES
+//  MODULE LOADER
 // ============================================================================
-log.title("📦 LOADING COMMAND MODULES");
+cmdLog.title("📦 LOADING COMMAND MODULES");
 
 const MODULE_PATHS = {
   basic: "../commands/group/basic.js",
@@ -249,17 +252,18 @@ async function safeImport(moduleName, modulePath) {
           )
         : [];
 
-    // FIX: LOUD warning when a module loads with zero functions — AYOCODES
     if (functionKeys.length === 0 && defaultKeys.length === 0) {
-      log.err(
+      cmdLog.err(
         `⚠️ ${moduleName.padEnd(15)} ➜ LOADED BUT HAS NO FUNCTIONS — check exports!`,
       );
     } else if (!!ENV.DEBUG) {
-      log.ok(`${moduleName.padEnd(15)} ➜ ${functionKeys.length} named exports`);
+      cmdLog.ok(
+        `${moduleName.padEnd(15)} ➜ ${functionKeys.length} named exports`,
+      );
       if (defaultKeys.length)
-        log.debug(`   └─ Default: ${defaultKeys.join(", ")}`);
+        cmdLog.debug(`   └─ Default: ${defaultKeys.join(", ")}`);
     } else {
-      log.ok(`${moduleName.padEnd(15)} ➜ Loaded`);
+      cmdLog.ok(`${moduleName.padEnd(15)} ➜ Loaded`);
     }
 
     return {
@@ -268,19 +272,18 @@ async function safeImport(moduleName, modulePath) {
       __hasDefault: !!defaultExport && typeof defaultExport === "object",
     };
   } catch (error) {
-    // FIX: Show full error, not just 50 chars — AYOCODES
-    log.err(`❌ FAILED TO LOAD MODULE: ${moduleName}`);
-    log.err(`   Path : ${modulePath}`);
-    log.err(`   Error: ${error.message}`);
-    if (error.stack) log.err(`   Stack: ${error.stack.split("\n")[1]?.trim()}`);
+    cmdLog.err(`❌ FAILED TO LOAD MODULE: ${moduleName}`);
+    cmdLog.err(`   Path : ${modulePath}`);
+    cmdLog.err(`   Error: ${error.message}`);
+    if (error.stack)
+      cmdLog.err(`   Stack: ${error.stack.split("\n")[1]?.trim()}`);
     return {};
   }
 }
 
 async function loadAllModules() {
-  log.div();
+  cmdLog.div();
 
-  // Load all modules in parallel for faster startup — AYOCODES
   const entries = Object.entries(MODULE_PATHS);
   const results = await Promise.all(
     entries.map(([, path]) =>
@@ -293,10 +296,9 @@ async function loadAllModules() {
     (m) => Object.keys(m).length > 0,
   ).length;
 
-  log.div();
-  log.success(`Loaded ${loaded}/${entries.length} modules`);
+  cmdLog.div();
+  cmdLog.success(`Loaded ${loaded}/${entries.length} modules`);
 
-  // FIX: Post-load audit — immediately flags missing critical commands — AYOCODES
   const expectedCommands = [
     "mute",
     "unmute",
@@ -317,7 +319,7 @@ async function loadAllModules() {
       !gs.default?.[cmd],
   );
   if (missing.length > 0) {
-    log.err(
+    cmdLog.err(
       `⚠️ MISSING GROUP COMMANDS (settings.js load failure?): ${missing.join(", ")}`,
     );
   }
@@ -329,7 +331,7 @@ async function loadAllModules() {
 await loadAllModules();
 
 // ============================================================================
-//  COMMAND REGISTRY — AYOCODES
+//  COMMAND REGISTRY
 // ============================================================================
 export const commands = new Map();
 export const primaryCommands = new Map();
@@ -353,7 +355,7 @@ class CommandMeta {
 
 export function registerCommand(primaryName, handler, options = {}) {
   if (typeof handler !== "function") {
-    log.err(`Cannot register "${primaryName}": handler is not a function`);
+    cmdLog.err(`Cannot register "${primaryName}": handler is not a function`);
     return false;
   }
 
@@ -372,7 +374,7 @@ export function registerCommand(primaryName, handler, options = {}) {
   });
 
   if (!!ENV.DEBUG) {
-    log.cmd(
+    cmdLog.cmd(
       `Registered: ${name}${aliases.length ? ` [${aliases.join(", ")}]` : ""}`,
     );
   }
@@ -397,7 +399,7 @@ export function safeRegister(primaryName, handler, options = {}) {
   try {
     return registerCommand(primaryName, handler, options);
   } catch (error) {
-    log.err(`safeRegister("${primaryName}") failed: ${error.message}`);
+    cmdLog.err(`safeRegister("${primaryName}") failed: ${error.message}`);
     return false;
   }
 }
@@ -424,12 +426,12 @@ function getModuleFunction(module, functionName, fallbackName = null) {
 }
 
 // ============================================================================
-//  COMMAND REGISTRATION — COMPLETE — AYOCODES
+//  COMMAND REGISTRATION — COMPLETE
 // ============================================================================
 export function registerAllCommands() {
   if (!!ENV.DEBUG) {
-    log.title("📝 REGISTERING ALL COMMANDS");
-    log.div();
+    cmdLog.title("📝 REGISTERING ALL COMMANDS");
+    cmdLog.div();
   }
 
   // ==================== BASIC.JS ====================
@@ -1920,29 +1922,27 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Execute code",
-      // Minimal aliases for security — AYOCODES
       aliases: ["evalcode"],
     });
 
   if (!!ENV.DEBUG) {
-    log.div();
-    log.success(
+    cmdLog.div();
+    cmdLog.success(
       `✅ Registered ${primaryCommands.size} primary commands with ${
         commands.size - primaryCommands.size
       } aliases`,
     );
-    log.success(`📊 Total entries in commands Map: ${commands.size}`);
+    cmdLog.success(`📊 Total entries in commands Map: ${commands.size}`);
     console.log();
   } else {
-    log.success(`✅ Loaded ${primaryCommands.size} commands`);
+    cmdLog.success(`✅ Loaded ${primaryCommands.size} commands`);
   }
 }
 
 registerAllCommands();
 
 // ============================================================================
-//  ACTIVATION EXEMPT COMMANDS — AYOCODES
-//  These work even in groups that haven't been activated with .activate
+//  ACTIVATION EXEMPT COMMANDS
 // ============================================================================
 const ACTIVATION_EXEMPT = new Set([
   "activate",
@@ -1972,7 +1972,7 @@ const ACTIVATION_EXEMPT = new Set([
 ]);
 
 // ============================================================================
-//  MAIN COMMAND HANDLER — AYOCODES
+//  MAIN COMMAND HANDLER — COMPLETELY FIXED
 // ============================================================================
 export async function handleCommand(message, sock) {
   const executionStart = Date.now();
@@ -2043,7 +2043,7 @@ export async function handleCommand(message, sock) {
               return;
             }
           } catch (error) {
-            log.debug(`[${executionId}] Trivia error: ${error.message}`);
+            cmdLog.debug(`[${executionId}] Trivia error: ${error.message}`);
           }
         }
       }
@@ -2064,14 +2064,14 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 7: Banned user check ───────────────────────────────────────────
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) {
-      log.warn(`[${executionId}] Blocked banned user: ${cleanPhone}`);
+      cmdLog.warn(`[${executionId}] Blocked banned user: ${cleanPhone}`);
       return;
     }
 
     // ── PHASE 8: Group activation gate ──────────────────────────────────────
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
       if (!ACTIVATION_EXEMPT.has(commandName)) {
-        log.debug(
+        cmdLog.debug(
           `[${executionId}] Group not activated: ${commandName} ignored`,
         );
         return;
@@ -2080,14 +2080,14 @@ export async function handleCommand(message, sock) {
 
     // ── PHASE 9: Private mode check ──────────────────────────────────────────
     if (sessionMode === "private" && !isAdminUser) {
-      log.debug(
+      cmdLog.debug(
         `[${executionId}] Private mode: silently ignored ${cleanPhone}`,
       );
       return;
     }
 
     // ── PHASE 10: Command lookup ─────────────────────────────────────────────
-    log.info(
+    cmdLog.info(
       `[${executionId}] ${ENV.PREFIX}${commandName} from ${cleanPhone}${isGroup ? " [GROUP]" : ""}`,
     );
 
@@ -2132,7 +2132,6 @@ export async function handleCommand(message, sock) {
     stats.lastUsed = Date.now();
     commandStats.set(primaryName, stats);
 
-    // FIX: Increment session.commandCount — was never incremented — AYOCODES
     if (session) {
       session.commandCount = (session.commandCount || 0) + 1;
     }
@@ -2160,7 +2159,7 @@ export async function handleCommand(message, sock) {
       });
     }
 
-    // ── PHASE 15: Permission checks ───────────────────────────────────────────
+    // ── PHASE 15: Permission checks using centralized functions ───────────────
 
     // 15a: Bot-owner-only commands
     if (commandMeta.adminOnly && !isAdminUser) {
@@ -2176,47 +2175,27 @@ export async function handleCommand(message, sock) {
       });
     }
 
-    // 15c: Commands requiring calling user to be a group admin
-    if (commandMeta.requireGroupAdmin && isGroup && !isAdminUser) {
-      let userIsGroupAdmin = false;
-      try {
-        const groupMetadata = await sock.groupMetadata(from);
-        userIsGroupAdmin = groupMetadata.participants.some((p) => {
-          const pPhone = normalizeJid(p.id);
-          return (
-            pPhone === cleanPhone &&
-            (p.admin === "admin" || p.admin === "superadmin")
-          );
-        });
-      } catch (err) {
-        log.debug(
-          `[${executionId}] Failed to check user admin: ${err.message}`,
-        );
-      }
+    // 15c: Commands requiring group admin privileges (CRITICAL FIX)
+    if (commandMeta.requireGroupAdmin && isGroup) {
+      const permission = await hasGroupAdminPermission(sock, message, session);
 
-      if (!userIsGroupAdmin) {
-        return sock.sendMessage(from, {
-          text: `⛔ *Group Admin Only*\nYou need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.`,
-        });
+      if (!permission.allowed) {
+        return sock.sendMessage(from, { text: permission.reason });
       }
     }
 
     // 15d: Commands requiring the BOT to be a group admin
-    //  FIX: isBotGroupAdminCached now imported directly at top — AYOCODES
     if (commandMeta.requireBotAdmin && isGroup) {
-      let botIsAdmin = false;
-      try {
-        botIsAdmin = await isBotGroupAdminCached(from, sock);
-      } catch (_) {
-        botIsAdmin = false;
+      let botIsAdmin = await isBotGroupAdmin(sock, from);
+
+      if (!botIsAdmin) {
+        // Try one more time with cache bypass
+        botIsAdmin = await isBotGroupAdmin(sock, from, true);
       }
 
       if (!botIsAdmin) {
         return sock.sendMessage(from, {
-          text:
-            `⚠️ *Bot Not Admin*\n` +
-            `I need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.\n\n` +
-            `Please promote me then run *.refreshadmin*`,
+          text: `⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.\n\n📌 *How to fix:*\n1. Add me as a group admin\n2. Wait a few seconds\n3. Type *${ENV.PREFIX}refreshadmin* to refresh my status`,
         });
       }
     }
@@ -2224,12 +2203,14 @@ export async function handleCommand(message, sock) {
     // ── PHASE 16: Execute command ─────────────────────────────────────────────
     commandCooldown.setCooldown(userJid, primaryName);
     const handlerStart = Date.now();
-    log.cmd(`[${executionId}] Executing: ${primaryName} (via ${commandName})`);
+    cmdLog.cmd(
+      `[${executionId}] Executing: ${primaryName} (via ${commandName})`,
+    );
 
     const setMode = async (newMode) => {
       if (session && typeof session === "object") {
         session.mode = newMode;
-        log.info(`[${executionId}] Session mode updated to: ${newMode}`);
+        cmdLog.info(`[${executionId}] Session mode updated to: ${newMode}`);
       }
     };
 
@@ -2269,13 +2250,13 @@ export async function handleCommand(message, sock) {
       stats.totalResponseTime += executionTime;
       stats.avgResponseTime = stats.totalResponseTime / stats.uses;
       commandStats.set(primaryName, stats);
-      log.success(
+      cmdLog.success(
         `[${executionId}] ${primaryName} completed (${executionTime}ms)`,
       );
     } catch (cmdError) {
       stats.errors++;
       commandStats.set(primaryName, stats);
-      log.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
+      cmdLog.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
 
       const errMsg =
         cmdError.message?.length > 100
@@ -2288,12 +2269,12 @@ export async function handleCommand(message, sock) {
     }
 
     if (Date.now() - executionStart > 5000) {
-      log.warn(
+      cmdLog.warn(
         `[${executionId}] Slow command: ${primaryName} (${Date.now() - executionStart}ms)`,
       );
     }
   } catch (fatalError) {
-    log.err(`[${executionId}] FATAL: ${fatalError.message}`);
+    cmdLog.err(`[${executionId}] FATAL: ${fatalError.message}`);
     try {
       await sock?.sendMessage(message?.key?.remoteJid, {
         text: "❌ A system error occurred. Please try again.",
@@ -2303,7 +2284,7 @@ export async function handleCommand(message, sock) {
 }
 
 // ============================================================================
-//  HELPER FUNCTIONS — AYOCODES
+//  HELPER FUNCTIONS
 // ============================================================================
 
 function findSimilarCommands(input, maxDistance = 2, limit = 3) {
@@ -2343,7 +2324,7 @@ function levenshteinDistance(a, b) {
 }
 
 // ============================================================================
-//  UTILITY EXPORTS — AYOCODES
+//  UTILITY EXPORTS
 // ============================================================================
 
 export function getCommandInfo(name) {
@@ -2398,7 +2379,7 @@ export function getAllStats() {
 }
 
 export async function reloadCommands() {
-  log.title("🔄 RELOADING COMMANDS");
+  cmdLog.title("🔄 RELOADING COMMANDS");
   commands.clear();
   primaryCommands.clear();
   aliasMap.clear();
@@ -2406,15 +2387,15 @@ export async function reloadCommands() {
   for (const name of Object.keys(MODULES)) delete MODULES[name];
   await loadAllModules();
   registerAllCommands();
-  log.success("✅ Commands reloaded successfully");
+  cmdLog.success("✅ Commands reloaded successfully");
 }
 
 // ============================================================================
-//  GRACEFUL SHUTDOWN — AYOCODES
+//  GRACEFUL SHUTDOWN
 // ============================================================================
 export function shutdown() {
   rateLimiter.stopCleanup();
-  log.success("Command handler shutdown complete");
+  cmdLog.success("Command handler shutdown complete");
 }
 
 process.on("SIGTERM", shutdown);
