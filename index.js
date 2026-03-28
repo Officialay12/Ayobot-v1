@@ -26,6 +26,7 @@ import makeWASocket, {
 import { BufferJSON } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import bodyParser from "body-parser";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import express from "express";
@@ -39,6 +40,34 @@ import QRCode from "qrcode";
 import QRCodeTerminal from "qrcode-terminal";
 
 dotenv.config();
+
+// ============================================================
+//   EXPRESS APP SETUP
+// ============================================================
+const app = express();
+
+// Security middleware
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+app.use(compression());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+
+// Rate limiting for admin routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts
+  message: "Too many login attempts, please try again later.",
+});
+
+app.use(cookieParser());
+
+// Trust proxy (for Render.com)
+app.set("trust proxy", 1);
 
 // ============================================================
 //   TERMINAL COLORS & LOGGER
@@ -354,6 +383,7 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
     return false;
   }
 }
+
 /**
  * Check if a user is a group admin
  * FIXED: Uses normalized JIDs for comparison
@@ -483,6 +513,7 @@ export async function hasGroupAdminPermission(sock, msg, session) {
 
   return { allowed: true, reason: "Group admin" };
 }
+
 /**
  * Refresh admin status for a group (force clear cache and recheck)
  */
@@ -643,6 +674,7 @@ export const msgCache = new NodeCache({
 });
 export const groupActivations = new Map();
 export const authorizedUsers = new Set();
+const adminTokens = new Set();
 
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
@@ -2161,9 +2193,52 @@ function userTrackingHTML() {
 }
 
 // ============================================================
+//   SESSION ID MANAGEMENT
+// ============================================================
+
+function getOrCreateSessionId(req, res) {
+  let sessionId = req.cookies?.ayoSessionId;
+
+  if (!sessionId) {
+    // Generate a new session ID
+    sessionId = crypto.randomBytes(16).toString("hex");
+    res.setHeader(
+      "Set-Cookie",
+      `ayoSessionId=${sessionId}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`,
+    );
+  }
+
+  return sessionId;
+}
+
+// ============================================================
+//   ADMIN MIDDLEWARE
+// ============================================================
+
+function requireAdmin(req, res, next) {
+  const token = req.cookies?.ayoAdminToken;
+
+  if (!ENV.AYOCODES_ADMIN_KEY) {
+    return res.status(404).send("Not found");
+  }
+
+  if (!token || !adminTokens.has(token)) {
+    return res.redirect("/ayocodes-admin/login");
+  }
+
+  next();
+}
+
+// ============================================================
 //   WEB DASHBOARD ROUTES
 // ============================================================
 function setupWebDashboard() {
+  // Make sure app is defined
+  if (!app) {
+    log.err("Express app not initialized!");
+    return;
+  }
+
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
     res.redirect(`/dashboard/${sid}`);
