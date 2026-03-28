@@ -598,8 +598,7 @@ export async function refreshAdminStatus(sock, groupJid) {
   return await isBotGroupAdmin(sock, groupJid, true);
 }
 
-// Add delay function if not defined
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ============================================================
 //   PERSISTENCE FUNCTIONS (FULLY IMPLEMENTED)
