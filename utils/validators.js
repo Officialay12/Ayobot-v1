@@ -36,16 +36,32 @@ const ADMIN_CACHE_TTL = 30000; // 30 seconds
 //    2. Split on ":" → remove :58 device suffix
 //    3. Replace non-digits → pure phone number
 // ============================================================================
+// utils/validators.js
 export function normalizeNum(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || String(jid);
   }
-  const withoutDomain = String(jid).split("@")[0];
-  const withoutDevice = withoutDomain.split(":")[0];
-  return withoutDevice.replace(/[^0-9]/g, "");
-}
 
+  let str = String(jid);
+
+  // Remove @s.whatsapp.net or @g.us
+  str = str.split("@")[0];
+
+  // Handle device suffix like :58
+  // Split on ":" and take the part BEFORE the colon
+  str = str.split(":")[0];
+
+  // Remove ALL non-digits
+  const normalized = str.replace(/[^0-9]/g, "");
+
+  // Debug log to see what's happening
+  if (ENV.DEBUG) {
+    console.log(`[normalizeNum] ${jid} → ${normalized}`);
+  }
+
+  return normalized;
+}
 // ============================================================================
 //  CONVERT TO JID
 // ============================================================================

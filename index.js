@@ -265,15 +265,27 @@ function checkEnvVars() {
  * Normalize a JID for comparison (strip device suffix and domain)
  * This is critical for admin detection to work correctly
  */
+/**
+ * Normalize a JID for comparison (strip device suffix and domain)
+ * This is critical for admin detection to work correctly
+ */
 function normalizeJidForComparison(jid = "") {
   if (!jid || typeof jid !== "string") return "";
-  // Extract the phone number part (remove @s.whatsapp.net and any :device suffix)
-  return jid
-    .split("@")[0]
-    .split(":")[0]
-    .replace(/[^0-9]/g, "");
-}
 
+  // Remove domain (@s.whatsapp.net, @g.us)
+  let withoutDomain = jid.split("@")[0];
+
+  // Remove device suffix (:58, :1, etc.)
+  let withoutDevice = withoutDomain.split(":")[0];
+
+  // Remove all non-digits
+  const normalized = withoutDevice.replace(/[^0-9]/g, "");
+
+  // Debug (optional - uncomment if needed)
+  // console.log(`[normalizeJidForComparison] ${jid} → ${normalized}`);
+
+  return normalized;
+}
 export function normalizePhone(raw) {
   if (!raw) return "";
   return String(raw)
@@ -324,10 +336,9 @@ export function isBotOwner(userJid, botOwnerJid) {
   if (!user || !owner) return false;
   return user === owner;
 }
-
 /**
  * Check if bot has admin privileges in a group with caching
- * FIXED: Uses normalized JIDs for comparison
+ * FIXED: Uses normalized JIDs for comparison with debug output
  */
 export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
   try {
@@ -348,12 +359,27 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
     const botRaw = sock.user?.id || "";
     const botPhone = normalizeJidForComparison(botRaw);
 
-    if (!botPhone) {
-      log.debug(
-        `[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`,
+    // DEBUG: Log bot information
+    console.log("\n🔍 ========== BOT ADMIN DEBUG ==========");
+    console.log(`🤖 Bot raw JID: ${botRaw}`);
+    console.log(`📱 Bot normalized: ${botPhone}`);
+    console.log(`👥 Group: ${groupMetadata.subject}`);
+    console.log(
+      `📊 Total participants: ${groupMetadata.participants.length}\n`,
+    );
+
+    // Log all participants for debugging
+    console.log("📋 PARTICIPANT LIST:");
+    groupMetadata.participants.forEach((p, index) => {
+      const normalized = normalizeJidForComparison(p.id);
+      const isAdmin = p.admin === "admin" || p.admin === "superadmin";
+      const adminBadge = isAdmin ? "👑 ADMIN" : "👤 member";
+      const matchMarker = normalized === botPhone ? " ⭐ BOT MATCH" : "";
+      console.log(`  ${index + 1}. ${p.id}`);
+      console.log(
+        `     → Normalized: ${normalized} (${adminBadge})${matchMarker}`,
       );
-      return false;
-    }
+    });
 
     // Find participant by normalized phone number
     const botParticipant = groupMetadata.participants.find((p) => {
@@ -365,6 +391,20 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
       botParticipant?.admin === "admin" ||
       botParticipant?.admin === "superadmin";
 
+    // DEBUG: Log results
+    console.log("\n📊 RESULT:");
+    console.log(`  ✅ Bot found in group: ${botParticipant ? "YES" : "NO"}`);
+    if (botParticipant) {
+      console.log(`  👑 Bot admin status: ${isAdmin ? "YES" : "NO"}`);
+      console.log(`  🔧 Bot role: ${botParticipant.admin || "member"}`);
+    } else {
+      console.log(`  ⚠️  Bot is NOT a member of this group!`);
+      console.log(
+        `  💡 Action: Add ${botPhone} to the group and promote to admin`,
+      );
+    }
+    console.log("=====================================\n");
+
     adminStatusCache.set(cacheKey, {
       isAdmin,
       timestamp: Date.now(),
@@ -372,18 +412,13 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
       botPhone,
     });
 
-    if (ENV.DEBUG) {
-      log.debug(
-        `[isBotGroupAdmin] bot=${botPhone} admin=${isAdmin} (found=${!!botParticipant})`,
-      );
-    }
     return isAdmin;
   } catch (error) {
+    console.error(`[isBotGroupAdmin] Error: ${error.message}`);
     log.debug(`Failed to check bot admin status: ${error.message}`);
     return false;
   }
 }
-
 /**
  * Check if a user is a group admin
  * FIXED: Uses normalized JIDs for comparison

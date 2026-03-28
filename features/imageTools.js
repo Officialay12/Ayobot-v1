@@ -1,17 +1,7 @@
-// features/imageTools.js — AYOBOT v1.0.0 (EXIF PERMANENT FIX)
+// features/imageTools.js — AYOBOT v1.0.0 (COMPLETE WORKING VERSION)
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE IMAGE TOOLS MODULE — EXIF FIXED
+//  COMPLETE IMAGE TOOLS MODULE — WORKING EXIF
 //  Author: AYOCODES
-//
-//  EXIF BUGS FIXED:
-//  1. Removed 'Exif\0\0' prefix from buildExifBuffer — WebP EXIF chunks must
-//     contain PURE TIFF bytes (no JPEG APP1 prefix). That prefix caused
-//     "Cannot view sticker information" in WhatsApp.
-//  2. Fixed simple VP8/VP8L WebP path in injectExifIntoWebP — plain WebP must
-//     be promoted to VP8X format before an EXIF chunk can be appended, otherwise
-//     WhatsApp ignores the appended EXIF data entirely.
-//  3. Sticker pack name is now reliably "AYOBOT" / publisher "AYOCODES" on every
-//     sticker created or converted by this bot.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -81,168 +71,231 @@ function safeUnlink(...files) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STICKER EXIF BUILDER — FIXED
-//
-//  ROOT CAUSE of "Cannot view sticker information":
-//  The old code prepended 'Exif\0\0' (a JPEG APP1 convention) to the TIFF bytes.
-//  WebP EXIF chunks must contain PURE TIFF — no prefix.
-//  WhatsApp's parser starts reading at byte 0 of the EXIF chunk and expects
-//  the TIFF byte-order mark ('II' or 'MM') to be the very first bytes.
-//  With the 6-byte 'Exif\0\0' prefix in front, WhatsApp sees garbage and
-//  shows "Cannot view sticker information".
+//  STICKER EXIF BUILDER — WORKING VERSION
+//  Creates proper TIFF EXIF data that WhatsApp can read
 // ════════════════════════════════════════════════════════════════════════════
 function buildExifBuffer(packName = "AYOBOT", publisher = "AYOCODES") {
-  const json = JSON.stringify({
-    "sticker-pack-id": "com.ayobot.stickers.v1",
+  // Create the metadata object
+  const metadata = {
+    "sticker-pack-id": `com.ayobot.stickers.${Date.now()}`,
     "sticker-pack-name": packName,
     "sticker-pack-publisher": publisher,
     "android-app-store-link": "https://github.com/Officialay12/Ayobot-v1",
     "ios-app-store-link": "https://github.com/Officialay12/Ayobot-v1",
+    "sticker-pack-version": "1.0.0",
     emojis: ["🤖", "⚡", "👑", "🎨", "✨"],
-  });
+  };
 
-  const jsonBuf = Buffer.from(json, "utf-8");
+  const jsonString = JSON.stringify(metadata);
+  const jsonBuffer = Buffer.from(jsonString, "utf-8");
 
-  // Layout (all offsets relative to start of this buffer = TIFF base):
-  //   0  - 1 : 'II'  (little-endian marker)
-  //   2  - 3 : 42    (TIFF magic)
-  //   4  - 7 : 8     (offset to first IFD)
-  //   8  - 9 : 1     (IFD entry count)
-  //  10  -21 : IFD entry (tag + type + count + dataOffset)
-  //  22  -25 : 0     (next IFD = none)
-  //  26  -.. : JSON bytes
+  // Build TIFF structure
+  // Header: II (Intel byte order) + 42 (magic) + offset to IFD (8)
+  const tiffHeader = Buffer.alloc(8);
+  tiffHeader.write("II", 0, 2); // Byte order: little-endian
+  tiffHeader.writeUInt16LE(42, 2); // TIFF magic number
+  tiffHeader.writeUInt32LE(8, 4); // Offset to first IFD
 
-  const totalLen = 26 + jsonBuf.length;
-  const buf = Buffer.alloc(totalLen, 0);
+  // IFD (Image File Directory)
+  // Entry count (1) + entry data + next IFD offset (0)
+  const ifdEntry = Buffer.alloc(18);
+  ifdEntry.writeUInt16LE(1, 0); // One IFD entry
 
-  // TIFF header
-  buf.write("II", 0, "ascii"); // little-endian
-  buf.writeUInt16LE(42, 2); // magic
-  buf.writeUInt32LE(8, 4); // IFD at offset 8
+  // IFD Entry for UserComment (tag 0x9286)
+  ifdEntry.writeUInt16LE(0x9286, 2); // Tag: UserComment
+  ifdEntry.writeUInt16LE(7, 4); // Type: UNDEFINED
+  ifdEntry.writeUInt32LE(jsonBuffer.length, 6); // Length of comment
+  ifdEntry.writeUInt32LE(26, 10); // Offset to comment data
 
-  // IFD entry count
-  buf.writeUInt16LE(1, 8);
+  // Next IFD pointer (0 = end)
+  ifdEntry.writeUInt32LE(0, 14);
 
-  // Single IFD entry: UserComment (0x9286), type UNDEFINED (7)
-  buf.writeUInt16LE(0x9286, 10); // tag
-  buf.writeUInt16LE(7, 12); // type: UNDEFINED
-  buf.writeUInt32LE(jsonBuf.length, 14); // value count (= byte length for UNDEFINED)
-  buf.writeUInt32LE(26, 18); // data offset (26 = right after IFD)
+  // Combine everything
+  const exifBuffer = Buffer.concat([tiffHeader, ifdEntry, jsonBuffer]);
 
-  // Next IFD pointer
-  buf.writeUInt32LE(0, 22);
-
-  // JSON payload
-  jsonBuf.copy(buf, 26);
-
-  // NO 'Exif\0\0' prefix — pure TIFF only
-  return buf;
+  console.log(
+    `[EXIF] Created EXIF data: pack="${packName}", publisher="${publisher}", size=${exifBuffer.length} bytes`,
+  );
+  return exifBuffer;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INJECT EXIF INTO WEBP — FIXED
-//
-//  FIX for plain VP8 / VP8L WebP (non-extended):
-//  A plain WebP cannot simply have an EXIF chunk appended. It must first be
-//  promoted to "Extended WebP" (VP8X chunk) so it has a flags field where the
-//  EXIF bit can be set. Without this promotion, WhatsApp ignores the EXIF data.
-//
-//  Promotion layout:
-//    RIFF (12 bytes)
-//    VP8X chunk: tag(4) + size(4=10) + flags(4) + reserved(3) + w-1(3) + h-1(3)
-//    Original VP8/VP8L chunk (unchanged)
-//    EXIF chunk
+//  INJECT EXIF INTO WEBP — WORKING VERSION
+//  Properly adds EXIF chunk to WebP files
 // ════════════════════════════════════════════════════════════════════════════
 function injectExifIntoWebP(webpBuffer, exifBuffer) {
-  if (webpBuffer.length < 12) return webpBuffer;
-
-  const riff = webpBuffer.slice(0, 4).toString("ascii");
-  const webp = webpBuffer.slice(8, 12).toString("ascii");
-  if (riff !== "RIFF" || webp !== "WEBP") {
-    // Not a valid WebP — just return original
+  if (!webpBuffer || webpBuffer.length < 12) {
+    console.log("[EXIF] Invalid WebP buffer");
     return webpBuffer;
   }
 
-  // Build EXIF chunk (with padding if needed)
-  const exifChunk = buildWebPChunk("EXIF", exifBuffer);
+  // Check WebP header
+  const riffHeader = webpBuffer.slice(0, 4).toString("ascii");
+  const webpHeader = webpBuffer.slice(8, 12).toString("ascii");
 
-  const chunkId = webpBuffer.slice(12, 16).toString("ascii");
-
-  if (chunkId === "VP8X") {
-    // ── Extended WebP: set EXIF bit (bit 3) in flags and append chunk ──────
-    const out = Buffer.from(webpBuffer); // mutable copy
-    const flagsOffset = 20; // RIFF(12) + "VP8X"(4) + size(4) = 20
-    const flags = out.readUInt32LE(flagsOffset);
-    out.writeUInt32LE(flags | (1 << 3), flagsOffset); // set EXIF flag
-
-    const result = Buffer.concat([out, exifChunk]);
-    result.writeUInt32LE(result.length - 8, 4); // update RIFF file size
-    return result;
+  if (riffHeader !== "RIFF" || webpHeader !== "WEBP") {
+    console.log("[EXIF] Not a valid WebP file");
+    return webpBuffer;
   }
 
-  // ── Plain VP8 or VP8L: promote to VP8X, then append EXIF ────────────────
-  // Read canvas dimensions from the existing VP8/VP8L chunk
-  let canvasW = 512,
-    canvasH = 512;
-  try {
-    if (chunkId === "VP8 ") {
-      // VP8 bitstream: skip "VP8 "(4) + size(4) + frame tag(3) + 0x9d012a(3)
-      // width at offset 26 (bits 0-13), height at offset 28 (bits 0-13)
-      const vp8Data = webpBuffer.slice(20);
-      if (
-        vp8Data.length >= 10 &&
-        vp8Data[3] === 0x9d &&
-        vp8Data[4] === 0x01 &&
-        vp8Data[5] === 0x2a
-      ) {
-        canvasW = vp8Data.readUInt16LE(6) & 0x3fff;
-        canvasH = vp8Data.readUInt16LE(8) & 0x3fff;
-      }
-    } else if (chunkId === "VP8L") {
-      // VP8L: signature byte 0x2f, then packed width-1 (14 bits) and height-1 (14 bits)
-      const vp8lData = webpBuffer.slice(21); // skip "VP8L"(4)+size(4)+0x2f(1)
-      if (vp8lData.length >= 4) {
-        const bits = vp8lData.readUInt32LE(0);
-        canvasW = (bits & 0x3fff) + 1;
-        canvasH = ((bits >> 14) & 0x3fff) + 1;
-      }
+  // Create EXIF chunk (4CC + size + data, padded to even length)
+  const exifChunkSize = exifBuffer.length;
+  const paddedSize = exifChunkSize + (exifChunkSize % 2);
+  const exifChunk = Buffer.alloc(8 + paddedSize);
+
+  exifChunk.write("EXIF", 0, 4); // Chunk FourCC
+  exifChunk.writeUInt32LE(exifChunkSize, 4); // Chunk size
+  exifBuffer.copy(exifChunk, 8); // Copy EXIF data
+
+  // If the chunk needs padding, it's already zeroed
+
+  // Check if WebP already has EXIF or is extended
+  let hasExif = false;
+  let isExtended = false;
+  let offset = 12; // Start after RIFF header
+
+  while (offset + 8 <= webpBuffer.length) {
+    const chunkId = webpBuffer.slice(offset, offset + 4).toString("ascii");
+    const chunkSize = webpBuffer.readUInt32LE(offset + 4);
+
+    if (chunkId === "EXIF") {
+      hasExif = true;
+      break;
     }
-  } catch (_) {
-    /* use defaults 512×512 */
+    if (chunkId === "VP8X") {
+      isExtended = true;
+    }
+    if (chunkId === "VP8 " || chunkId === "VP8L") {
+      break; // Reached image data
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
   }
 
-  // VP8X chunk data: flags(4) + reserved(3) + canvas_width-1(3) + canvas_height-1(3)
-  const vp8xData = Buffer.alloc(10, 0);
-  vp8xData.writeUInt32LE(1 << 3, 0); // flags: EXIF bit set
-  // canvas width-1 and height-1 as 24-bit LE
-  vp8xData.writeUIntLE(canvasW - 1, 4, 3);
-  vp8xData.writeUIntLE(canvasH - 1, 7, 3);
+  if (hasExif) {
+    console.log("[EXIF] WebP already has EXIF chunk, replacing...");
+    // Remove existing EXIF chunk and rebuild
+    return injectExifIntoWebP(removeExifChunk(webpBuffer), exifBuffer);
+  }
 
-  const vp8xChunk = buildWebPChunk("VP8X", vp8xData);
-  const originalChunks = webpBuffer.slice(12); // everything after "RIFF????WEBP"
+  if (!isExtended) {
+    console.log("[EXIF] Converting to extended WebP format...");
+    // Promote to VP8X format first
+    const promoted = promoteToExtendedWebP(webpBuffer);
+    return injectExifIntoWebP(promoted, exifBuffer);
+  }
 
-  const riffHeader = Buffer.alloc(12);
-  riffHeader.write("RIFF", 0, "ascii");
-  riffHeader.write("WEBP", 8, "ascii");
+  // Insert EXIF chunk after VP8X or at appropriate position
+  let insertPos = 12;
+  let currentOffset = 12;
 
-  const result = Buffer.concat([
-    riffHeader,
-    vp8xChunk,
-    originalChunks,
-    exifChunk,
-  ]);
-  result.writeUInt32LE(result.length - 8, 4); // update RIFF file size
+  while (currentOffset + 8 <= webpBuffer.length) {
+    const chunkId = webpBuffer
+      .slice(currentOffset, currentOffset + 4)
+      .toString("ascii");
+    const chunkSize = webpBuffer.readUInt32LE(currentOffset + 4);
+
+    if (chunkId === "VP8X") {
+      // Insert EXIF right after VP8X
+      insertPos = currentOffset + 8 + chunkSize + (chunkSize % 2);
+
+      // Update VP8X flags to indicate EXIF presence
+      if (webpBuffer.length > currentOffset + 8 + 4) {
+        const flagsOffset = currentOffset + 8;
+        const flags = webpBuffer.readUInt32LE(flagsOffset);
+        webpBuffer.writeUInt32LE(flags | (1 << 3), flagsOffset); // Set EXIF bit
+      }
+      break;
+    }
+    currentOffset += 8 + chunkSize + (chunkSize % 2);
+  }
+
+  // Insert EXIF chunk
+  const before = webpBuffer.slice(0, insertPos);
+  const after = webpBuffer.slice(insertPos);
+  const result = Buffer.concat([before, exifChunk, after]);
+
+  // Update RIFF file size
+  const newSize = result.length - 8;
+  result.writeUInt32LE(newSize, 4);
+
+  console.log(
+    `[EXIF] Successfully injected EXIF, final size: ${result.length} bytes`,
+  );
   return result;
 }
 
-/** Build a RIFF chunk: FourCC(4) + size(4,LE) + data [+ 0x00 pad if odd] */
-function buildWebPChunk(fourCC, data) {
-  const needsPad = data.length % 2 !== 0;
-  const chunk = Buffer.alloc(8 + data.length + (needsPad ? 1 : 0), 0);
-  chunk.write(fourCC.padEnd(4, " "), 0, "ascii");
-  chunk.writeUInt32LE(data.length, 4);
-  data.copy(chunk, 8);
-  return chunk;
+function removeExifChunk(webpBuffer) {
+  let offset = 12;
+  const chunks = [];
+
+  while (offset + 8 <= webpBuffer.length) {
+    const chunkId = webpBuffer.slice(offset, offset + 4).toString("ascii");
+    const chunkSize = webpBuffer.readUInt32LE(offset + 4);
+
+    if (chunkId !== "EXIF") {
+      chunks.push(
+        webpBuffer.slice(offset, offset + 8 + chunkSize + (chunkSize % 2)),
+      );
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+
+  const result = Buffer.concat([webpBuffer.slice(0, 12), ...chunks]);
+
+  result.writeUInt32LE(result.length - 8, 4);
+  return result;
+}
+
+function promoteToExtendedWebP(webpBuffer) {
+  // Extract dimensions from VP8/VP8L
+  let width = 512;
+  let height = 512;
+
+  const chunkId = webpBuffer.slice(12, 16).toString("ascii");
+
+  if (chunkId === "VP8 ") {
+    // Parse VP8 dimensions
+    const vp8Data = webpBuffer.slice(20);
+    if (
+      vp8Data.length >= 10 &&
+      vp8Data[3] === 0x9d &&
+      vp8Data[4] === 0x01 &&
+      vp8Data[5] === 0x2a
+    ) {
+      width = vp8Data.readUInt16LE(6) & 0x3fff;
+      height = vp8Data.readUInt16LE(8) & 0x3fff;
+    }
+  } else if (chunkId === "VP8L") {
+    // Parse VP8L dimensions
+    const vp8lData = webpBuffer.slice(21);
+    if (vp8lData.length >= 4) {
+      const bits = vp8lData.readUInt32LE(0);
+      width = (bits & 0x3fff) + 1;
+      height = ((bits >> 14) & 0x3fff) + 1;
+    }
+  }
+
+  // Create VP8X chunk
+  const vp8xData = Buffer.alloc(10);
+  vp8xData.writeUInt32LE(0, 0); // Flags (will be updated when EXIF is added)
+  vp8xData.writeUIntLE(width - 1, 4, 3);
+  vp8xData.writeUIntLE(height - 1, 7, 3);
+
+  const vp8xChunk = Buffer.alloc(12 + 10);
+  vp8xChunk.write("VP8X", 0, 4);
+  vp8xChunk.writeUInt32LE(10, 4);
+  vp8xData.copy(vp8xChunk, 8);
+
+  // Combine: RIFF header + VP8X + original chunks
+  const riffHeader = Buffer.alloc(12);
+  riffHeader.write("RIFF", 0, 4);
+  riffHeader.write("WEBP", 8, 4);
+
+  const originalChunks = webpBuffer.slice(12);
+  const result = Buffer.concat([riffHeader, vp8xChunk, originalChunks]);
+  result.writeUInt32LE(result.length - 8, 4);
+
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -268,10 +321,7 @@ export async function sticker({ message, from, sock }) {
 
     if (!mediaMsg) {
       await sock.sendMessage(from, {
-        text:
-          `🎭 *STICKER MAKER*\n\nSend or reply to an image/video with:\n` +
-          `*${ENV.PREFIX}sticker* or *${ENV.PREFIX}s*\n\n` +
-          `✨ Tap the sticker to see *AYOBOT* pack name!`,
+        text: `🎭 *STICKER MAKER*\n\nSend or reply to an image/video with:\n*${ENV.PREFIX}sticker* or *${ENV.PREFIX}s*\n\n✨ Tap the sticker to see *AYOBOT* pack name!`,
       });
       return;
     }
@@ -280,6 +330,7 @@ export async function sticker({ message, from, sock }) {
     const exif = buildExifBuffer("AYOBOT", "AYOCODES");
 
     if (!isVideo) {
+      // Process image to sticker
       const webpBuf = await sharp(mediaBuf)
         .resize(512, 512, {
           fit: "contain",
@@ -289,14 +340,19 @@ export async function sticker({ message, from, sock }) {
         .toBuffer();
 
       const finalSticker = injectExifIntoWebP(webpBuf, exif);
+
       await sock.sendMessage(from, {
         sticker: finalSticker,
         mimetype: "image/webp",
       });
+
+      console.log("[STICKER] Sent sticker with EXIF data");
     } else {
+      // Process video to animated sticker
       const hasFfmpeg = await checkFfmpeg();
 
       if (!hasFfmpeg) {
+        // Fallback to first frame as static sticker
         const webpBuf = await sharp(mediaBuf)
           .resize(512, 512, {
             fit: "contain",
@@ -304,6 +360,7 @@ export async function sticker({ message, from, sock }) {
           })
           .webp({ quality: 85 })
           .toBuffer();
+
         const finalSticker = injectExifIntoWebP(webpBuf, exif);
         await sock.sendMessage(from, {
           sticker: finalSticker,
@@ -344,12 +401,16 @@ export async function sticker({ message, from, sock }) {
 
         const webpBuf = fs.readFileSync(outputPath);
         const finalSticker = injectExifIntoWebP(webpBuf, exif);
+
         await sock.sendMessage(from, {
           sticker: finalSticker,
           mimetype: "image/webp",
         });
+
+        console.log("[STICKER] Sent animated sticker with EXIF data");
       } catch (ffErr) {
         console.error("[sticker] ffmpeg error:", ffErr.message);
+        // Fallback to static sticker
         const webpBuf = await sharp(mediaBuf)
           .resize(512, 512, {
             fit: "contain",
@@ -357,6 +418,7 @@ export async function sticker({ message, from, sock }) {
           })
           .webp({ quality: 85 })
           .toBuffer();
+
         const finalSticker = injectExifIntoWebP(webpBuf, exif);
         await sock.sendMessage(from, {
           sticker: finalSticker,
@@ -394,9 +456,7 @@ export async function toImage({ message, from, sock }) {
 
     await sock.sendMessage(from, {
       image: pngBuf,
-      caption:
-        `🖼️ *Sticker Converted to Image*\n` +
-        `📦 ${(pngBuf.length / 1024).toFixed(1)} KB\n👑 AYOBOT`,
+      caption: `🖼️ *Sticker Converted to Image*\n📦 ${(pngBuf.length / 1024).toFixed(1)} KB\n👑 AYOBOT`,
     });
   } catch (e) {
     console.error("[toImage] Error:", e);
@@ -749,9 +809,7 @@ export async function removeBg({ message, from, sock }) {
       });
     } else {
       await sock.sendMessage(from, {
-        text:
-          `❌ *REMOVEBG FAILED*\n\nPlease set REMOVEBG_KEY in .env.\n\n` +
-          `Get one at: https://www.remove.bg/`,
+        text: `❌ *REMOVEBG FAILED*\n\nPlease set REMOVEBG_KEY in .env.\n\nGet one at: https://www.remove.bg/`,
       });
     }
   } catch (e) {
@@ -772,10 +830,7 @@ export async function meme({ message, fullArgs, from, sock }) {
 
     if (!quoted || !quoted.imageMessage) {
       await sock.sendMessage(from, {
-        text:
-          `🎭 *MEME GENERATOR*\n\nReply to an image with:\n` +
-          `*${ENV.PREFIX}meme Top Text | Bottom Text*\n\n` +
-          `Example:\n*${ENV.PREFIX}meme When it works | on the first try*`,
+        text: `🎭 *MEME GENERATOR*\n\nReply to an image with:\n*${ENV.PREFIX}meme Top Text | Bottom Text*\n\nExample:\n*${ENV.PREFIX}meme When it works | on the first try*`,
       });
       return;
     }
@@ -847,9 +902,7 @@ export async function imageSearch({ fullArgs, from, sock }) {
   try {
     if (!fullArgs) {
       await sock.sendMessage(from, {
-        text:
-          `🖼️ *IMAGE SEARCH*\n\nSearch for images with:\n*${ENV.PREFIX}img <query>*\n\n` +
-          `Example:\n*${ENV.PREFIX}img cute cats*`,
+        text: `🖼️ *IMAGE SEARCH*\n\nSearch for images with:\n*${ENV.PREFIX}img <query>*\n\nExample:\n*${ENV.PREFIX}img cute cats*`,
       });
       return;
     }

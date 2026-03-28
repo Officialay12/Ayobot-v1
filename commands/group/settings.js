@@ -216,6 +216,23 @@ export async function lock({ from, userJid, sock, isAdmin }) {
     });
   }
 }
+// Add to commands/group/settings.js
+export async function showParticipants({ from, sock }) {
+  try {
+    const metadata = await sock.groupMetadata(from);
+    let msg = "*Group Participants*\n\n";
+
+    metadata.participants.forEach((p, i) => {
+      const rawJid = p.id;
+      const normalized = normalizeNum(rawJid);
+      msg += `${i + 1}. Raw: ${rawJid}\n   Normalized: +${normalized}\n   Admin: ${p.admin || "No"}\n\n`;
+    });
+
+    await sock.sendMessage(from, { text: msg });
+  } catch (error) {
+    await sock.sendMessage(from, { text: `Error: ${error.message}` });
+  }
+}
 
 // ============================================================================
 //  UNLOCK GROUP

@@ -1623,6 +1623,14 @@ export function registerAllCommands() {
       aliases: ["lockgroup", "grouplock", "muteall", "mutechat", "mutegroup"],
     });
 
+  if (gs.showParticipants) {
+    safeRegister("participants", gs.showParticipants, {
+      category: "group",
+      groupOnly: true,
+      description: "Show all participants with raw JIDs",
+    });
+  }
+
   const unmuteFn =
     gs.unmute || gs.unmuteGroup || gs.groupUnmute || gs.__default?.unmute;
   if (unmuteFn)
