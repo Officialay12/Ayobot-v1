@@ -598,7 +598,64 @@ export async function refreshAdminStatus(sock, groupJid) {
   return await isBotGroupAdmin(sock, groupJid, true);
 }
 
+// ============================================================
+//   UTILITY FUNCTIONS
+// ============================================================
+
+// Add delay function if not defined
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Add sendMsg function for command handler
+export async function sendMsg(sock, jid, content, options = {}) {
+  try {
+    if (!sock || !jid) return null;
+
+    let messageOptions = {};
+
+    if (typeof content === "string") {
+      messageOptions = { text: content };
+    } else if (content.text) {
+      messageOptions = { text: content.text };
+    } else if (content.image) {
+      messageOptions = { image: content.image, caption: content.caption || "" };
+    } else if (content.video) {
+      messageOptions = { video: content.video, caption: content.caption || "" };
+    } else if (content.audio) {
+      messageOptions = { audio: content.audio, mimetype: "audio/mpeg" };
+    } else {
+      messageOptions = content;
+    }
+
+    const result = await sock.sendMessage(jid, {
+      ...messageOptions,
+      ...options,
+    });
+    return result;
+  } catch (error) {
+    log.debug(`sendMsg error: ${error.message}`);
+    return null;
+  }
+}
+
+// Add any other missing helper functions
+export const getTime = () => {
+  const now = new Date();
+  return now.toLocaleTimeString("en-US", { hour12: false });
+};
+
+export const formatNumber = (num) => {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
+export const escapeHtml = (text) => {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
 
 // ============================================================
 //   PERSISTENCE FUNCTIONS (FULLY IMPLEMENTED)
