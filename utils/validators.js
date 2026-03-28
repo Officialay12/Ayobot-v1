@@ -1,17 +1,17 @@
 // utils/validators.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Validators & Helpers — PERMANENT FIXED VERSION
+//  Validators & Helpers — FIXED
 //  Author: AYOCODES
 //
-//  FIXES APPLIED:
-//  1. normalizeNum() — strips :N device suffix BEFORE removing non-digits
-//  2. isBotGroupAdminCached — uses ADMIN_CACHE_TTL constant (not hardcoded 30000)
-//  3. isGroupAdminCached — ownerPhone bypass consistent with context.isAdmin
-//  4. debugAdminCheck — full participant dump to diagnose admin issues
+//  ROOT CAUSE FIX:
+//  ADMIN_CACHE_TTL was being imported from index.js but was never exported
+//  there. This caused a silent import failure that killed every module that
+//  imported from validators.js (settings.js, moderation.js, core.js).
+//  Fix: define ADMIN_CACHE_TTL locally here. All other constants that are
+//  genuinely exported from index.js are kept as imports.
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
-  ADMIN_CACHE_TTL,
   adminCache,
   commandRateLimit,
   GROUP_META_TTL,
@@ -26,35 +26,28 @@ import {
   spamTracker,
 } from "../index.js";
 
+// FIX: defined locally — was imported from index.js but never exported there
+const ADMIN_CACHE_TTL = 30000; // 30 seconds
+
 // ============================================================================
-//  NORMALIZE PHONE NUMBER — THE PERMANENT FIX — AYOCODES
-//
+//  NORMALIZE PHONE NUMBER
 //  Order of operations is CRITICAL:
 //    1. Split on "@" → remove @s.whatsapp.net / @g.us
 //    2. Split on ":" → remove :58 device suffix
 //    3. Replace non-digits → pure phone number
-//
-//  "2349159180375:58@s.whatsapp.net" → "2349159180375" ✅
-//  "2349159180375@s.whatsapp.net"    → "2349159180375" ✅
-//  "2349159180375:5@s.whatsapp.net"  → "2349159180375" ✅
-//  "2349159180375"                   → "2349159180375" ✅
 // ============================================================================
 export function normalizeNum(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || String(jid);
   }
-
-  // CRITICAL: strip device suffix BEFORE removing digits — AYOCODES
   const withoutDomain = String(jid).split("@")[0];
-  const withoutDeviceSuffix = withoutDomain.split(":")[0];
-  const onlyDigits = withoutDeviceSuffix.replace(/[^0-9]/g, "");
-
-  return onlyDigits;
+  const withoutDevice = withoutDomain.split(":")[0];
+  return withoutDevice.replace(/[^0-9]/g, "");
 }
 
 // ============================================================================
-//  CONVERT TO JID — AYOCODES
+//  CONVERT TO JID
 // ============================================================================
 export function toJid(input) {
   const num = normalizeNum(input);
@@ -62,8 +55,8 @@ export function toJid(input) {
 }
 
 // ============================================================================
-//  GET BOT NUMBER — AYOCODES
-//  Uses normalizeNum to strip :N device suffix from sock.user.id
+//  GET BOT NUMBER
+//  Strips :N device suffix from sock.user.id
 // ============================================================================
 export function getBotNumber(sock) {
   if (!sock?.user?.id) return null;
@@ -71,7 +64,7 @@ export function getBotNumber(sock) {
 }
 
 // ============================================================================
-//  RATE LIMITING — AYOCODES
+//  RATE LIMITING
 // ============================================================================
 export function isRateLimited(userJid, isAdminUser) {
   if (!userJid || isAdminUser) return false;
@@ -81,7 +74,6 @@ export function isRateLimited(userJid, isAdminUser) {
   let hits = commandRateLimit.get(key) || [];
 
   hits = hits.filter((t) => now - t < RATE_LIMIT_WINDOW);
-
   if (hits.length >= MAX_COMMANDS_PER_WINDOW) return true;
 
   hits.push(now);
@@ -96,7 +88,7 @@ export function getRateLimitMessage() {
 }
 
 // ============================================================================
-//  SPAM DETECTION — AYOCODES
+//  SPAM DETECTION
 // ============================================================================
 export function isSpam(userJid, messageText, ownerPhone = "") {
   if (!userJid || isAdmin(userJid, ownerPhone)) return false;
@@ -111,7 +103,6 @@ export function isSpam(userJid, messageText, ownerPhone = "") {
   };
 
   data.messages = data.messages.filter((m) => now - m.time < SPAM_TIME_WINDOW);
-
   if (data.messages.length >= MAX_SPAM_MESSAGES) return true;
 
   const similarCount = data.messages.filter(
@@ -127,7 +118,7 @@ export function isSpam(userJid, messageText, ownerPhone = "") {
 }
 
 // ============================================================================
-//  LINK DETECTION — AYOCODES
+//  LINK DETECTION
 // ============================================================================
 export function containsLink(text) {
   if (!text || typeof text !== "string") return false;
@@ -150,11 +141,10 @@ export function containsLink(text) {
 }
 
 // ============================================================================
-//  EXTRACT TEXT FROM MESSAGE — AYOCODES
+//  EXTRACT TEXT FROM MESSAGE
 // ============================================================================
 export function extractText(message) {
   if (!message?.message) return "";
-
   const msg = message.message;
   return (
     msg.conversation ||
@@ -169,7 +159,7 @@ export function extractText(message) {
 }
 
 // ============================================================================
-//  EXTRACT TARGET USER FROM COMMAND — AYOCODES
+//  EXTRACT TARGET USER FROM COMMAND
 //  Priority: quoted reply → @mention → phone number arg
 // ============================================================================
 export function extractTargetUser(args, message) {
@@ -198,11 +188,7 @@ export function extractTargetUser(args, message) {
 }
 
 // ============================================================================
-//  IS GROUP ADMIN — CACHED — AYOCODES
-//
-//  FIX: Uses ADMIN_CACHE_TTL from index.js (not hardcoded)
-//  FIX: normalizeNum() on both sides for safe comparison
-//  FIX: isAdmin(userJid, ownerPhone) bypass for bot owner
+//  IS GROUP ADMIN — CACHED
 // ============================================================================
 export async function isGroupAdminCached(
   groupJid,
@@ -213,7 +199,7 @@ export async function isGroupAdminCached(
 ) {
   if (!groupJid || !userJid) return false;
 
-  // Bot owner bypass — AYOCODES
+  // Bot owner bypass
   if (ownerPhone && isAdmin(userJid, ownerPhone)) return true;
 
   const cacheKey = `${groupJid}_${normalizeNum(userJid)}`;
@@ -221,7 +207,6 @@ export async function isGroupAdminCached(
 
   if (!forceRefresh) {
     const cached = adminCache.get(cacheKey);
-    // FIX: use ADMIN_CACHE_TTL constant — AYOCODES
     if (cached && now - cached.timestamp < ADMIN_CACHE_TTL) {
       return cached.isAdmin;
     }
@@ -248,12 +233,7 @@ export async function isGroupAdminCached(
 }
 
 // ============================================================================
-//  IS BOT GROUP ADMIN — CACHED — AYOCODES
-//
-//  THE KEY FIX:
-//  1. getBotNumber(sock) normalizes sock.user.id — strips :58 suffix
-//  2. Compares against participant IDs using normalizeNum()
-//  3. FIX: Uses ADMIN_CACHE_TTL constant instead of hardcoded 30000
+//  IS BOT GROUP ADMIN — CACHED
 // ============================================================================
 export async function isBotGroupAdminCached(
   groupJid,
@@ -271,14 +251,12 @@ export async function isBotGroupAdminCached(
 
   if (!forceRefresh) {
     const cached = adminCache.get(cacheKey);
-    // FIX: was hardcoded 30000 — now uses ADMIN_CACHE_TTL constant — AYOCODES
     if (cached && now - cached.timestamp < ADMIN_CACHE_TTL) {
       return cached.isAdmin;
     }
   }
 
   try {
-    // FIX: getBotNumber strips :58 suffix before comparison — AYOCODES
     const botNumber = getBotNumber(sock);
     if (!botNumber) {
       console.warn(
@@ -288,29 +266,15 @@ export async function isBotGroupAdminCached(
       return false;
     }
 
-    console.log(`[validators] Bot admin check — bot number: ${botNumber}`);
-
     const metadata = await sock.groupMetadata(groupJid);
     if (!metadata?.participants) {
-      console.warn(`[validators] No participants found for group ${groupJid}`);
       adminCache.set(cacheKey, { isAdmin: false, timestamp: now });
       return false;
     }
 
-    // Find bot in participant list using normalized numbers on both sides
     const botParticipant = metadata.participants.find(
       (p) => normalizeNum(p.id) === botNumber,
     );
-
-    if (botParticipant) {
-      console.log(
-        `[validators] Bot found — admin role: ${botParticipant.admin || "member"}`,
-      );
-    } else {
-      console.log(
-        `[validators] Bot NOT found in participant list for ${groupJid}`,
-      );
-    }
 
     const result = !!(
       botParticipant &&
@@ -322,15 +286,13 @@ export async function isBotGroupAdminCached(
     return result;
   } catch (error) {
     console.error("[validators] isBotGroupAdminCached error:", error.message);
-    // Return stale cache on error rather than false
     const stale = adminCache.get(cacheKey);
     return stale?.isAdmin ?? false;
   }
 }
 
 // ============================================================================
-//  CACHED GROUP METADATA — AYOCODES
-//  forceRefresh = true → bypass cache and fetch fresh
+//  CACHED GROUP METADATA
 // ============================================================================
 export async function getGroupMetadataCached(
   groupJid,
@@ -356,26 +318,22 @@ export async function getGroupMetadataCached(
     return metadata || null;
   } catch (err) {
     console.error("[validators] getGroupMetadataCached error:", err.message);
-    // Return stale cache if fetch fails
     return groupMetadataCache.get(groupJid)?.metadata || null;
   }
 }
 
 // ============================================================================
-//  DIRECT GROUP ADMIN CHECK (no cache) — AYOCODES
+//  DIRECT GROUP ADMIN CHECK (no cache)
 // ============================================================================
 export async function isUserGroupAdmin(groupJid, userJid, sock) {
   if (!groupJid || !userJid || !sock) return false;
-
   try {
     const metadata = await sock.groupMetadata(groupJid);
     if (!metadata?.participants) return false;
-
     const userNum = normalizeNum(userJid);
     const participant = metadata.participants.find(
       (p) => normalizeNum(p.id) === userNum,
     );
-
     return !!(
       participant &&
       (participant.admin === "admin" || participant.admin === "superadmin")
@@ -387,16 +345,14 @@ export async function isUserGroupAdmin(groupJid, userJid, sock) {
 }
 
 // ============================================================================
-//  BOT IN GROUP CHECK — AYOCODES
+//  BOT IN GROUP CHECK
 // ============================================================================
 export async function isBotInGroup(groupJid, sock) {
   if (!groupJid || !sock?.user?.id) return false;
-
   try {
     const botNumber = getBotNumber(sock);
     const metadata = await sock.groupMetadata(groupJid);
     if (!metadata?.participants) return false;
-
     return metadata.participants.some((p) => normalizeNum(p.id) === botNumber);
   } catch (err) {
     console.error("[validators] isBotInGroup error:", err.message);
@@ -405,7 +361,7 @@ export async function isBotInGroup(groupJid, sock) {
 }
 
 // ============================================================================
-//  GROUP PARTICIPANT HELPERS — AYOCODES
+//  GROUP PARTICIPANT HELPERS
 // ============================================================================
 export async function getGroupParticipants(groupJid, sock) {
   if (!groupJid || !sock) return [];
@@ -451,7 +407,7 @@ export async function isGroupOwner(groupJid, userJid, sock) {
 }
 
 // ============================================================================
-//  CACHE MANAGEMENT — AYOCODES
+//  CACHE MANAGEMENT
 // ============================================================================
 export function clearAdminCache(groupJid, userJid) {
   if (groupJid && userJid) {
@@ -476,7 +432,7 @@ export async function refreshBotAdminStatus(groupJid, sock) {
 }
 
 // ============================================================================
-//  JID FORMAT VALIDATORS — AYOCODES
+//  JID FORMAT VALIDATORS
 // ============================================================================
 export function isValidJid(jid) {
   if (!jid || typeof jid !== "string") return false;
@@ -492,8 +448,7 @@ export function isUserJid(jid) {
 }
 
 // ============================================================================
-//  VALIDATE GROUP COMMAND — single permission gate — AYOCODES
-//  Returns { success, error, metadata, userIsGlobalAdmin, userIsGroupAdmin }
+//  VALIDATE GROUP COMMAND — single permission gate
 // ============================================================================
 export async function validateGroupCommand(
   groupJid,
@@ -571,9 +526,7 @@ export async function validateGroupCommand(
 }
 
 // ============================================================================
-//  DEBUG ADMIN CHECK — AYOCODES
-//  Run .groupdebug in a group to see full participant dump in console.
-//  Confirms whether bot number matches any participant and shows admin role.
+//  DEBUG ADMIN CHECK
 // ============================================================================
 export async function debugAdminCheck(groupJid, sock) {
   if (!groupJid || !sock) return;
@@ -613,8 +566,6 @@ export async function debugAdminCheck(groupJid, sock) {
       console.log(`   Is admin   : ${isAdm}`);
     } else {
       console.log(`❌ Bot NOT found in participant list`);
-      console.log(`   → Bot may not be in this group`);
-      console.log(`   → Or JID normalization still has an issue`);
     }
   } catch (e) {
     console.error(`Debug error: ${e.message}`);
@@ -624,7 +575,7 @@ export async function debugAdminCheck(groupJid, sock) {
 }
 
 // ============================================================================
-//  DEFAULT EXPORT — AYOCODES
+//  DEFAULT EXPORT
 // ============================================================================
 export default {
   normalizeNum,
