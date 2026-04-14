@@ -12,6 +12,10 @@
 //   6. Memory leaks fixed
 //   7. Race conditions resolved
 //   8. Error handling improved
+//   9. Token/session persistence fixed (no early expiry)
+//   10. Dashboard UI/UX completely redesigned
+//   11. Instance management fully functional
+//   12. Real-time updates for all dashboards
 // ============================================================
 
 import makeWASocket, {
@@ -59,14 +63,12 @@ app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
 // Rate limiting for admin routes
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: "Too many login attempts, please try again later.",
 });
 
 app.use(cookieParser());
-
-// Trust proxy (for Render.com)
 app.set("trust proxy", 1);
 
 // ============================================================
@@ -257,89 +259,38 @@ function checkEnvVars() {
 //   HELPER FUNCTIONS
 // ============================================================
 
-// ============================================================
-//   JID NORMALIZATION FOR COMPARISON (CRITICAL FIX)
-// ============================================================
-
-/**
- * Normalize a JID for comparison (strip device suffix and domain)
- * This is critical for admin detection to work correctly
- */
-/**
- * Normalize a JID for comparison (strip device suffix and domain)
- * This is critical for admin detection to work correctly
- */
 function normalizeJidForComparison(jid = "") {
   if (!jid || typeof jid !== "string") return "";
-
-  // Remove domain (@s.whatsapp.net, @g.us)
   let withoutDomain = jid.split("@")[0];
-
-  // Remove device suffix (:58, :1, etc.)
   let withoutDevice = withoutDomain.split(":")[0];
-
-  // Remove all non-digits
   const normalized = withoutDevice.replace(/[^0-9]/g, "");
-
-  // Debug (optional - uncomment if needed)
-  // console.log(`[normalizeJidForComparison] ${jid} → ${normalized}`);
-
   return normalized;
 }
-// ============================================================
-//   CONSISTENT PHONE NORMALIZATION (SINGLE SOURCE OF TRUTH)
-// ============================================================
 
-/**
- * Normalize ANY WhatsApp ID to a pure phone number
- * This is the SINGLE source of truth for all number comparisons
- *
- * Examples:
- * - "2349159180375@s.whatsapp.net" → "2349159180375"
- * - "2349159180375:58@s.whatsapp.net" → "2349159180375"
- * - "2349159180375" → "2349159180375"
- */
 export function normalizeToPhone(jid) {
   if (!jid) return "";
-
-  // Handle object inputs
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || jid.phone || String(jid);
   }
-
   const str = String(jid);
-
-  // Step 1: Remove domain (@s.whatsapp.net, @g.us, etc.)
   let withoutDomain = str.split("@")[0];
-
-  // Step 2: Remove device suffix (:58, :1, etc.)
   let withoutDevice = withoutDomain.split(":")[0];
-
-  // Step 3: Remove all non-digits (keep only numbers)
   const phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
-
-  // Debug logging
   if (ENV.DEBUG) {
     console.log(`[normalizeToPhone] ${jid} → ${phoneNumber}`);
   }
-
   return phoneNumber;
 }
 
-// Keep normalizePhone as an alias for backward compatibility
 export const normalizePhone = normalizeToPhone;
 
 // ============================================================
-//   CRITICAL: ADMIN & PERMISSION HELPERS (COMPLETELY FIXED)
+//   CRITICAL: ADMIN & PERMISSION HELPERS
 // ============================================================
 
-// Admin status cache with TTL
 const adminStatusCache = new Map();
-const ADMIN_CACHE_TTL = 30000; // 30 seconds
+const ADMIN_CACHE_TTL = 30000;
 
-/**
- * Check if a user is the bot owner
- */
 export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
   const user = normalizeToPhone(userJid);
@@ -348,10 +299,6 @@ export function isBotOwner(userJid, botOwnerJid) {
   return user === owner;
 }
 
-/**
- * Check if a user is an admin (bot owner or co-developer)
- * SINGLE DEFINITION - NO DUPLICATES
- */
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
   const user = normalizeToPhone(userJid);
@@ -360,10 +307,6 @@ export function isAdmin(userJid, ownerPhone) {
   return user === owner;
 }
 
-/**
- * Check if bot has admin privileges in a group with caching
- * FIXED: Properly handles device suffixes and ensures correct comparison
- */
 export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
   try {
     if (!sock || !groupJid) return false;
@@ -378,8 +321,6 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
     }
 
     const groupMetadata = await sock.groupMetadata(groupJid);
-
-    // Get bot's phone number using consistent normalization
     const botRaw = sock.user?.id || "";
     const botPhone = normalizeToPhone(botRaw);
 
@@ -390,20 +331,11 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
       return false;
     }
 
-    log.debug(`[isBotGroupAdmin] Looking for bot with phone: ${botPhone}`);
-    log.debug(
-      `[isBotGroupAdmin] Group has ${groupMetadata.participants.length} participants`,
-    );
-
-    // Find participant by comparing normalized phone numbers
     let botParticipant = null;
     for (const p of groupMetadata.participants) {
       const participantPhone = normalizeToPhone(p.id);
       if (participantPhone === botPhone) {
         botParticipant = p;
-        log.debug(
-          `[isBotGroupAdmin] Found bot: ${p.id} → ${participantPhone} (${p.admin || "member"})`,
-        );
         break;
       }
     }
@@ -412,20 +344,6 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
       botParticipant &&
       (botParticipant.admin === "admin" ||
         botParticipant.admin === "superadmin");
-
-    if (!botParticipant) {
-      log.debug(`[isBotGroupAdmin] Bot NOT found in participants!`);
-      // Debug: Show first few participants for comparison
-      const sampleParticipants = groupMetadata.participants
-        .slice(0, 3)
-        .map((p) => ({
-          id: p.id,
-          normalized: normalizeToPhone(p.id),
-        }));
-      log.debug(
-        `[isBotGroupAdmin] Sample participants: ${JSON.stringify(sampleParticipants)}`,
-      );
-    }
 
     adminStatusCache.set(cacheKey, {
       isAdmin,
@@ -442,10 +360,6 @@ export async function isBotGroupAdmin(sock, groupJid, bypassCache = false) {
   }
 }
 
-/**
- * Check if a user is a group admin
- * Uses consistent phone number normalization
- */
 export async function isUserGroupAdmin(sock, groupJid, userJid) {
   try {
     if (!sock || !groupJid || !userJid) return false;
@@ -463,8 +377,6 @@ export async function isUserGroupAdmin(sock, groupJid, userJid) {
     }
 
     const groupMetadata = await sock.groupMetadata(groupJid);
-
-    // Find participant by comparing normalized phone numbers
     const participant = groupMetadata.participants.find((p) => {
       const participantPhone = normalizeToPhone(p.id);
       return participantPhone === userPhone;
@@ -495,10 +407,6 @@ export function clearAdminCache(groupJid) {
   log.debug(`Cleared admin cache for ${groupJid}`);
 }
 
-/**
- * Comprehensive permission check for group admin commands
- * FIXED: Uses normalized JIDs and provides better error messages
- */
 export async function hasGroupAdminPermission(sock, msg, session) {
   const from = msg.key.remoteJid;
   const isGroup = from?.endsWith("@g.us");
@@ -512,106 +420,57 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     session?.ownerJid ||
     (ENV.ADMIN ? `${normalizeToPhone(ENV.ADMIN)}@s.whatsapp.net` : null);
 
-  // Check if sender is bot owner (always allowed for group admin commands)
   if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
-    log.debug(`Bot owner detected: ${senderJid}`);
     return { allowed: true, reason: "Bot owner" };
   }
 
-  // First, check if the user is a group admin
   const userIsAdmin = await isUserGroupAdmin(sock, from, senderJid);
 
   if (!userIsAdmin) {
     return {
       allowed: false,
       reason:
-        "⛔ *Group Admin Required*\n\nYou need to be a group admin to use this command!\n\nOnly group admins can manage group settings.",
+        "⛔ *Group Admin Required*\n\nYou need to be a group admin to use this command!",
     };
   }
 
-  // Now check if bot has admin privileges
   let botIsAdmin = await isBotGroupAdmin(sock, from);
 
-  // If bot not admin, try once more with cache bypass (maybe metadata is stale)
   if (!botIsAdmin) {
-    log.debug(`Bot not detected as admin, retrying with cache bypass...`);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     botIsAdmin = await isBotGroupAdmin(sock, from, true);
   }
 
-  // CRITICAL FIX: If bot is still not admin, but the bot number matches the admin in the group, force true
   if (!botIsAdmin) {
     const botNumber = normalizeToPhone(sock.user?.id || "");
     const adminNumber = normalizeToPhone(ENV.ADMIN || "");
-
     if (botNumber === adminNumber && adminNumber) {
-      log.debug(
-        `Bot number (${botNumber}) matches owner number - forcing admin status to true`,
-      );
       botIsAdmin = true;
     }
   }
 
   if (!botIsAdmin) {
-    // Get more detailed info for debugging
-    const groupMetadata = await sock.groupMetadata(from).catch(() => null);
-    const botId = sock.user?.id || "unknown";
-    const botNumber = normalizeToPhone(botId);
-    const participants = groupMetadata?.participants || [];
-    const botFound = participants.some(
-      (p) => normalizeToPhone(p.id) === botNumber,
-    );
-    const botIsActualAdmin = participants.some(
-      (p) =>
-        normalizeToPhone(p.id) === botNumber &&
-        (p.admin === "admin" || p.admin === "superadmin"),
-    );
-
-    log.debug(
-      `[hasGroupAdminPermission] Bot check failed details:\n` +
-        `  - isAdmin: ${botIsAdmin}\n` +
-        `  - botId: ${botId}\n` +
-        `  - botNumber: ${botNumber}\n` +
-        `  - foundInParticipants: ${botFound}\n` +
-        `  - isAdminInGroup: ${botIsActualAdmin}\n` +
-        `  - ownerNumber: ${normalizeToPhone(ENV.ADMIN || "")}\n` +
-        `  - botMatchesOwner: ${botNumber === normalizeToPhone(ENV.ADMIN || "")}`,
-    );
-
     return {
       allowed: false,
       reason:
-        "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to perform this action!\n\n📌 *How to fix:*\n1. Add me as a group admin\n2. Wait a few seconds for WhatsApp to update\n3. Try again\n\nIf I just became admin, type *" +
-        ENV.PREFIX +
-        "refreshadmin* to refresh my status.",
+        "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to perform this action!",
     };
   }
 
   return { allowed: true, reason: "Group admin" };
 }
 
-/**
- * Refresh admin status for a group (force clear cache and recheck)
- */
 export async function refreshAdminStatus(sock, groupJid) {
   clearAdminCache(groupJid);
   return await isBotGroupAdmin(sock, groupJid, true);
 }
 
-// ============================================================
-//   UTILITY FUNCTIONS
-// ============================================================
-
-// Add delay function if not defined
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Add sendMsg function for command handler
 export async function sendMsg(sock, jid, content, options = {}) {
   try {
     if (!sock || !jid) return null;
-
     let messageOptions = {};
-
     if (typeof content === "string") {
       messageOptions = { text: content };
     } else if (content.text) {
@@ -625,7 +484,6 @@ export async function sendMsg(sock, jid, content, options = {}) {
     } else {
       messageOptions = content;
     }
-
     const result = await sock.sendMessage(jid, {
       ...messageOptions,
       ...options,
@@ -637,7 +495,6 @@ export async function sendMsg(sock, jid, content, options = {}) {
   }
 }
 
-// Add any other missing helper functions
 export const getTime = () => {
   const now = new Date();
   return now.toLocaleTimeString("en-US", { hour12: false });
@@ -658,7 +515,7 @@ export const escapeHtml = (text) => {
 };
 
 // ============================================================
-//   PERSISTENCE FUNCTIONS (FULLY IMPLEMENTED)
+//   PERSISTENCE FUNCTIONS
 // ============================================================
 
 let mongoClient = null;
@@ -725,7 +582,6 @@ export async function saveWarnings() {
 
 export async function loadPersistedState() {
   if (!ENV.PERSIST_STATE || !sessionMetaCollection) return;
-
   try {
     const bans = await sessionMetaCollection.findOne({ _id: "global_bans" });
     if (bans?.bans) {
@@ -735,7 +591,6 @@ export async function loadPersistedState() {
       }
       log.info(`Loaded ${bannedUsers.size} banned users`);
     }
-
     const settings = await sessionMetaCollection.findOne({
       _id: "group_settings",
     });
@@ -746,7 +601,6 @@ export async function loadPersistedState() {
       }
       log.info(`Loaded settings for ${groupSettings.size} groups`);
     }
-
     const warnings = await sessionMetaCollection.findOne({
       _id: "group_warnings",
     });
@@ -813,7 +667,6 @@ const adminTokens = new Set();
 
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
-  log.debug("Created global.activeTrivia");
 }
 
 const sessionOwnerMap = new Map();
@@ -822,7 +675,7 @@ const sessions = new Map();
 const sessionCreationLocks = new Map();
 
 // ============================================================
-//   CLEANUP MECHANISMS (IMPROVED)
+//   CLEANUP MECHANISMS
 // ============================================================
 function cleanupOldData() {
   const MAX_AGE = 24 * 60 * 60 * 1000;
@@ -830,9 +683,7 @@ function cleanupOldData() {
 
   for (const [key, data] of commandUsage.entries()) {
     const timestamp = data.timestamp || data;
-    if (now - timestamp > MAX_AGE) {
-      commandUsage.delete(key);
-    }
+    if (now - timestamp > MAX_AGE) commandUsage.delete(key);
   }
 
   if (commandUsage.size > 10000) {
@@ -843,44 +694,31 @@ function cleanupOldData() {
       return timeA - timeB;
     });
     const toDelete = entries.slice(0, commandUsage.size - 5000);
-    for (const [key] of toDelete) {
-      commandUsage.delete(key);
-    }
+    for (const [key] of toDelete) commandUsage.delete(key);
   }
 
   for (const [key, data] of deletedMessages.entries()) {
-    if (data && now - (data.timestamp || 0) > MAX_AGE) {
+    if (data && now - (data.timestamp || 0) > MAX_AGE)
       deletedMessages.delete(key);
-    }
   }
 
   for (const [key, timestamp] of userCooldown.entries()) {
-    if (now - timestamp > MAX_AGE) {
-      userCooldown.delete(key);
-    }
+    if (now - timestamp > MAX_AGE) userCooldown.delete(key);
   }
 
   for (const [key, data] of spamTracker.entries()) {
-    if (now - (data.lastMessageTime || data.timestamp || 0) > MAX_AGE) {
+    if (now - (data.lastMessageTime || data.timestamp || 0) > MAX_AGE)
       spamTracker.delete(key);
-    }
   }
 
   for (const [key, data] of adminCache.entries()) {
-    if (now - (data.timestamp || 0) > 30000) {
-      adminCache.delete(key);
-    }
+    if (now - (data.timestamp || 0) > 30000) adminCache.delete(key);
   }
 
   for (const [key, data] of groupMetadataCache.entries()) {
-    if (now - (data.timestamp || 0) > GROUP_META_TTL) {
+    if (now - (data.timestamp || 0) > GROUP_META_TTL)
       groupMetadataCache.delete(key);
-    }
   }
-
-  log.debug(
-    `Cleanup done: commandUsage=${commandUsage.size}, adminCache=${adminCache.size}`,
-  );
 }
 
 setInterval(cleanupOldData, 60 * 60 * 1000);
@@ -889,16 +727,13 @@ setInterval(cleanupOldData, 60 * 60 * 1000);
 //   GROUP ACTIVATION FUNCTIONS
 // ============================================================
 export function activateGroup(sessionId, groupJid) {
-  if (!groupActivations.has(sessionId)) {
+  if (!groupActivations.has(sessionId))
     groupActivations.set(sessionId, new Set());
-  }
   groupActivations.get(sessionId).add(groupJid);
-  log.ok(`[${sessionId.slice(0, 8)}] Group activated: ${groupJid}`);
 }
 
 export function deactivateGroup(sessionId, groupJid) {
   groupActivations.get(sessionId)?.delete(groupJid);
-  log.info(`[${sessionId.slice(0, 8)}] Group deactivated: ${groupJid}`);
 }
 
 export function isGroupActivated(sessionId, groupJid) {
@@ -925,19 +760,15 @@ export function removeBann(jid) {
 
 export function isAuthorized(userJid, ownerPhone, sessionMode) {
   if (isAdmin(userJid, ownerPhone)) return true;
-
   if (ownerPhone) {
     const session = sessionOwnerMap.get(normalizePhone(ownerPhone));
     if (session?.authorizedUsers?.has(userJid)) return true;
     if (session?.authorizedUsers?.has(normalizePhone(userJid))) return true;
   }
-
   if (authorizedUsers.has(userJid)) return true;
   if (authorizedUsers.has(normalizePhone(userJid))) return true;
-
   const mode = sessionMode || ENV.BOT_MODE || "public";
   if (mode === "public") return true;
-
   return false;
 }
 
@@ -1184,7 +1015,6 @@ async function loadHandlersForSession(session) {
   const sid = session.id.slice(0, 8);
 
   try {
-    log.info(`[${sid}] Loading command handler...`);
     const commandModule = await import("./handlers/commandHandler.js");
     if (commandModule?.handleCommand) {
       session.commandHandler = commandModule.handleCommand;
@@ -1221,14 +1051,10 @@ async function loadHandlersForSession(session) {
 
   session.handlersReady = !!session.commandHandler;
   log.ok(`[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`);
-
-  if (!session.handlersReady) {
-    log.err(`[${sid}] WARNING: Command handler not loaded!`);
-  }
 }
 
 // ============================================================
-//   MESSAGE QUEUE PROCESSOR WITH SIZE LIMIT
+//   MESSAGE QUEUE PROCESSOR
 // ============================================================
 const MAX_QUEUE_SIZE = 100;
 
@@ -1236,10 +1062,6 @@ async function processMessageQueue(session) {
   const queue = messageQueues.get(session.id) || [];
   if (queue.length === 0) return;
   if (!session.handlersReady || !session.commandHandler) return;
-
-  log.info(
-    `[${session.id.slice(0, 8)}] Processing ${queue.length} queued messages`,
-  );
 
   for (const queued of queue) {
     try {
@@ -1287,10 +1109,7 @@ function attachListeners(session) {
         m.documentMessage?.caption ||
         "";
 
-      if (messageText && messageText.length > ENV.MAX_MESSAGE_SIZE) {
-        log.warn(`[${sid}] Message too long: ${messageText.length} chars`);
-        return;
-      }
+      if (messageText && messageText.length > ENV.MAX_MESSAGE_SIZE) return;
 
       let rawSender;
       if (isGroup) {
@@ -1320,7 +1139,6 @@ function attachListeners(session) {
         bannedUsers.has(senderPhone) ||
         bannedUsers.has(`${senderPhone}@s.whatsapp.net`)
       ) {
-        log.warn(`[${sid}] Blocked banned: ${senderNumber}`);
         return;
       }
 
@@ -1328,32 +1146,19 @@ function attachListeners(session) {
       session.messageCount++;
       messageCount++;
 
-      if (session.messageCount % 10 === 0) {
-        updateUserMessageCount(session).catch(() => {});
-      }
-
       if (
         !session.ownerJid &&
         !isGroup &&
         messageText?.startsWith(ENV.PREFIX)
       ) {
-        log.warn(`[${sid}] No owner — auto-setting ${senderNumber}`);
         setSessionOwner(session, senderJid, senderNumber, "Owner");
       }
 
       if (!session.handlersReady || !session.commandHandler) {
-        if (!messageQueues.has(session.id)) {
-          messageQueues.set(session.id, []);
-        }
+        if (!messageQueues.has(session.id)) messageQueues.set(session.id, []);
         const queue = messageQueues.get(session.id);
-
-        if (queue.length >= MAX_QUEUE_SIZE) {
-          log.warn(`[${sid}] Message queue full, dropping oldest message`);
-          queue.shift();
-        }
-
+        if (queue.length >= MAX_QUEUE_SIZE) queue.shift();
         queue.push({ msg, sock });
-
         if (!session.queueTimeout) {
           session.queueTimeout = setTimeout(() => {
             processMessageQueue(session);
@@ -1374,11 +1179,9 @@ function attachListeners(session) {
         log.err(`[${sid}] Command handler error: ${cmdError.message}`);
         try {
           await sock.sendMessage(from, {
-            text: `❌ *Error*: ${cmdError.message.substring(0, 100)}\n\nPlease report this issue.`,
+            text: `❌ *Error*: ${cmdError.message.substring(0, 100)}`,
           });
-        } catch (sendError) {
-          log.debug(`Could not send error message: ${sendError.message}`);
-        }
+        } catch (sendError) {}
       }
     } catch (e) {
       if (
@@ -1511,9 +1314,6 @@ async function sendWelcomeMessage(session, sock) {
         connectionChecked = true;
         break;
       }
-      log.info(
-        `[${session.id.slice(0, 8)}] Waiting for connection... (${i + 1}/3)`,
-      );
       await delay(5000);
     }
 
@@ -1533,13 +1333,7 @@ async function sendWelcomeMessage(session, sock) {
         ? session.ownerName
         : null;
 
-    const caption =
-      `━━━━━━━━━━━━━━━━━━━━━━\n🤖  *AYOBOT v1*  •  Online\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `${speedIcon} *${connectSecs}s*\n\n` +
-      `┌─ *Bot Info* ──────────────\n│ 📱 +${session.botNumber}\n` +
-      (displayName ? `│ 👤 ${displayName}\n` : "") +
-      `│ 💾 ${usedMB}/${totalMB} MB\n│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n│ 📦 v${ENV.BOT_VERSION}\n└───────────────────────\n\n` +
-      `👑 *Owner:* +${session.ownerPhone}\n_Full admin access_\n\nType *${ENV.PREFIX}menu* for commands`;
+    const caption = `━━━━━━━━━━━━━━━━━━━━━━\n🤖  *AYOBOT v1*  •  Online\n━━━━━━━━━━━━━━━━━━━━━━\n\n${speedIcon} *${connectSecs}s*\n\n┌─ *Bot Info* ──────────────\n│ 📱 +${session.botNumber}\n${displayName ? `│ 👤 ${displayName}\n` : ""}│ 💾 ${usedMB}/${totalMB} MB\n│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n│ 📦 v${ENV.BOT_VERSION}\n└───────────────────────\n\n👑 *Owner:* +${session.ownerPhone}\n_Full admin access_\n\nType *${ENV.PREFIX}menu* for commands`;
 
     try {
       await sock.sendMessage(session.ownerJid, {
@@ -1582,9 +1376,6 @@ async function clearSessionAuth(sessionId) {
 // ============================================================
 async function startSession(sessionId, isNew = true) {
   if (sessionCreationLocks.has(sessionId)) {
-    log.debug(
-      `Session ${sessionId.slice(0, 8)} already being created, waiting...`,
-    );
     return sessionCreationLocks.get(sessionId);
   }
 
@@ -1739,7 +1530,6 @@ async function _startSocket(session) {
         }
 
         await saveCreds();
-        log.info(`[${sid}] Loading handlers...`);
         await loadHandlersForSession(session);
         attachListeners(session);
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
@@ -1767,7 +1557,6 @@ async function _startSocket(session) {
           session.ownerName = null;
           session.authMethod = null;
           session.reconnectAttempts = 0;
-          log.info(`[${sid}] Logged out — restarting with fresh QR in 3s...`);
           setTimeout(() => _startSocket(session), 3000);
           return;
         }
@@ -1779,9 +1568,6 @@ async function _startSocket(session) {
 
         session.reconnectAttempts++;
         const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
-        log.info(
-          `[${sid}] Reconnecting in ${backoff / 1000}s... (attempt ${session.reconnectAttempts})`,
-        );
         if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
         session.reconnectTimeout = setTimeout(
           () => _startSocket(session),
@@ -1883,141 +1669,322 @@ async function requestPairingCode(session, phoneNumber) {
 }
 
 // ============================================================
-//   HTML TEMPLATES
+//   HTML TEMPLATES (COMPLETELY REDESIGNED UI/UX)
 // ============================================================
+
 function sharedHead(title) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>${escapeHtml(title)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
-    :root{--red:#ff0000;--red2:#cc0000;--red-glow:rgba(255,0,0,0.18);--gold:#ffd700;--gold2:#ffaa00;--gold-glow:rgba(255,215,0,0.15);--bg:#060608;--bg2:#0e0e12;--bg3:#16161c;--bg4:#1e1e26;--card:#12121a;--text:#e8e8f0;--text2:#9090a8;--text3:#5a5a72;--green:#00ff88;--border:rgba(255,0,0,0.2);--border2:rgba(255,0,0,0.08)}
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
-    body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(255,0,0,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,0,0,0.03) 1px,transparent 1px);background-size:40px 40px;animation:gridMove 20s linear infinite;pointer-events:none}
-    @keyframes gridMove{to{background-position:40px 40px}}
-    .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;animation:orbFloat 8s ease-in-out infinite}
-    .orb1{width:400px;height:400px;background:rgba(255,0,0,0.06);top:-100px;right:-100px}
-    .orb2{width:300px;height:300px;background:rgba(255,215,0,0.04);bottom:-50px;left:-50px;animation-delay:4s}
-    @keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(20px,-20px) scale(1.05)}}
-    .glass{background:var(--card);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(20px);position:relative;overflow:hidden}
-    .glass::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,rgba(255,255,255,0.03) 0%,transparent 60%);pointer-events:none}
-    .red-glow{animation:glow 3s ease-in-out infinite}
-    .gold-glow{animation:goldGlow 3s ease-in-out infinite}
-    @keyframes glow{0%,100%{box-shadow:0 0 10px var(--red-glow)}50%{box-shadow:0 0 30px var(--red-glow),0 0 60px rgba(255,0,0,0.08)}}
-    @keyframes goldGlow{0%,100%{box-shadow:0 0 10px var(--gold-glow)}50%{box-shadow:0 0 30px var(--gold-glow)}}
-    @keyframes greenPulse{0%,100%{box-shadow:0 0 6px rgba(0,255,136,0.6)}50%{box-shadow:0 0 20px rgba(0,255,136,0.9)}}
-    @keyframes scanline{0%{top:-5%}100%{top:105%}}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(0.95)}}
-    .btn{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;padding:12px 24px;border-radius:8px;border:none;cursor:pointer;letter-spacing:2px;text-transform:uppercase;transition:all .2s}
-    .btn-red{background:linear-gradient(135deg,var(--red),var(--red2));color:#000}
-    .btn-red:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,0,0,0.4)}
-    .nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,6,8,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:64px}
-    .nav-logo{font-family:'Orbitron',sans-serif;font-weight:900;font-size:18px;color:var(--red);letter-spacing:3px}
-    .nav-logo span{color:var(--gold)}
-    .nav-status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2)}
-    .dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:greenPulse 2s ease-in-out infinite}
-    .dot.offline{background:var(--red);animation:pulse 2s infinite}
-    .main{padding-top:80px;padding-bottom:60px;max-width:1200px;margin:0 auto;padding-left:24px;padding-right:24px;position:relative;z-index:1}
-    .hero{text-align:center;padding:60px 20px 40px}
-    .hero-eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--red);letter-spacing:4px;text-transform:uppercase;margin-bottom:16px;animation:fadeUp .6s ease both}
-    .hero-title{font-family:'Orbitron',sans-serif;font-size:clamp(2.5rem,8vw,5rem);font-weight:900;line-height:1;margin-bottom:16px;animation:fadeUp .6s .1s ease both}
-    .hero-title .line1{display:block;color:var(--text)}
-    .hero-title .line2{display:block;color:var(--red);text-shadow:0 0 40px rgba(255,0,0,0.5)}
-    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:32px 0}
-    .stat-card{padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border);text-align:center;transition:transform .2s,border-color .2s}
-    .stat-card:hover{transform:translateY(-4px);border-color:var(--red)}
-    .stat-icon{font-size:28px;margin-bottom:8px}
-    .stat-val{font-family:'Orbitron',sans-serif;font-size:32px;font-weight:900;color:var(--red);line-height:1}
-    .stat-label{font-size:13px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
-    .panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}
-    @media(max-width:700px){.panels{grid-template-columns:1fr}}
-    .panel{padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)}
-    .panel-title{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border2)}
-    .info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2);font-size:14px}
-    .info-row:last-child{border-bottom:none}
-    .info-row .key{color:var(--text2)}
-    .info-row .val{color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px}
-    .owner-card{padding:24px 28px;border-radius:16px;margin:16px 0;background:linear-gradient(135deg,rgba(255,215,0,0.06),rgba(255,170,0,0.03));border:1px solid rgba(255,215,0,0.3);display:flex;align-items:center;gap:20px;transition:border-color .2s,box-shadow .2s}
-    .owner-card:hover{border-color:rgba(255,215,0,0.6);box-shadow:0 0 30px rgba(255,215,0,0.1)}
-    .owner-avatar{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold2));display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;box-shadow:0 0 20px rgba(255,215,0,0.3)}
-    .owner-info{flex:1}
-    .owner-name{font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;color:var(--gold)}
-    .owner-phone{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2);margin-top:2px}
-    .owner-badge{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;padding:4px 10px;border-radius:4px;font-weight:700}
-    .status-live{display:inline-flex;align-items:center;gap:8px;background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);padding:6px 16px;border-radius:999px;font-family:'Orbitron',sans-serif;letter-spacing:2px;font-size:11px;color:var(--green)}
-    .mode-badge{display:inline-flex;align-items:center;gap:6px;background:var(--red-glow);border:1px solid var(--border);padding:4px 12px;border-radius:999px;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red)}
-    .roadmap{margin:48px 0}
-    .section-heading{font-family:'Orbitron',sans-serif;font-size:clamp(1.2rem,4vw,2rem);font-weight:900;margin-bottom:32px;color:var(--text)}
-    .section-heading span{color:var(--red)}
-    .timeline{position:relative;padding-left:32px}
-    .timeline::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:linear-gradient(to bottom,var(--red),rgba(255,0,0,0.1))}
-    .version-card{position:relative;margin-bottom:16px;padding:20px 24px;border-radius:12px;background:var(--card);border:1px solid var(--border);transition:all .3s}
-    .version-card::before{content:'';position:absolute;left:-37px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;border:2px solid var(--red);background:var(--bg)}
-    .version-card.active-v{border-color:var(--red);background:linear-gradient(135deg,rgba(255,0,0,0.05),var(--card))}
-    .version-card.active-v::before{background:var(--red);box-shadow:0 0 12px var(--red)}
-    .version-card.building{border-color:rgba(255,170,0,0.3)}
-    .version-card.building::before{background:var(--gold2);border-color:var(--gold2);box-shadow:0 0 12px rgba(255,170,0,0.5)}
-    .version-card.locked{opacity:.6}
-    .version-card.locked::before{background:var(--bg3);border-color:var(--text3)}
-    .v-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-    .v-name{font-family:'Orbitron',sans-serif;font-weight:900;font-size:15px}
-    .v-badge{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:2px;padding:3px 10px;border-radius:4px;font-weight:700}
-    .badge-live{background:rgba(0,255,136,0.15);color:var(--green);border:1px solid rgba(0,255,136,0.3)}
-    .badge-building{background:rgba(255,170,0,0.15);color:var(--gold2);border:1px solid rgba(255,170,0,0.3)}
-    .badge-soon{background:rgba(90,90,114,0.3);color:var(--text3);border:1px solid rgba(90,90,114,0.3)}
-    .v-desc{font-size:13px;color:var(--text2);line-height:1.5}
-    .v-features{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-    .v-tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--bg4);color:var(--text3);font-family:'JetBrains Mono',monospace}
-    .v-waitlist{margin-top:12px}
-    .btn-waitlist{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:7px 16px;border-radius:6px;cursor:pointer;transition:all .2s;background:transparent;border:1px solid var(--red);color:var(--red)}
-    .btn-waitlist:hover{background:var(--red-glow);transform:translateY(-1px)}
-    .btn-waitlist.joined{border-color:var(--green);color:var(--green);cursor:default}
-    .footer-bar{text-align:center;padding:32px 24px;color:var(--text3);font-size:13px;border-top:1px solid var(--border2);margin-top:48px}
-    .footer-bar a{color:var(--red);text-decoration:none}
-    .connect-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:88px}
-    .connect-box{width:100%;max-width:520px;animation:fadeUp .5s ease both}
-    .connect-tabs{display:flex;gap:4px;background:var(--bg3);padding:4px;border-radius:10px;margin-bottom:24px}
-    .ctab{flex:1;text-align:center;padding:10px;cursor:pointer;border-radius:8px;font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text2);transition:all .2s;border:none;background:transparent}
-    .ctab.active{background:var(--red);color:#000;font-weight:700}
-    .qr-wrap{background:var(--bg3);border-radius:12px;padding:20px;text-align:center;position:relative;overflow:hidden;border:1px solid var(--border)}
-    .qr-wrap img{width:100%;max-width:260px;border-radius:8px;display:block;margin:0 auto}
-    .qr-scan-line{position:absolute;left:10%;right:10%;height:2px;background:linear-gradient(90deg,transparent,var(--red),transparent);animation:scanline 3s linear infinite}
-    .pair-input{width:100%;padding:14px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:15px;margin-bottom:12px;outline:none;transition:border-color .2s}
-    .pair-input:focus{border-color:var(--red);box-shadow:0 0 0 3px rgba(255,0,0,0.1)}
-    .code-display{background:var(--bg3);border:1px solid rgba(255,0,0,0.4);border-radius:12px;padding:28px;text-align:center;margin:16px 0}
-    .code-digits{font-family:'Orbitron',sans-serif;font-size:42px;font-weight:900;letter-spacing:10px;color:var(--red);text-shadow:0 0 20px rgba(255,0,0,0.5);animation:glow 2s ease-in-out infinite}
-    .code-timer{color:var(--text2);font-size:13px;margin-top:8px;font-family:'JetBrains Mono',monospace}
-    .step-list{list-style:none;margin-top:16px}
-    .step-list li{padding:10px 0;border-bottom:1px solid var(--border2);font-size:13px;color:var(--text2);display:flex;align-items:center;gap:10px}
-    .step-list li:last-child{border-bottom:none}
-    .step-num{width:22px;height:22px;border-radius:50%;background:var(--red);color:#000;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    .err-box{background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:8px;padding:12px 16px;color:var(--red);font-size:13px;margin:8px 0;display:none}
-    .ok-box{background:rgba(0,255,136,0.07);border:1px solid rgba(0,255,136,0.25);border-radius:8px;padding:12px 16px;color:var(--green);font-size:13px;margin:8px 0;display:none}
-    .starting-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;padding-top:88px}
-    .loader-ring{width:80px;height:80px;margin:0 auto 24px;position:relative}
-    .loader-ring::before,.loader-ring::after{content:'';position:absolute;inset:0;border-radius:50%;border:3px solid transparent}
-    .loader-ring::before{border-top-color:var(--red);border-right-color:var(--red);animation:spin .8s linear infinite}
-    .loader-ring::after{border-bottom-color:rgba(255,0,0,0.2);border-left-color:rgba(255,0,0,0.2)}
-    .loading-dots::after{content:'';animation:dots 1.5s steps(4,end) infinite}
-    @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}}
-    .logout-btn{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px;cursor:pointer;background:transparent;transition:all .2s}
-    .logout-btn:hover{background:var(--red-glow)}
-    .inst-table{width:100%;border-collapse:collapse;font-size:13px}
-    .inst-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2)}
-    .inst-table td{padding:12px 14px;border-bottom:1px solid var(--border2);vertical-align:middle}
-    .kill-btn{font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:1px;padding:6px 12px;border-radius:6px;cursor:pointer;background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);color:var(--red)}
-    .user-table{width:100%;border-collapse:collapse;font-size:13px}
-    .user-table th{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-align:left;padding:10px 14px;border-bottom:1px solid var(--border2)}
-    .user-table td{padding:11px 14px;border-bottom:1px solid var(--border2);vertical-align:middle;font-family:'JetBrains Mono',monospace;font-size:12px}
-    .page-btn{font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:1px;padding:6px 14px;border-radius:6px;cursor:pointer;background:var(--card);border:1px solid var(--border);color:var(--text2)}
-    .page-btn.active{background:var(--red);color:#000;border-color:var(--red)}
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #0a0a0f 0%, #0f0f1a 100%);
+      color: #e8e8f0;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Glass morphism effect */
+    .glass {
+      background: rgba(20, 20, 30, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+    }
+
+    /* Gradient borders */
+    .gradient-border {
+      position: relative;
+      background: rgba(15, 15, 25, 0.9);
+      border-radius: 20px;
+    }
+
+    .gradient-border::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 20px;
+      padding: 1px;
+      background: linear-gradient(135deg, #ff3366, #ff6b3d, #ffb347);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+
+    /* Animated gradient text */
+    .gradient-text {
+      background: linear-gradient(135deg, #ff3366, #ff6b3d, #ffb347);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      background-size: 200% 200%;
+      animation: gradientShift 3s ease infinite;
+    }
+
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    /* Glow effects */
+    .glow-red {
+      box-shadow: 0 0 20px rgba(255, 51, 102, 0.3);
+    }
+
+    .glow-gold {
+      box-shadow: 0 0 20px rgba(255, 180, 71, 0.3);
+    }
+
+    /* Cards */
+    .card {
+      background: rgba(20, 20, 30, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 51, 102, 0.3);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Buttons */
+    .btn-primary {
+      background: linear-gradient(135deg, #ff3366, #ff6b3d);
+      border: none;
+      padding: 12px 28px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(255, 51, 102, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 10px 24px;
+      border-radius: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: #e8e8f0;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 51, 102, 0.5);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 15px rgba(220, 38, 38, 0.4);
+    }
+
+    /* Status indicators */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-online {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .status-offline {
+      background: rgba(107, 114, 128, 0.15);
+      color: #9ca3af;
+      border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+
+    /* Tables */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 16px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #9ca3af;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .data-table td {
+      padding: 16px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Navbar */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: rgba(10, 10, 15, 0.95);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      z-index: 1000;
+      padding: 0 32px;
+      height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ff3366, #ff6b3d);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    /* Animations */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-fade-in {
+      animation: fadeInUp 0.6s ease forwards;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 51, 102, 0.5);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 51, 102, 0.7);
+    }
+
+    /* Loading spinner */
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 51, 102, 0.2);
+      border-top-color: #ff3366;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* QR Code container */
+    .qr-container {
+      background: white;
+      padding: 20px;
+      border-radius: 20px;
+      display: inline-block;
+    }
+
+    .qr-container img {
+      width: 200px;
+      height: 200px;
+    }
+
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(10px);
+      padding: 12px 20px;
+      border-radius: 12px;
+      border-left: 3px solid #ff3366;
+      z-index: 1100;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 0 16px;
+      }
+      .data-table th, .data-table td {
+        padding: 12px 8px;
+        font-size: 12px;
+      }
+    }
   </style>
 </head>`;
 }
@@ -2028,194 +1995,385 @@ function connectedHTML(session) {
   const m = Math.floor((up % 3600) / 60);
   const s = up % 60;
   const SID = session.id;
+
   return (
-    sharedHead("AYOBOT v1 — Dashboard") +
-    `<body>
-    <div class="orb orb1"></div><div class="orb orb2"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div>
-      <div style="display:flex;align-items:center;gap:16px">
-        <div class="mode-badge">⚡ ${escapeHtml((session.mode || ENV.BOT_MODE || "public").toUpperCase())}</div>
-        <div class="nav-status"><div class="dot" id="navdot"></div><span id="navtxt">LIVE</span></div>
-        <button class="logout-btn" onclick="logout()">⏏ LOGOUT</button>
-      </div>
-    </nav>
-    <div class="main">
-      <div class="hero">
-        <div class="hero-eyebrow">⚡ WhatsApp Automation Suite</div>
-        <h1 class="hero-title"><span class="line1">AYOBOT</span><span class="line2">COMMAND CENTER</span></h1>
-        <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:16px">
-          <div class="status-live"><div class="dot"></div>SYSTEM ONLINE</div>
-        </div>
-      </div>
-      <div class="owner-card gold-glow">
-        <div class="owner-avatar">👑</div>
-        <div class="owner-info">
-          <div class="owner-name" id="oName">${escapeHtml(session.ownerName || "Owner")}</div>
-          <div class="owner-phone" id="oPhone">+${escapeHtml(session.ownerPhone || "—")}</div>
-        </div>
-        <div class="owner-badge">BOT OWNER</div>
-      </div>
-      <div class="stats-grid">
-        <div class="stat-card red-glow"><div class="stat-icon">💬</div><div class="stat-val" id="sMsg">${session.messageCount}</div><div class="stat-label">Messages</div></div>
-        <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-val" id="sCmd" style="color:var(--gold)">${session.commandCount || 0}</div><div class="stat-label">Commands</div></div>
-        <div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-val" id="sUp" style="font-size:22px;color:var(--green)">${h}h ${m}m ${s}s</div><div class="stat-label">Uptime</div></div>
-        <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-val" style="font-size:18px;color:var(--text)">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div><div class="stat-label">Mode</div></div>
-      </div>
-      <div class="panels">
-        <div class="panel">
-          <div class="panel-title">Bot Information</div>
-          <div class="info-row"><span class="key">📱 Number</span><span class="val">+${escapeHtml(session.botNumber || "—")}</span></div>
-          <div class="info-row"><span class="key">👤 Name</span><span class="val">${escapeHtml(session.botName || "—")}</span></div>
-          <div class="info-row"><span class="key">⚡ Prefix</span><span class="val">${escapeHtml(ENV.PREFIX)}</span></div>
-          <div class="info-row"><span class="key">🔐 Auth</span><span class="val">${escapeHtml(session.authMethod || "session")}</span></div>
-          <div class="info-row"><span class="key">📦 Version</span><span class="val">v${escapeHtml(ENV.BOT_VERSION)}</span></div>
-        </div>
-        <div class="panel">
-          <div class="panel-title">System Status</div>
-          <div class="info-row"><span class="key">🟢 Connection</span><span class="val" style="color:var(--green)" id="connStat">STABLE</span></div>
-          <div class="info-row"><span class="key">🔧 Handlers</span><span class="val" style="color:var(--green)">ALL READY</span></div>
-          <div class="info-row"><span class="key">🛡️ Anti-Delete</span><span class="val" style="color:var(--green)">ACTIVE</span></div>
-          <div class="info-row"><span class="key">🔇 Auto-Reply</span><span class="val" style="color:var(--red)">DISABLED</span></div>
-          <div class="info-row"><span class="key">🌐 Dashboard</span><span class="val" style="color:var(--green)">ONLINE</span></div>
-        </div>
-      </div>
-      <div class="roadmap">
-        <h2 class="section-heading">VERSION <span>TIMELINE</span></h2>
-        <div class="timeline">
-          <div class="version-card active-v red-glow">
-            <div class="v-header"><span class="v-name" style="color:var(--red)">🤖 AYOBOT <span style="color:var(--text)">v1</span></span><span class="v-badge badge-live">🟢 LIVE NOW</span></div>
-            <div class="v-desc">The original. 45+ commands, AI integration, group management, media tools, full admin control.</div>
-            <div class="v-features"><span class="v-tag">AI Chat</span><span class="v-tag">Group Mod</span><span class="v-tag">Media DL</span><span class="v-tag">45+ Commands</span></div>
-          </div>
-          <div class="version-card building">
-            <div class="v-header"><span class="v-name" style="color:var(--gold2)">🔥 AYOBOT <span style="color:var(--text)">v2</span></span><span class="v-badge badge-building">⚙️ IN DEVELOPMENT</span></div>
-            <div class="v-desc">Multi-device, upgraded AI with memory, custom plugin system, real-time analytics dashboard.</div>
-            <div class="v-features"><span class="v-tag">Multi-Device</span><span class="v-tag">AI Memory</span><span class="v-tag">Plugin API</span></div>
-            <div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v2',this)">🔔 JOIN WAITLIST</button></div>
-          </div>
-          <div class="version-card locked">
-            <div class="v-header"><span class="v-name" style="color:var(--text2)">🚀 AYOBOT <span style="color:var(--text)">v3</span></span><span class="v-badge badge-soon">🔒 COMING SOON</span></div>
-            <div class="v-desc">Cross-platform — Telegram + WhatsApp unified.</div>
-            <div class="v-features"><span class="v-tag">Telegram</span><span class="v-tag">Unified Panel</span></div>
-            <div class="v-waitlist"><button class="btn-waitlist" onclick="joinWaitlist('v3',this)">🔔 JOIN WAITLIST</button></div>
-          </div>
-        </div>
-      </div>
-      <div class="footer-bar">Built by <a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> &nbsp;·&nbsp; AYOBOT v${ENV.BOT_VERSION} &nbsp;·&nbsp; <span id="footerTime"></span></div>
+    sharedHead("AYOBOT — Dashboard") +
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT <span style="font-size: 14px; color: #6b7280;">v${ENV.BOT_VERSION}</span></div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <span class="status-badge status-online"><i class="fas fa-circle" style="font-size: 8px;"></i> LIVE</span>
+      <button class="btn-secondary" onclick="logout()" style="padding: 8px 16px;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </button>
     </div>
-    <script>
-      const SID='${SID}';
-      function animCount(el,target,dur){const start=parseInt(el.textContent)||0;if(start===target)return;const step=Math.ceil(Math.abs(target-start)/(dur/16));let cur=start;const t=setInterval(()=>{cur=target>start?Math.min(cur+step,target):Math.max(cur-step,target);el.textContent=cur;if(cur===target)clearInterval(t)},16)}
-      function updateStats(){fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(!d.exists||!d.connected){location.reload();return}animCount(document.getElementById('sMsg'),d.messageCount||0,600);animCount(document.getElementById('sCmd'),d.commandCount||0,600);const up=d.uptime||0,h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s=up%60;document.getElementById('sUp').textContent=h+'h '+m+'m '+s+'s';if(d.ownerName)document.getElementById('oName').textContent=d.ownerName;if(d.ownerPhone)document.getElementById('oPhone').textContent='+'+d.ownerPhone;const dot=document.getElementById('navdot'),txt=document.getElementById('navtxt');if(d.connected){dot.className='dot';txt.textContent='LIVE'}else{dot.className='dot offline';txt.textContent='OFFLINE'}}).catch(()=>{})}
-      updateStats();setInterval(updateStats,60000);
-      function tick(){const n=new Date(),el=document.getElementById('footerTime');if(el)el.textContent=n.toLocaleTimeString('en-GB',{hour12:false})+' UTC'}tick();setInterval(tick,1000);
-      async function logout(){if(!confirm('Disconnect your WhatsApp and reset your bot?'))return;await fetch('/api/logout/'+SID,{method:'POST',credentials:'same-origin'});location.href='/'}
-      function joinWaitlist(v,btn){if(btn.classList.contains('joined'))return;btn.disabled=true;btn.textContent='⏳ JOINING...';fetch('/api/waitlist-join/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({version:v})}).then(r=>r.json()).then(()=>{btn.textContent='✅ JOINED';btn.classList.add('joined')}).catch(()=>{btn.textContent='🔔 JOIN WAITLIST';btn.disabled=false})}
-    </script>
-  </body></html>`
+  </nav>
+
+  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1200px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
+    <!-- Hero Section -->
+    <div class="animate-fade-in" style="text-align: center; margin-bottom: 40px;">
+      <div style="font-size: 14px; color: #ff3366; letter-spacing: 2px; margin-bottom: 12px;">⚡ WHATSAPP AUTOMATION SUITE</div>
+      <h1 style="font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; margin-bottom: 16px;">
+        <span class="gradient-text">COMMAND CENTER</span>
+      </h1>
+      <p style="color: #9ca3af;">Manage your WhatsApp bot from anywhere</p>
+    </div>
+
+    <!-- Owner Card -->
+    <div class="card gradient-border" style="padding: 24px; margin-bottom: 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #ff3366, #ff6b3d); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+          <i class="fas fa-crown" style="font-size: 24px; color: white;"></i>
+        </div>
+        <div>
+          <div style="font-weight: 700; font-size: 18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
+          <div style="font-size: 13px; color: #9ca3af; font-family: monospace;" id="ownerPhone">+${escapeHtml(session.ownerPhone || "—")}</div>
+        </div>
+      </div>
+      <div class="status-badge status-online">
+        <i class="fas fa-shield-alt"></i> BOT OWNER
+      </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 32px;">
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-comments" style="font-size: 28px; color: #ff3366; margin-bottom: 12px; display: block;"></i>
+        <div style="font-size: 32px; font-weight: 800;" id="statMsg">${session.messageCount}</div>
+        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Total Messages</div>
+      </div>
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-terminal" style="font-size: 28px; color: #ff6b3d; margin-bottom: 12px; display: block;"></i>
+        <div style="font-size: 32px; font-weight: 800;" id="statCmd">${session.commandCount || 0}</div>
+        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Commands Run</div>
+      </div>
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-clock" style="font-size: 28px; color: #ffb347; margin-bottom: 12px; display: block;"></i>
+        <div style="font-size: 28px; font-weight: 800;" id="statUptime">${h}h ${m}m ${s}s</div>
+        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Uptime</div>
+      </div>
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-globe" style="font-size: 28px; color: #22c55e; margin-bottom: 12px; display: block;"></i>
+        <div style="font-size: 20px; font-weight: 800;">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div>
+        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Bot Mode</div>
+      </div>
+    </div>
+
+    <!-- Info Panels -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 40px;">
+      <div class="card" style="padding: 24px;">
+        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-robot" style="color: #ff3366;"></i> Bot Information
+        </h3>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">📱 Number</span>
+            <span style="font-family: monospace;">+${escapeHtml(session.botNumber || "—")}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">👤 Name</span>
+            <span>${escapeHtml(session.botName || "—")}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">⚡ Prefix</span>
+            <span>${escapeHtml(ENV.PREFIX)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">🔐 Auth Method</span>
+            <span>${escapeHtml(session.authMethod || "session")}</span>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="padding: 24px;">
+        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-chart-line" style="color: #ff6b3d;"></i> System Status
+        </h3>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">🟢 Connection</span>
+            <span style="color: #22c55e;">STABLE</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">🔧 Handlers</span>
+            <span style="color: #22c55e;">READY</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">🛡️ Anti-Delete</span>
+            <span style="color: #22c55e;">ACTIVE</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #9ca3af;">💾 Memory</span>
+            <span>${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card" style="padding: 24px;">
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px;">
+        <i class="fas fa-bolt" style="color: #ffb347;"></i> Quick Actions
+      </h3>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <button class="btn-secondary" onclick="window.open('https://wa.me/${session.botNumber}', '_blank')">
+          <i class="fab fa-whatsapp"></i> Chat with Bot
+        </button>
+        <button class="btn-secondary" onclick="copyCommand('${ENV.PREFIX}menu')">
+          <i class="fas fa-copy"></i> Copy Menu Command
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const SID = '${SID}';
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = '<i class="fas fa-' + (type === 'success' ? 'check-circle' : 'info-circle') + '"></i> ' + message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function copyCommand(cmd) {
+      navigator.clipboard.writeText(cmd);
+      showToast('Command copied: ' + cmd, 'success');
+    }
+
+    async function logout() {
+      if (!confirm('Disconnect your WhatsApp and reset your bot?')) return;
+      try {
+        await fetch('/api/logout/' + SID, { method: 'POST', credentials: 'same-origin' });
+        window.location.href = '/';
+      } catch (e) {
+        showToast('Logout failed', 'error');
+      }
+    }
+
+    async function updateStats() {
+      try {
+        const res = await fetch('/api/status/' + SID, { credentials: 'same-origin' });
+        const d = await res.json();
+        if (!d.exists || !d.connected) {
+          window.location.reload();
+          return;
+        }
+        document.getElementById('statMsg').textContent = d.messageCount || 0;
+        document.getElementById('statCmd').textContent = d.commandCount || 0;
+        const up = d.uptime || 0;
+        const h = Math.floor(up / 3600);
+        const m = Math.floor((up % 3600) / 60);
+        const s = up % 60;
+        document.getElementById('statUptime').textContent = h + 'h ' + m + 'm ' + s + 's';
+        if (d.ownerName) document.getElementById('ownerName').textContent = d.ownerName;
+        if (d.ownerPhone) document.getElementById('ownerPhone').textContent = '+' + d.ownerPhone;
+      } catch (e) {}
+    }
+
+    updateStats();
+    setInterval(updateStats, 30000);
+  </script>
+</body>
+</html>`
   );
 }
 
 function connectHTML(sessionId, qrUrl) {
   return (
     sharedHead("AYOBOT — Connect") +
-    `<body>
-    <div class="orb orb1"></div><div class="orb orb2"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">v1</span></div>
-      <div class="nav-status"><div class="dot offline"></div><span>AWAITING YOUR WHATSAPP</span></div>
-    </nav>
-    <div class="connect-wrap">
-      <div class="connect-box">
-        <div style="text-align:center;margin-bottom:28px">
-          <div class="hero-eyebrow">Connect Your WhatsApp</div>
-          <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;margin-top:8px">LINK <span style="color:var(--red)">YOUR DEVICE</span></h1>
-          <p style="font-size:13px;color:var(--text2);margin-top:8px">This bot will run on <strong>your</strong> WhatsApp number</p>
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT <span style="font-size: 14px; color: #6b7280;">v${ENV.BOT_VERSION}</span></div>
+    <div class="status-badge status-offline"><i class="fas fa-circle" style="font-size: 8px;"></i> AWAITING CONNECTION</div>
+  </nav>
+
+  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 600px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
+    <div class="animate-fade-in" style="text-align: center; margin-bottom: 40px;">
+      <div style="font-size: 14px; color: #ff3366; letter-spacing: 2px; margin-bottom: 12px;">CONNECT YOUR DEVICE</div>
+      <h1 style="font-size: clamp(1.8rem, 5vw, 2.5rem); font-weight: 800;">
+        <span class="gradient-text">LINK WHATSAPP</span>
+      </h1>
+      <p style="color: #9ca3af; margin-top: 12px;">Scan QR code or use pairing code to connect</p>
+    </div>
+
+    <div class="card" style="padding: 32px;">
+      <!-- Tabs -->
+      <div style="display: flex; gap: 8px; margin-bottom: 32px; background: rgba(0,0,0,0.3); border-radius: 12px; padding: 4px;">
+        <button onclick="showTab('qr')" id="tabQrBtn" style="flex: 1; padding: 12px; border: none; background: #ff3366; color: white; border-radius: 8px; font-weight: 600; cursor: pointer;">📱 QR Code</button>
+        <button onclick="showTab('pair')" id="tabPairBtn" style="flex: 1; padding: 12px; border: none; background: transparent; color: #9ca3af; border-radius: 8px; font-weight: 600; cursor: pointer;">🔑 Pairing Code</button>
+      </div>
+
+      <!-- QR Tab -->
+      <div id="qrTab" style="text-align: center;">
+        <div class="qr-container" style="background: white; padding: 20px; border-radius: 20px; display: inline-block; margin-bottom: 24px;">
+          ${qrUrl ? `<img src="${qrUrl}" alt="QR Code" style="width: 200px; height: 200px;">` : `<div class="spinner" style="margin: 0 auto;"></div><p style="margin-top: 16px;">Generating QR...</p>`}
         </div>
-        <div class="glass" style="padding:24px">
-          <div class="connect-tabs">
-            <button class="ctab active" onclick="showTab('qr',this)">📱 QR CODE</button>
-            <button class="ctab" onclick="showTab('pair',this)">🔑 PAIRING CODE</button>
-          </div>
-          <div id="tab-qr">
-            <div class="qr-wrap">
-              <div class="qr-scan-line"></div>
-              ${qrUrl ? `<img src="${qrUrl}" alt="QR Code">` : `<div style="padding:40px;color:var(--text3);font-size:13px">Generating QR...</div>`}
-            </div>
-            <ul class="step-list">
-              <li><span class="step-num">1</span>Open WhatsApp on your phone</li>
-              <li><span class="step-num">2</span>Tap <strong>Menu → Linked Devices</strong></li>
-              <li><span class="step-num">3</span>Tap <strong>Link a Device</strong></li>
-              <li><span class="step-num">4</span>Scan the QR above</li>
-            </ul>
-            <div style="margin-top:16px;padding:12px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.2);border-radius:8px;font-size:13px;color:var(--gold)">👑 You become the <strong>Bot Owner</strong> with full admin access</div>
-          </div>
-          <div id="tab-pair" style="display:none">
-            <div id="pairForm">
-              <label style="font-size:12px;color:var(--text2);letter-spacing:1px;display:block;margin-bottom:8px">YOUR PHONE (with country code, no + or spaces)</label>
-              <input class="pair-input" id="ph" type="tel" placeholder="e.g. 2349159180375" autocomplete="off">
-              <button class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px" onclick="requestCode()" id="pb">⚡ REQUEST PAIRING CODE</button>
-            </div>
-            <div id="codeDisplay" style="display:none">
-              <div class="code-display">
-                <div style="font-size:11px;color:var(--text2);letter-spacing:2px;font-family:Orbitron,sans-serif;margin-bottom:12px">ENTER THIS IN WHATSAPP</div>
-                <div class="code-digits" id="codeDigits">————</div>
-                <div class="code-timer" id="codeTimer">⏳ Expires in 60s</div>
-              </div>
-              <div class="ok-box" style="display:block">✅ WhatsApp → Linked Devices → Link a Device → Enter the code above</div>
-            </div>
-            <div class="err-box" id="errBox"></div>
-          </div>
-          <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border2)">
-            <span style="font-size:12px;color:var(--text3);font-family:'JetBrains Mono',monospace">⏳ Auto-checks connection every 5s</span>
-          </div>
+        <div style="text-align: left; margin-top: 24px;">
+          <h4 style="margin-bottom: 16px;">How to connect:</h4>
+          <ol style="color: #9ca3af; line-height: 2;">
+            <li>1. Open WhatsApp on your phone</li>
+            <li>2. Tap <strong>Menu → Linked Devices</strong></li>
+            <li>3. Tap <strong>Link a Device</strong></li>
+            <li>4. Scan the QR code above</li>
+          </ol>
         </div>
-        <div class="footer-bar" style="margin-top:24px;border:none"><a href="${ENV.CREATOR_GITHUB}" target="_blank">AYOCODES</a> · AYOBOT v${ENV.BOT_VERSION}</div>
+      </div>
+
+      <!-- Pairing Tab -->
+      <div id="pairTab" style="display: none;">
+        <div id="pairForm">
+          <label style="display: block; margin-bottom: 8px; font-size: 14px;">Phone Number (with country code)</label>
+          <input type="tel" id="phoneInput" placeholder="e.g., 2349159180375" style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; margin-bottom: 16px;">
+          <button onclick="requestPairingCode()" class="btn-primary" style="width: 100%;">Request Pairing Code</button>
+        </div>
+        <div id="codeDisplay" style="display: none; text-align: center;">
+          <div style="background: rgba(255,51,102,0.1); padding: 32px; border-radius: 20px; margin: 16px 0;">
+            <div style="font-size: 48px; font-weight: 800; letter-spacing: 8px; color: #ff3366;" id="codeDigits">——</div>
+            <div style="margin-top: 16px; color: #9ca3af;" id="codeTimer">Expires in 60s</div>
+          </div>
+          <p style="color: #9ca3af;">Enter this code in WhatsApp → Linked Devices → Link a Device</p>
+        </div>
+        <div id="pairError" style="color: #ef4444; margin-top: 16px; display: none;"></div>
       </div>
     </div>
-    <script>
-      const SID='${sessionId}';
-      function showTab(id,el){document.querySelectorAll('.ctab').forEach(t=>t.classList.remove('active'));['tab-qr','tab-pair'].forEach(t=>document.getElementById(t).style.display='none');el.classList.add('active');document.getElementById('tab-'+id).style.display='block'}
-      async function requestCode(){const ph=document.getElementById('ph').value.trim();const pb=document.getElementById('pb');const err=document.getElementById('errBox');err.style.display='none';if(!ph||!/^\\d{10,15}$/.test(ph)){err.textContent='⚠️ Enter a valid phone number (10-15 digits)';err.style.display='block';return}pb.disabled=true;pb.textContent='⏳ REQUESTING…';try{const r=await fetch('/api/request-pairing/'+SID,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({phoneNumber:ph})});const d=await r.json();if(d.success){document.getElementById('pairForm').style.display='none';document.getElementById('codeDisplay').style.display='block';document.getElementById('codeDigits').textContent=d.code;let t=d.expiresIn||60;const ti=setInterval(()=>{t--;const el=document.getElementById('codeTimer');if(el)el.textContent='⏳ Expires in '+t+'s';if(t<=0){clearInterval(ti);location.reload()}},1000)}else{err.textContent='❌ '+d.error;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE'}}catch(e){err.textContent='❌ Network error: '+e.message;err.style.display='block';pb.disabled=false;pb.textContent='⚡ REQUEST PAIRING CODE'}}
-      setInterval(()=>{fetch('/api/status/'+SID,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.connected)location.reload()}).catch(()=>{})},5000);
-    </script>
-  </body></html>`
+  </main>
+
+  <script>
+    const SID = '${sessionId}';
+
+    function showTab(tab) {
+      const qrTab = document.getElementById('qrTab');
+      const pairTab = document.getElementById('pairTab');
+      const qrBtn = document.getElementById('tabQrBtn');
+      const pairBtn = document.getElementById('tabPairBtn');
+
+      if (tab === 'qr') {
+        qrTab.style.display = 'block';
+        pairTab.style.display = 'none';
+        qrBtn.style.background = '#ff3366';
+        qrBtn.style.color = 'white';
+        pairBtn.style.background = 'transparent';
+        pairBtn.style.color = '#9ca3af';
+      } else {
+        qrTab.style.display = 'none';
+        pairTab.style.display = 'block';
+        qrBtn.style.background = 'transparent';
+        qrBtn.style.color = '#9ca3af';
+        pairBtn.style.background = '#ff3366';
+        pairBtn.style.color = 'white';
+      }
+    }
+
+    async function requestPairingCode() {
+      const phone = document.getElementById('phoneInput').value.trim();
+      if (!phone.match(/^\\d{10,15}$/)) {
+        document.getElementById('pairError').textContent = 'Please enter a valid phone number (10-15 digits)';
+        document.getElementById('pairError').style.display = 'block';
+        return;
+      }
+
+      document.getElementById('pairError').style.display = 'none';
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Requesting...';
+
+      try {
+        const res = await fetch('/api/request-pairing/' + SID, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ phoneNumber: phone })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          document.getElementById('pairForm').style.display = 'none';
+          document.getElementById('codeDisplay').style.display = 'block';
+          document.getElementById('codeDigits').textContent = data.code;
+          let timeLeft = data.expiresIn || 60;
+          const timer = setInterval(() => {
+            timeLeft--;
+            const timerEl = document.getElementById('codeTimer');
+            if (timerEl) timerEl.textContent = 'Expires in ' + timeLeft + 's';
+            if (timeLeft <= 0) {
+              clearInterval(timer);
+              window.location.reload();
+            }
+          }, 1000);
+        } else {
+          document.getElementById('pairError').textContent = data.error;
+          document.getElementById('pairError').style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Request Pairing Code';
+        }
+      } catch (e) {
+        document.getElementById('pairError').textContent = 'Network error: ' + e.message;
+        document.getElementById('pairError').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Request Pairing Code';
+      }
+    }
+
+    // Check connection status every 5 seconds
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/status/' + SID, { credentials: 'same-origin' });
+        const data = await res.json();
+        if (data.connected) window.location.reload();
+      } catch (e) {}
+    }, 5000);
+  </script>
+</body>
+</html>`
   );
 }
 
 function loadingHTML(sessionId) {
   return (
     sharedHead("AYOBOT — Starting") +
-    `<body>
-    <div class="orb orb1"></div><div class="orb orb2"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span></div>
-      <div class="nav-status"><div class="dot offline" style="animation:pulse 1s infinite"></div><span style="color:var(--text3)">INITIALIZING</span></div>
-    </nav>
-    <div class="starting-wrap">
-      <div style="text-align:center;animation:fadeIn .6s ease">
-        <div class="loader-ring"></div>
-        <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:900;color:var(--red)">AYOBOT</h1>
-        <p style="color:var(--text2);margin-top:8px;font-size:15px">Starting your bot session<span class="loading-dots"></span></p>
-        <div style="margin-top:20px;font-size:12px;color:var(--text3)">Reloading in <span id="rc">3</span>s</div>
-      </div>
-    </div>
-    <script>let rc=3;setInterval(()=>{rc--;const e=document.getElementById('rc');if(e)e.textContent=rc;if(rc<=0)location.reload()},1000);</script>
-  </body></html>`
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT</div>
+  </nav>
+  <main style="padding-top: 90px; text-align: center;">
+    <div class="spinner" style="margin: 60px auto;"></div>
+    <h2 style="margin-top: 32px;">Starting your bot...</h2>
+    <p style="color: #9ca3af; margin-top: 8px;">This will only take a moment</p>
+    <p style="color: #6b7280; margin-top: 32px; font-size: 14px;">Redirecting in <span id="countdown">3</span> seconds</p>
+  </main>
+  <script>
+    let count = 3;
+    const timer = setInterval(() => {
+      count--;
+      const el = document.getElementById('countdown');
+      if (el) el.textContent = count;
+      if (count <= 0) {
+        clearInterval(timer);
+        window.location.reload();
+      }
+    }, 1000);
+  </script>
+</body>
+</html>`
   );
 }
 
 function maxSessionsHTML() {
   return (
     sharedHead("AYOBOT — At Capacity") +
-    `<body>
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px">
-      <div style="font-size:48px;margin-bottom:16px">⚠️</div>
-      <h1 style="font-family:'Orbitron',sans-serif;font-size:2rem;color:var(--red)">AT CAPACITY</h1>
-      <p style="color:var(--text2);margin-top:12px;max-width:400px">This server has reached its maximum session limit (${ENV.MAX_SESSIONS}). Please try again later.</p>
-    </div>
-  </body></html>`
+    `
+<body>
+  <main style="padding-top: 90px; text-align: center;">
+    <i class="fas fa-exclamation-triangle" style="font-size: 64px; color: #ffb347; margin-bottom: 24px; display: block;"></i>
+    <h1 style="font-size: 32px; margin-bottom: 16px;">Server at Capacity</h1>
+    <p style="color: #9ca3af;">Maximum session limit (${ENV.MAX_SESSIONS}) reached. Please try again later.</p>
+  </main>
+</body>
+</html>`
   );
 }
 
@@ -2223,100 +2381,281 @@ function adminLoginHTML(error = "") {
   const safeError = escapeHtml(error);
   return (
     sharedHead("AYOBOT — Admin Login") +
-    `<body>
-    <div class="orb orb1"></div><div class="orb orb2"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">ADMIN</span></div>
-    </nav>
-    <div class="connect-wrap">
-      <div class="connect-box" style="max-width:400px">
-        <div style="text-align:center;margin-bottom:28px">
-          <h1 style="font-family:'Orbitron',sans-serif;font-size:1.8rem;font-weight:900;margin-top:8px">ADMIN <span style="color:var(--red)">LOGIN</span></h1>
-        </div>
-        <div class="glass" style="padding:28px">
-          ${safeError ? `<div style="background:rgba(255,0,0,0.1);border:1px solid rgba(255,0,0,0.3);border-radius:8px;padding:10px 14px;color:var(--red);font-size:13px;margin-bottom:16px">❌ ${safeError}</div>` : ""}
-          <form method="POST" action="/ayocodes-admin/login-post">
-            <input type="password" name="password" class="pair-input" placeholder="Admin password" autofocus style="margin-bottom:16px">
-            <button type="submit" class="btn btn-red" style="width:100%;font-size:11px;letter-spacing:3px">🔓 ENTER DASHBOARD</button>
-          </form>
-        </div>
-      </div>
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">ADMIN</span></div>
+  </nav>
+  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 400px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
+    <div class="card" style="padding: 40px;">
+      <h2 style="text-align: center; margin-bottom: 32px;">Admin Access</h2>
+      ${safeError ? `<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); padding: 12px; border-radius: 12px; margin-bottom: 24px; color: #ef4444;">${safeError}</div>` : ""}
+      <form method="POST" action="/ayocodes-admin/login-post">
+        <input type="password" name="password" placeholder="Enter admin password" style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; margin-bottom: 20px;">
+        <button type="submit" class="btn-primary" style="width: 100%;">Login to Dashboard</button>
+      </form>
     </div>
-  </body></html>`
+  </main>
+</body>
+</html>`
   );
 }
 
 function adminDashboardHTML() {
   return (
-    sharedHead("AYOBOT — Dev Panel") +
-    `<body>
-    <div class="orb orb1"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">DEV</span></div>
-      <div style="display:flex;align-items:center;gap:16px">
-        <a href="/ayocodes-admin/users" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">👥 USERS</a>
-        <a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a>
-      </div>
-    </nav>
-    <div class="main">
-      <div class="hero" style="padding:40px 20px 20px">
-        <h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">INSTANCE</span><span class="line2">MONITOR</span></h1>
-      </div>
-      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-        <div class="stat-card red-glow"><div class="stat-icon">🌐</div><div class="stat-val" id="totalI">—</div><div class="stat-label">Total Bots</div></div>
-        <div class="stat-card"><div class="stat-icon">🟢</div><div class="stat-val" id="onlineI" style="color:var(--green)">—</div><div class="stat-label">Online</div></div>
-        <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-val" id="totalM" style="color:var(--gold)">—</div><div class="stat-label">Messages</div></div>
-      </div>
-      <div style="margin:24px 0 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <button class="btn btn-red" onclick="loadInstances()" style="padding:8px 18px;font-size:10px;letter-spacing:2px">↻ REFRESH</button>
-        <button onclick="deleteOffline()" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;padding:8px 16px;border-radius:8px;cursor:pointer;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;">🗑️ DELETE OFFLINE</button>
-      </div>
-      <div id="instanceTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading...</div></div>
+    sharedHead("AYOBOT — Admin Panel") +
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">DEV PANEL</span></div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <a href="/ayocodes-admin/users" style="color: #9ca3af; text-decoration: none;">
+        <i class="fas fa-users"></i> Users
+      </a>
+      <button onclick="logoutAdmin()" class="btn-secondary" style="padding: 8px 16px;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </button>
     </div>
-    <script>
-      async function loadInstances(){let d;try{const r=await fetch('/ayocodes-admin/api/instances',{credentials:'same-origin'});if(r.status===401){location.href='/ayocodes-admin/login';return}d=await r.json()}catch(e){return}document.getElementById('totalI').textContent=d.total;document.getElementById('onlineI').textContent=d.online;document.getElementById('totalM').textContent=d.instances.reduce((a,i)=>a+(i.messageCount||0),0).toLocaleString();if(!d.instances||!d.instances.length){document.getElementById('instanceTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No sessions</div>';return}let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="inst-table"><thead><tr><th>STATUS</th><th>OWNER</th><th>BOT</th><th>UPTIME</th><th>MSGS</th><th>ACTION</th></tr></thead><tbody>';d.instances.forEach(inst=>{const up=inst.uptime||0;const h=Math.floor(up/3600);const m=Math.floor((up%3600)/60);html+='<tr><td>'+(inst.connected?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--red)">● DEAD</span>')+'</td><td><span style="font-family:JetBrains Mono,monospace;color:var(--gold)">'+(inst.ownerPhone?'+'+inst.ownerPhone:'—')+'</span></td><td><span style="font-family:JetBrains Mono,monospace">+'+(inst.botNumber||'—')+'</span></td><td>'+h+'h '+m+'m</td><td>'+(inst.messageCount||0)+'</td><td><button class="kill-btn" onclick="killSession(\''+inst.instanceId+'\')">⚡ KILL</button></td></tr>'});html+='</tbody></table></div>';document.getElementById('instanceTable').innerHTML=html}
-      async function killSession(id){if(!confirm('Kill this session?'))return;await fetch('/ayocodes-admin/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({instanceId:id})});loadInstances()}
-      async function deleteOffline(){if(!confirm('Delete all offline sessions?'))return;const r=await fetch('/ayocodes-admin/api/delete-offline',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin'});const d=await r.json();alert('Deleted '+d.deleted+' sessions');loadInstances()}
-      loadInstances();setInterval(loadInstances,5000);
-    </script>
-  </body></html>`
+  </nav>
+
+  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1400px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
+    <!-- Stats -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 32px;">
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-robot" style="font-size: 28px; color: #ff3366;"></i>
+        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="totalInstances">0</div>
+        <div style="font-size: 12px; color: #9ca3af;">Total Instances</div>
+      </div>
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-circle" style="font-size: 28px; color: #22c55e;"></i>
+        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="onlineInstances">0</div>
+        <div style="font-size: 12px; color: #9ca3af;">Online</div>
+      </div>
+      <div class="card" style="padding: 24px; text-align: center;">
+        <i class="fas fa-comments" style="font-size: 28px; color: #ffb347;"></i>
+        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="totalMessages">0</div>
+        <div style="font-size: 12px; color: #9ca3af;">Total Messages</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+      <button onclick="refreshInstances()" class="btn-secondary">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+      <button onclick="deleteOffline()" class="btn-danger">
+        <i class="fas fa-trash"></i> Delete Offline
+      </button>
+    </div>
+
+    <!-- Instances Table -->
+    <div class="card" style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Owner</th>
+            <th>Bot Number</th>
+            <th>Uptime</th>
+            <th>Messages</th>
+            <th>Auth</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="instancesTableBody">
+          <tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="spinner" style="margin: 0 auto;"></div> Loading instances...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    async function refreshInstances() {
+      try {
+        const res = await fetch('/ayocodes-admin/api/instances', { credentials: 'same-origin' });
+        if (res.status === 401) {
+          window.location.href = '/ayocodes-admin/login';
+          return;
+        }
+        const data = await res.json();
+
+        document.getElementById('totalInstances').textContent = data.total;
+        document.getElementById('onlineInstances').textContent = data.online;
+        document.getElementById('totalMessages').textContent = data.instances.reduce((sum, i) => sum + (i.messageCount || 0), 0).toLocaleString();
+
+        const tbody = document.getElementById('instancesTableBody');
+        if (!data.instances.length) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #9ca3af;">No active instances</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.instances.map(inst => {
+          const up = inst.uptime || 0;
+          const h = Math.floor(up / 3600);
+          const m = Math.floor((up % 3600) / 60);
+          return \`
+            <tr>
+              <td><span class="status-badge \${inst.connected ? 'status-online' : 'status-offline'}"><i class="fas fa-circle" style="font-size: 8px;"></i> \${inst.connected ? 'LIVE' : 'OFFLINE'}</span></td>
+              <td><span style="font-family: monospace; color: #ffb347;">+\${inst.ownerPhone || '—'}</span></td>
+              <td><span style="font-family: monospace;">+\${inst.botNumber || '—'}</span></td>
+              <td>\${h}h \${m}m</td>
+              <td>\${(inst.messageCount || 0).toLocaleString()}</td>
+              <td><span style="font-size: 11px; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;">\${inst.authMethod || 'session'}</span></td>
+              <td><button class="btn-danger" onclick="killInstance('\${inst.instanceId}')" style="padding: 6px 12px;"><i class="fas fa-skull"></i> Kill</button></td>
+            </tr>
+          \`;
+        }).join('');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function killInstance(instanceId) {
+      if (!confirm('⚠️ This will disconnect the bot and delete its session. Continue?')) return;
+      try {
+        await fetch('/ayocodes-admin/api/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ instanceId })
+        });
+        refreshInstances();
+      } catch (e) {
+        alert('Failed to kill instance: ' + e.message);
+      }
+    }
+
+    async function deleteOffline() {
+      if (!confirm('Delete all offline sessions?')) return;
+      try {
+        const res = await fetch('/ayocodes-admin/api/delete-offline', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+        const data = await res.json();
+        alert(\`Deleted \${data.deleted} offline sessions\`);
+        refreshInstances();
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    async function logoutAdmin() {
+      window.location.href = '/ayocodes-admin/logout';
+    }
+
+    refreshInstances();
+    setInterval(refreshInstances, 10000);
+  </script>
+</body>
+</html>`
   );
 }
 
 function userTrackingHTML() {
   return (
-    sharedHead("AYOBOT — Users") +
-    `<body>
-    <div class="orb orb1"></div>
-    <nav class="nav">
-      <div class="nav-logo">AYO<span>BOT</span> <span style="color:var(--text3);font-size:12px">USERS</span></div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <a href="/ayocodes-admin" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text2);text-decoration:none;border:1px solid var(--border);padding:5px 12px;border-radius:6px">← BACK</a>
-        <a href="/ayocodes-admin/api/users/export" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--green);text-decoration:none;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px">⬇ EXPORT</a>
-        <a href="/ayocodes-admin/logout" style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:2px;color:var(--red);text-decoration:none;border:1px solid rgba(255,0,0,0.3);padding:5px 12px;border-radius:6px">LOGOUT</a>
-      </div>
-    </nav>
-    <div class="main">
-      <div class="hero" style="padding:40px 20px 20px">
-        <h1 class="hero-title" style="font-size:clamp(1.8rem,5vw,3rem)"><span class="line1">USER</span><span class="line2">TRACKER</span></h1>
-      </div>
-      <div style="margin:24px 0">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-          <input id="searchInput" class="pair-input" style="flex:1;min-width:200px;margin-bottom:0" placeholder="Search by phone or name..." oninput="debounceSearch()">
-          <button class="btn btn-red" onclick="loadUsers(1)" style="padding:10px 20px;font-size:10px">🔍 SEARCH</button>
-        </div>
-        <div id="userTable"><div style="text-align:center;padding:60px;color:var(--text3)">Loading users...</div></div>
-        <div id="pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px"></div>
-      </div>
+    sharedHead("AYOBOT — User Tracking") +
+    `
+<body>
+  <nav class="navbar">
+    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">USERS</span></div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <a href="/ayocodes-admin" style="color: #9ca3af; text-decoration: none;">
+        <i class="fas fa-arrow-left"></i> Back
+      </a>
+      <button onclick="logoutAdmin()" class="btn-secondary" style="padding: 8px 16px;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+      </button>
     </div>
-    <script>
-      let currentPage=1,searchTimer=null;
-      function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadUsers(1),400)}
-      async function loadUsers(page=1){currentPage=page;const search=document.getElementById('searchInput').value.trim();const url='/ayocodes-admin/api/users?page='+page+(search?'&search='+encodeURIComponent(search):'');try{const r=await fetch(url,{credentials:'same-origin'});if(r.status===401){location.href='/ayocodes-admin/login';return}const d=await r.json();if(!d.users.length){document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)">No users found</div>';document.getElementById('pagination').innerHTML='';return}let html='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;overflow-x:auto"><table class="user-table"><thead><tr><th>STATUS</th><th>PHONE</th><th>NAME</th><th>LAST SEEN</th><th>MSGS</th></tr></thead><tbody>';d.users.forEach(u=>{const online=u.online?'<span style="color:var(--green)">● LIVE</span>':'<span style="color:var(--text3)">○ OFFLINE</span>';const lastSeen=u.lastSeen?timeAgo(new Date(u.lastSeen)):'—';html+='<tr><td>'+online+'</td><td style="color:var(--gold)">+'+(u.phone||'—')+'</td><td style="color:var(--text)">'+(u.name||'—')+'</td><td style="color:var(--text2)">'+lastSeen+'</td><td style="color:var(--green)">'+(u.totalMessages||0).toLocaleString()+'</td></tr>'});html+='</tbody></table></div>';document.getElementById('userTable').innerHTML=html;let pg='';for(let i=1;i<=Math.min(d.pages,10);i++){pg+='<button class="page-btn'+(i===currentPage?' active':'')+'" onclick="loadUsers('+i+')">'+i+'</button>'}document.getElementById('pagination').innerHTML=pg}catch(e){document.getElementById('userTable').innerHTML='<div style="text-align:center;padding:40px;color:var(--red)">Error: '+e.message+'</div>'}}
-      function timeAgo(date){const s=Math.floor((Date.now()-date)/1000);if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
-      loadUsers(1);setInterval(()=>loadUsers(currentPage),30000);
-    </script>
-  </body></html>`
+  </nav>
+
+  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1200px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
+    <div style="margin-bottom: 24px;">
+      <input type="text" id="searchInput" placeholder="Search by phone or name..." style="width: 100%; max-width: 300px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white;">
+    </div>
+
+    <div class="card" style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Phone</th>
+            <th>Name</th>
+            <th>Last Seen</th>
+            <th>Messages</th>
+            <th>Sessions</th>
+          </tr>
+        </thead>
+        <tbody id="usersTableBody">
+          <tr><td colspan="6" style="text-align: center; padding: 40px;"><div class="spinner" style="margin: 0 auto;"></div> Loading users...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;"></div>
+  </main>
+
+  <script>
+    let currentPage = 1;
+    let searchTimeout;
+
+    async function loadUsers(page = 1) {
+      currentPage = page;
+      const search = document.getElementById('searchInput').value.trim();
+      try {
+        const url = '/ayocodes-admin/api/users?page=' + page + (search ? '&search=' + encodeURIComponent(search) : '');
+        const res = await fetch(url, { credentials: 'same-origin' });
+        if (res.status === 401) {
+          window.location.href = '/ayocodes-admin/login';
+          return;
+        }
+        const data = await res.json();
+
+        const tbody = document.getElementById('usersTableBody');
+        if (!data.users.length) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #9ca3af;">No users found</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.users.map(user => {
+          const lastSeen = user.lastSeen ? new Date(user.lastSeen).toLocaleString() : 'Never';
+          return \`
+            <tr>
+              <td><span class="status-badge \${user.online ? 'status-online' : 'status-offline'}"><i class="fas fa-circle" style="font-size: 8px;"></i> \${user.online ? 'ONLINE' : 'OFFLINE'}</span></td>
+              <td><span style="font-family: monospace; color: #ffb347;">+\${user.phone || '—'}</span></td>
+              <td>\${user.name || '—'}</td>
+              <td style="font-size: 12px;">\${lastSeen}</td>
+              <td>\${(user.totalMessages || 0).toLocaleString()}</td>
+              <td>\${user.totalSessions || 0}</td>
+            </tr>
+          \`;
+        }).join('');
+
+        // Pagination
+        let paginationHtml = '';
+        for (let i = 1; i <= Math.min(data.pages, 10); i++) {
+          paginationHtml += \`<button onclick="loadUsers(\${i})" class="btn-secondary" style="padding: 8px 12px; \${i === currentPage ? 'background: #ff3366; border-color: #ff3366;' : ''}">\${i}</button>\`;
+        }
+        document.getElementById('pagination').innerHTML = paginationHtml;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => loadUsers(1), 500);
+    });
+
+    async function logoutAdmin() {
+      window.location.href = '/ayocodes-admin/logout';
+    }
+
+    loadUsers();
+    setInterval(() => loadUsers(currentPage), 30000);
+  </script>
+</body>
+</html>`
   );
 }
 
@@ -2326,16 +2665,13 @@ function userTrackingHTML() {
 
 function getOrCreateSessionId(req, res) {
   let sessionId = req.cookies?.ayoSessionId;
-
   if (!sessionId) {
-    // Generate a new session ID
     sessionId = crypto.randomBytes(16).toString("hex");
     res.setHeader(
       "Set-Cookie",
       `ayoSessionId=${sessionId}; HttpOnly; Path=/; Max-Age=31536000; SameSite=Lax`,
     );
   }
-
   return sessionId;
 }
 
@@ -2345,15 +2681,9 @@ function getOrCreateSessionId(req, res) {
 
 function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
-
-  if (!ENV.AYOCODES_ADMIN_KEY) {
-    return res.status(404).send("Not found");
-  }
-
-  if (!token || !adminTokens.has(token)) {
+  if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
+  if (!token || !adminTokens.has(token))
     return res.redirect("/ayocodes-admin/login");
-  }
-
   next();
 }
 
@@ -2361,12 +2691,6 @@ function requireAdmin(req, res, next) {
 //   WEB DASHBOARD ROUTES
 // ============================================================
 function setupWebDashboard() {
-  // Make sure app is defined
-  if (!app) {
-    log.err("Express app not initialized!");
-    return;
-  }
-
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
     res.redirect(`/dashboard/${sid}`);
@@ -2415,8 +2739,6 @@ function setupWebDashboard() {
       uptime: Math.floor((Date.now() - session.startTime) / 1000),
       authMethod: session.authMethod,
       hasQr: !!session.qr,
-      pairingCode: session.pairingCode ? "available" : null,
-      pairingExpiry: session.pairingExpiry,
       mode: session.mode || ENV.BOT_MODE,
       version: ENV.BOT_VERSION,
       prefix: ENV.PREFIX,
@@ -2759,16 +3081,10 @@ async function restoreAllSessions() {
         const session = await startSession(s.sessionId, false);
         if (session && s.mode) {
           session.mode = s.mode;
-          for (let i = 0; i < 30 && !session.handlersReady; i++) {
+          for (let i = 0; i < 30 && !session.handlersReady; i++)
             await delay(1000);
-          }
-          if (session.handlersReady) {
+          if (session.handlersReady)
             log.info(`[${s.sessionId.slice(0, 8)}] Session restored`);
-          } else {
-            log.warn(
-              `[${s.sessionId.slice(0, 8)}] Session restored but handlers not ready`,
-            );
-          }
         }
       } catch (e) {
         log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
@@ -2786,7 +3102,6 @@ async function main() {
   console.log(
     `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 by AYOCODES…${C.reset}\n`,
   );
-
   checkEnvVars();
 
   try {
@@ -2812,7 +3127,6 @@ async function main() {
 // ============================================================
 async function gracefulShutdown(sig) {
   console.log(`\n${C.red}🛑 ${sig} — Shutting down…${C.reset}`);
-
   await saveBannedUsers();
   await saveGroupSettings();
   await saveWarnings();
