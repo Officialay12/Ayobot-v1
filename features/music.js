@@ -1,4 +1,4 @@
-// features/music.js — AYOBOT v1.0.0 (FULL FIX)
+// features/music.js — AYOBOT v1.0.0 (FULLY FIXED WITH WORKING APIS)
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
@@ -19,22 +19,18 @@ const http = axios.create({
   },
 });
 
-// ─── Instance pools ──────────────────────────────────────────────────────────
-const INVIDIOUS_INSTANCES = [
-  "https://inv.nadeko.net",
-  "https://invidious.privacyredirect.com",
-  "https://invidious.fdn.fr",
-  "https://iv.datura.network",
-  "https://yewtu.be",
-  "https://invidious.lunar.icu",
-  "https://yt.artemislena.eu",
-];
-
-const PIPED_INSTANCES = [
+// ─── WORKING INSTANCES (tested March 2026) ─────────────────────────────────
+const WORKING_PIPED_INSTANCES = [
   "https://pipedapi.kavin.rocks",
   "https://piped-api.garudalinux.org",
   "https://api.piped.projectsegfau.lt",
-  "https://pipedapi.adminforge.de",
+];
+
+const WORKING_INVIDIOUS_INSTANCES = [
+  "https://invidious.io.lol",
+  "https://yewtu.be",
+  "https://invidious.privacyredirect.com",
+  "https://iv.ggtyler.dev",
 ];
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -55,11 +51,6 @@ function fmtSize(bytes) {
   return `${bytes} B`;
 }
 
-/**
- * Parses a query like:
- *   "Wildflower by Billie Eilish"  → { title: "Wildflower", artist: "Billie Eilish" }
- *   "Shape of You - Ed Sheeran"   → { title: "Shape of You", artist: "Ed Sheeran" }
- */
 function parseQuery(input) {
   if (!input) return { title: "", artist: null };
   const q = input.trim();
@@ -80,59 +71,27 @@ function buildSearchQueries(raw) {
         `${artist} ${title}`,
         raw,
       ]
-    : [raw, `${raw} official audio`, `${raw} lyrics`];
+    : [raw, `${raw} official audio`, `${raw} song`];
   return [...new Map(candidates.map((q) => [q.toLowerCase(), q])).values()];
 }
 
-// ─── Download with retries ───────────────────────────────────────────────────
-async function downloadBuffer(url, timeoutMs = 90000) {
-  let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: timeoutMs,
-        maxContentLength: 150 * 1024 * 1024,
-        maxRedirects: 10,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Accept: "*/*",
-          "Accept-Encoding": "identity",
-          Range: "bytes=0-",
-        },
-      });
-      const buf = Buffer.from(res.data);
-      if (buf.length < 5_000)
-        throw new Error(`Buffer too small: ${buf.length} bytes`);
-      return buf;
-    } catch (err) {
-      lastErr = err;
-      console.log(
-        `[music] Download attempt ${attempt}/3 failed: ${err.message}`,
-      );
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 3000 * attempt));
-    }
-  }
-  throw lastErr;
-}
-
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 1 — Piped  (FULL song via YouTube stream)
+//  SOURCE 1 — Piped API (WORKING - Full songs)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchPiped(query) {
-  for (const instance of PIPED_INSTANCES) {
+  for (const instance of WORKING_PIPED_INSTANCES) {
     try {
-      console.log(`[Piped] "${query}" @ ${instance}`);
+      console.log(`[Piped] Searching "${query}" @ ${instance}`);
 
       const searchRes = await http.get(
         `${instance}/search?q=${encodeURIComponent(query)}&filter=all`,
-        { timeout: 12000 },
+        { timeout: 15000 },
       );
 
       const items = (searchRes.data?.items || []).filter(
         (i) => i.type === "stream" || i.url?.startsWith("/watch"),
       );
+
       if (!items.length) continue;
 
       const video = items[0];
@@ -140,19 +99,22 @@ async function searchPiped(query) {
       if (!videoId) continue;
 
       const streamRes = await http.get(`${instance}/streams/${videoId}`, {
-        timeout: 12000,
+        timeout: 15000,
       });
 
-      const streams = (streamRes.data?.audioStreams || []).sort(
-        (a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0),
-      );
-      const best = streams.find((s) => s.url);
+      const streams = (streamRes.data?.audioStreams || [])
+        .filter((s) => s.url && s.contentType === "audio/webm")
+        .sort(
+          (a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0),
+        );
+
+      const best = streams[0] || streamRes.data?.audioStreams?.[0];
       if (!best?.url) continue;
 
       return {
         title: streamRes.data?.title || video.title || "Unknown",
-        artist: streamRes.data?.uploader || video.uploaderName || "Unknown",
-        album: null,
+        artist:
+          streamRes.data?.uploader || video.uploaderName || "Unknown Artist",
         duration: parseInt(streamRes.data?.duration || video.duration) || 0,
         thumbnail:
           streamRes.data?.thumbnailUrl ||
@@ -160,29 +122,26 @@ async function searchPiped(query) {
           `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         audioUrl: best.url,
         source: "Piped",
-        isPreview: false,
         videoId,
-        year: null,
       };
     } catch (err) {
-      console.log(`[Piped] ${instance} → ${err.message}`);
+      console.log(`[Piped] ${instance} failed: ${err.message}`);
     }
   }
   return null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 2 — Invidious  (FULL song via YouTube stream)
+//  SOURCE 2 — Invidious API (WORKING - Full songs)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchInvidious(query) {
-  for (const instance of INVIDIOUS_INSTANCES) {
+  for (const instance of WORKING_INVIDIOUS_INSTANCES) {
     try {
-      console.log(`[Invidious] "${query}" @ ${instance}`);
+      console.log(`[Invidious] Searching "${query}" @ ${instance}`);
 
       const searchRes = await http.get(
-        `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video` +
-          `&fields=videoId,title,author,lengthSeconds`,
-        { timeout: 12000 },
+        `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&fields=videoId,title,author,lengthSeconds`,
+        { timeout: 15000 },
       );
 
       const videos = searchRes.data || [];
@@ -193,13 +152,12 @@ async function searchInvidious(query) {
       if (!videoId) continue;
 
       const videoRes = await http.get(
-        `${instance}/api/v1/videos/${videoId}` +
-          `?fields=title,author,lengthSeconds,adaptiveFormats,videoThumbnails`,
-        { timeout: 12000 },
+        `${instance}/api/v1/videos/${videoId}?fields=title,author,lengthSeconds,adaptiveFormats,videoThumbnails`,
+        { timeout: 15000 },
       );
 
       const formats = (videoRes.data?.adaptiveFormats || [])
-        .filter((f) => f.type?.startsWith("audio/"))
+        .filter((f) => f.type?.startsWith("audio/") && f.url)
         .sort(
           (a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0),
         );
@@ -215,172 +173,41 @@ async function searchInvidious(query) {
 
       return {
         title: videoRes.data?.title || video.title || "Unknown",
-        artist: videoRes.data?.author || video.author || "Unknown",
-        album: null,
+        artist: videoRes.data?.author || video.author || "Unknown Artist",
         duration:
           parseInt(videoRes.data?.lengthSeconds || video.lengthSeconds) || 0,
         thumbnail: thumb.startsWith("//") ? `https:${thumb}` : thumb,
         audioUrl: best.url,
         source: "Invidious",
-        isPreview: false,
         videoId,
-        invidiousInstance: instance,
-        year: null,
       };
     } catch (err) {
-      console.log(`[Invidious] ${instance} → ${err.message}`);
+      console.log(`[Invidious] ${instance} failed: ${err.message}`);
     }
   }
   return null;
 }
 
-async function refreshInvidiousUrl(videoId, instance) {
-  try {
-    const videoRes = await http.get(
-      `${instance}/api/v1/videos/${videoId}?fields=adaptiveFormats`,
-      { timeout: 12000 },
-    );
-    const formats = (videoRes.data?.adaptiveFormats || [])
-      .filter((f) => f.type?.startsWith("audio/"))
-      .sort((a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
-    return formats[0]?.url || null;
-  } catch (_) {
-    return null;
-  }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 3 — cobalt.tools  (FULL song, updated API v2)
-// ════════════════════════════════════════════════════════════════════════════
-async function getCobaltAudioUrl(videoId) {
-  // cobalt API v2 — current endpoint as of 2024
-  const endpoints = [
-    "https://api.cobalt.tools/",
-    "https://co.wuk.sh/api/json", // legacy fallback
-  ];
-
-  const bodies = [
-    // v2 format
-    {
-      url: `https://www.youtube.com/watch?v=${videoId}`,
-      downloadMode: "audio",
-      audioFormat: "mp3",
-      audioBitrate: "320",
-    },
-    // v1 format (legacy)
-    {
-      url: `https://www.youtube.com/watch?v=${videoId}`,
-      isAudioOnly: true,
-      aFormat: "mp3",
-      filenamePattern: "basic",
-    },
-  ];
-
-  for (const endpoint of endpoints) {
-    for (const body of bodies) {
-      try {
-        const res = await axios.post(endpoint, body, {
-          timeout: 25000,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            "User-Agent": "AYOBOT/1.0",
-          },
-        });
-        // v2 response
-        const url =
-          res.data?.url ||
-          res.data?.audio ||
-          res.data?.urls?.[0] ||
-          (res.data?.status === "stream" ? res.data?.url : null) ||
-          (res.data?.status === "redirect" ? res.data?.url : null) ||
-          (res.data?.status === "tunnel" ? res.data?.url : null);
-        if (url) {
-          console.log(`[cobalt] Got URL from ${endpoint}`);
-          return url;
-        }
-      } catch (err) {
-        console.log(`[cobalt] ${endpoint} body variant failed: ${err.message}`);
-      }
-    }
-  }
-  return null;
-}
-
-async function searchCobalt(query) {
-  try {
-    console.log(`[cobalt] "${query}"`);
-
-    let videoId = null,
-      videoTitle = null,
-      videoArtist = null,
-      videoDuration = 0,
-      videoThumb = null;
-
-    for (const instance of PIPED_INSTANCES) {
-      try {
-        const res = await http.get(
-          `${instance}/search?q=${encodeURIComponent(query)}&filter=all`,
-          { timeout: 10000 },
-        );
-        const items = (res.data?.items || []).filter(
-          (i) => i.type === "stream" || i.url?.startsWith("/watch"),
-        );
-        if (items.length) {
-          videoId = items[0].url?.replace("/watch?v=", "") || items[0].id;
-          videoTitle = items[0].title;
-          videoArtist = items[0].uploaderName;
-          videoDuration = items[0].duration;
-          videoThumb = items[0].thumbnail;
-          if (videoId) break;
-        }
-      } catch (_) {}
-    }
-
-    if (!videoId) return null;
-
-    const audioUrl = await getCobaltAudioUrl(videoId);
-    if (!audioUrl) return null;
-
-    return {
-      title: videoTitle || query,
-      artist: videoArtist || "Unknown Artist",
-      album: null,
-      duration: videoDuration || 0,
-      thumbnail:
-        videoThumb || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-      audioUrl,
-      source: "cobalt.tools",
-      isPreview: false,
-      videoId,
-      year: null,
-    };
-  } catch (err) {
-    console.log(`[cobalt] ${err.message}`);
-    return null;
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 4 — JioSaavn  (FULL song, legal Bollywood/pop library)
+//  SOURCE 3 — JioSaavn API (WORKING - Full songs, good for Indian/Regional)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchJioSaavn(query) {
   try {
-    console.log(`[JioSaavn] "${query}"`);
-    const res = await http.get(
-      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&page=1&limit=1`,
+    console.log(`[JioSaavn] Searching "${query}"`);
+
+    const response = await http.get(
+      `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}&limit=1`,
       { timeout: 15000 },
     );
-    const results = res.data?.data?.results;
-    if (!results?.length) return null;
 
-    const track = results[0];
+    const track = response.data?.data?.results?.[0];
+    if (!track) return null;
+
+    // Get best quality download URL
     const downloadUrls = track.downloadUrl || [];
-    // Always pick highest quality — 320kbps = FULL song
     const best =
       downloadUrls.find((d) => d.quality === "320kbps") ||
       downloadUrls.find((d) => d.quality === "160kbps") ||
-      downloadUrls.find((d) => d.quality === "96kbps") ||
       downloadUrls[downloadUrls.length - 1];
 
     if (!best?.url) return null;
@@ -391,123 +218,96 @@ async function searchJioSaavn(query) {
         track.artists?.primary?.map((a) => a.name).join(", ") ||
         track.primaryArtists ||
         "Unknown Artist",
-      album: track.album?.name || null,
       duration: parseInt(track.duration) || 0,
       thumbnail:
         track.image?.find((i) => i.quality === "500x500")?.url ||
-        track.image?.[track.image.length - 1]?.url ||
+        track.image?.[0]?.url ||
         null,
       audioUrl: best.url,
       source: "JioSaavn",
-      isPreview: false, // JioSaavn always returns full song
+      album: track.album?.name || null,
       year: track.year || null,
     };
   } catch (err) {
-    console.log(`[JioSaavn] ${err.message}`);
+    console.log(`[JioSaavn] Failed: ${err.message}`);
     return null;
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 5 — Deezer  (METADATA ONLY — no audio, 30s preview removed)
-//  Used only for .musicsearch, .trending, .artist, .album, .random
-// ════════════════════════════════════════════════════════════════════════════
-async function getDeezerMeta(query) {
-  try {
-    const res = await http.get(
-      `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
-      { timeout: 10000 },
-    );
-    const track = res.data?.data?.[0];
-    if (!track) return null;
-    // Return metadata ONLY — no audioUrl so it never gets used as audio source
-    return {
-      title: track.title,
-      artist: track.artist?.name,
-      album: track.album?.title,
-      duration: track.duration,
-      thumbnail: track.album?.cover_xl,
-      year: track.release_date
-        ? new Date(track.release_date).getFullYear()
-        : null,
-      deezerId: track.id,
-    };
-  } catch (err) {
-    console.log(`[Deezer] ${err.message}`);
-    return null;
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  MASTER SEARCH  — FULL songs only, Deezer never used as audio source
+//  MASTER SEARCH — Try multiple sources
 // ════════════════════════════════════════════════════════════════════════════
 async function findSong(rawQuery) {
   const queries = buildSearchQueries(rawQuery);
-  console.log(`[findSong] variants: ${JSON.stringify(queries)}`);
+  console.log(`[findSong] Trying ${queries.length} query variants`);
 
   for (const q of queries) {
-    for (const [name, fn] of [
-      ["JioSaavn", () => searchJioSaavn(q)], // Best for non-English too
-      ["Piped", () => searchPiped(q)],
-      ["Invidious", () => searchInvidious(q)],
-      ["cobalt", () => searchCobalt(q)],
-    ]) {
-      try {
-        const result = await fn();
-        if (result?.audioUrl && !result.isPreview) {
-          console.log(`[findSong] ✓ ${name} matched "${q}" — FULL song`);
-          return result;
-        }
-      } catch (err) {
-        console.log(`[findSong] ${name} threw: ${err.message}`);
-      }
+    // Try JioSaavn first (fastest, reliable)
+    const jioResult = await searchJioSaavn(q);
+    if (jioResult?.audioUrl) {
+      console.log(`[findSong] ✓ JioSaavn matched "${q}"`);
+      return jioResult;
     }
+
+    // Try Piped
+    const pipedResult = await searchPiped(q);
+    if (pipedResult?.audioUrl) {
+      console.log(`[findSong] ✓ Piped matched "${q}"`);
+      return pipedResult;
+    }
+
+    // Try Invidious
+    const invidiousResult = await searchInvidious(q);
+    if (invidiousResult?.audioUrl) {
+      console.log(`[findSong] ✓ Invidious matched "${q}"`);
+      return invidiousResult;
+    }
+
+    await new Promise((r) => setTimeout(r, 500));
   }
   return null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  AUDIO DOWNLOAD
+//  AUDIO DOWNLOADER with retry logic
 // ════════════════════════════════════════════════════════════════════════════
-async function fetchAudioBuffer(songInfo) {
-  if (
-    songInfo.source === "Invidious" &&
-    songInfo.videoId &&
-    songInfo.invidiousInstance
-  ) {
-    console.log(
-      `[fetchAudio] Refreshing Invidious URL for ${songInfo.videoId}…`,
-    );
-    const freshUrl = await refreshInvidiousUrl(
-      songInfo.videoId,
-      songInfo.invidiousInstance,
-    );
-    if (freshUrl) songInfo.audioUrl = freshUrl;
-  }
+async function downloadAudioBuffer(url, timeoutMs = 90000) {
+  let lastError;
 
-  try {
-    const buf = await downloadBuffer(songInfo.audioUrl, 90000);
-    console.log(`[fetchAudio] Primary download OK: ${fmtSize(buf.length)}`);
-    return buf;
-  } catch (err) {
-    console.log(`[fetchAudio] Primary download failed: ${err.message}`);
-  }
-
-  if (songInfo.videoId && songInfo.source !== "cobalt.tools") {
-    console.log(`[fetchAudio] Trying cobalt fallback for ${songInfo.videoId}…`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const fallbackUrl = await getCobaltAudioUrl(songInfo.videoId);
-      if (fallbackUrl) {
-        const buf = await downloadBuffer(fallbackUrl, 90000);
-        console.log(`[fetchAudio] cobalt fallback OK: ${fmtSize(buf.length)}`);
-        return buf;
+      console.log(
+        `[Download] Attempt ${attempt} for ${url.substring(0, 100)}...`,
+      );
+
+      const response = await axios.get(url, {
+        responseType: "arraybuffer",
+        timeout: timeoutMs,
+        maxContentLength: 150 * 1024 * 1024,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "*/*",
+          "Accept-Encoding": "identity",
+          Range: "bytes=0-",
+        },
+      });
+
+      const buffer = Buffer.from(response.data);
+      if (buffer.length < 5000) {
+        throw new Error(`Buffer too small: ${buffer.length} bytes`);
       }
+
+      console.log(`[Download] Success: ${fmtSize(buffer.length)}`);
+      return buffer;
     } catch (err) {
-      console.log(`[fetchAudio] cobalt fallback failed: ${err.message}`);
+      lastError = err;
+      console.log(`[Download] Attempt ${attempt} failed: ${err.message}`);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 3000 * attempt));
     }
   }
 
-  return null;
+  throw lastError;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -545,7 +345,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
           `• Try: *${ENV.PREFIX}play Wildflower by Billie Eilish*\n` +
           `• Or: *${ENV.PREFIX}play Wildflower Billie Eilish*\n` +
           `• Check spelling\n` +
-          `• Try artist name first: *${ENV.PREFIX}play Billie Eilish Wildflower*`,
+          `• Try a different song`,
       ),
     });
   }
@@ -573,15 +373,14 @@ export async function musicDownload({ fullArgs, from, sock }) {
     await sock.sendMessage(from, { text: caption });
   }
 
-  const audioBuffer = await fetchAudioBuffer(songInfo);
+  const audioBuffer = await downloadAudioBuffer(songInfo.audioUrl);
 
-  if (!audioBuffer || audioBuffer.length < 5_000) {
+  if (!audioBuffer || audioBuffer.length < 5000) {
     return sock.sendMessage(from, {
       text: formatError(
         "DOWNLOAD FAILED",
         `Found *${songInfo.title}* but could not download the audio.\n\n` +
-          `Please try again in a moment.\n\n` +
-          `Try: *${ENV.PREFIX}play ${songInfo.title} ${songInfo.artist}*`,
+          `Please try again in a moment.`,
       ),
     });
   }
@@ -614,7 +413,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  .lyrics COMMAND  — Fixed API call format
+//  .lyrics COMMAND — WORKING API
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicLyrics({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
@@ -624,8 +423,8 @@ export async function musicLyrics({ fullArgs, from, sock }) {
         `Usage: *${ENV.PREFIX}lyrics <song name>*\n\n` +
           `Examples:\n` +
           `• ${ENV.PREFIX}lyrics Lose Yourself\n` +
-          `• ${ENV.PREFIX}lyrics Eminem Lose Yourself\n` +
-          `• ${ENV.PREFIX}lyrics Shape of You Ed Sheeran`,
+          `• ${ENV.PREFIX}lyrics Shape of You\n` +
+          `• ${ENV.PREFIX}lyrics Eminem Lose Yourself`,
       ),
     });
   }
@@ -638,59 +437,35 @@ export async function musicLyrics({ fullArgs, from, sock }) {
   let lyrics = null;
   let songTitle = query;
 
-  // ── Source 1: lyrics.ovh — correct API format: /v1/artist/title ──────────
-  try {
-    // Try to split "Title Artist" into artist + title
-    const parts = query.split(" ");
-    // Try first word as artist (common format), rest as title
-    for (let split = 1; split < Math.min(parts.length, 4); split++) {
-      const artist = parts.slice(0, split).join(" ");
-      const title = parts.slice(split).join(" ");
-      try {
-        const res = await axios.get(
-          `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
-          { timeout: 10000 },
-        );
-        if (res.data?.lyrics) {
-          lyrics = res.data.lyrics;
-          songTitle = `${title} — ${artist}`;
-          break;
-        }
-      } catch (_) {}
-    }
-    // Fallback: treat whole query as title, "Unknown" as artist
-    if (!lyrics) {
-      const res = await axios.get(
-        `https://api.lyrics.ovh/v1/${encodeURIComponent("Unknown")}/${encodeURIComponent(query)}`,
+  // Source 1: lyrics.ovh API
+  const words = query.split(" ");
+  for (let split = 1; split <= Math.min(words.length, 4); split++) {
+    const artist = words.slice(0, split).join(" ");
+    const title = words.slice(split).join(" ");
+    try {
+      const response = await axios.get(
+        `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
         { timeout: 10000 },
       );
-      if (res.data?.lyrics) lyrics = res.data.lyrics;
-    }
-  } catch (_) {}
-
-  // ── Source 2: Deezer lyrics endpoint ─────────────────────────────────────
-  if (!lyrics) {
-    try {
-      const searchRes = await axios.get(
-        `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
-        { timeout: 8000 },
-      );
-      const track = searchRes.data?.data?.[0];
-      if (track) songTitle = `${track.title} — ${track.artist?.name}`;
+      if (response.data?.lyrics) {
+        lyrics = response.data.lyrics;
+        songTitle = `${title} - ${artist}`;
+        break;
+      }
     } catch (_) {}
   }
 
-  // ── Source 3: lrclib.net (has synced + plain lyrics) ──────────────────────
+  // Source 2: lrclib.net
   if (!lyrics) {
     try {
-      const res = await axios.get(
+      const response = await axios.get(
         `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`,
         { timeout: 10000 },
       );
-      const hit = res.data?.[0];
-      if (hit?.plainLyrics) {
-        lyrics = hit.plainLyrics;
-        songTitle = `${hit.trackName} — ${hit.artistName}`;
+      const result = response.data?.[0];
+      if (result?.plainLyrics) {
+        lyrics = result.plainLyrics;
+        songTitle = `${result.trackName} - ${result.artistName}`;
       }
     } catch (_) {}
   }
@@ -703,14 +478,14 @@ export async function musicLyrics({ fullArgs, from, sock }) {
           `💡 *Tips:*\n` +
           `• Try with artist name: *${ENV.PREFIX}lyrics Eminem Lose Yourself*\n` +
           `• Check spelling\n` +
-          `• Try the exact song title`,
+          `• Try a different song`,
       ),
     });
   }
 
-  // Trim if too long for WhatsApp
-  if (lyrics.length > 4000)
+  if (lyrics.length > 4000) {
     lyrics = lyrics.substring(0, 3900) + "\n\n_(truncated)_";
+  }
 
   await sock.sendMessage(from, {
     text: `🎵 *${songTitle}*\n\n${lyrics}\n\n${TAG}`,
@@ -718,7 +493,7 @@ export async function musicLyrics({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  .trending COMMAND
+//  .trending COMMAND — WORKING
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicTrending({ from, sock }) {
   await sock.sendMessage(from, {
@@ -740,7 +515,7 @@ export async function musicTrending({ from, sock }) {
       message += `   👤 ${track.artist?.name}\n`;
       message += `   🎵 ${track.album?.title || "Single"}\n\n`;
     });
-    message += `\n${TAG}`;
+    message += `💡 Use *${ENV.PREFIX}play <song>* to download!\n\n${TAG}`;
 
     await sock.sendMessage(from, { text: message });
   } catch (error) {
@@ -762,33 +537,27 @@ export async function musicRandom({ from, sock }) {
     text: `🎲 *Finding a random song...*\n⏳ _Please wait..._`,
   });
 
-  // Try a random track ID — Deezer IDs go into the millions
-  let track = null;
-  for (let i = 0; i < 5; i++) {
-    try {
-      const randomId = Math.floor(Math.random() * 2_000_000) + 1;
-      const response = await axios.get(
-        `https://api.deezer.com/track/${randomId}`,
-        { timeout: 8000 },
-      );
-      if (response.data?.id && response.data?.title) {
-        track = response.data;
-        break;
-      }
-    } catch (_) {}
-  }
+  const randomId = Math.floor(Math.random() * 2000000) + 1;
 
-  if (track) {
-    const message =
-      `🎲 *RANDOM SONG*\n\n` +
-      `🎵 *${track.title}*\n` +
-      `👤 *Artist:* ${track.artist?.name || "Unknown"}\n` +
-      `💿 *Album:* ${track.album?.title || "Single"}\n` +
-      `⏱️ *Duration:* ${fmtDur(track.duration)}\n\n` +
-      `💡 Use *${ENV.PREFIX}play ${track.title} ${track.artist?.name || ""}* to download!\n\n` +
-      `${TAG}`;
-    return sock.sendMessage(from, { text: message });
-  }
+  try {
+    const response = await axios.get(
+      `https://api.deezer.com/track/${randomId}`,
+      { timeout: 10000 },
+    );
+
+    const track = response.data;
+    if (track?.title) {
+      const message =
+        `🎲 *RANDOM SONG*\n\n` +
+        `🎵 *${track.title}*\n` +
+        `👤 *Artist:* ${track.artist?.name || "Unknown"}\n` +
+        `💿 *Album:* ${track.album?.title || "Single"}\n` +
+        `⏱️ *Duration:* ${fmtDur(track.duration)}\n\n` +
+        `💡 Use *${ENV.PREFIX}play ${track.title} ${track.artist?.name || ""}* to download!\n\n` +
+        `${TAG}`;
+      return sock.sendMessage(from, { text: message });
+    }
+  } catch (_) {}
 
   const popularSongs = [
     "Shape of You Ed Sheeran",
@@ -798,7 +567,6 @@ export async function musicRandom({ from, sock }) {
     "Bad Guy Billie Eilish",
     "Lose Yourself Eminem",
     "Happier Marshmello",
-    "Rockstar Post Malone",
   ];
   const randomSong =
     popularSongs[Math.floor(Math.random() * popularSongs.length)];
@@ -822,14 +590,13 @@ export async function musicArtist({ fullArgs, from, sock }) {
         `Usage: *${ENV.PREFIX}artist <artist name>*\n\n` +
           `Examples:\n` +
           `• ${ENV.PREFIX}artist Eminem\n` +
-          `• ${ENV.PREFIX}artist Billie Eilish\n` +
-          `• ${ENV.PREFIX}artist Taylor Swift`,
+          `• ${ENV.PREFIX}artist Billie Eilish`,
       ),
     });
   }
 
   await sock.sendMessage(from, {
-    text: `🔍 *Searching for:* "${fullArgs.trim()}"\n⏳ _Please wait..._`,
+    text: `🔍 *Searching for artist:* "${fullArgs.trim()}"\n⏳ _Please wait..._`,
   });
 
   try {
@@ -867,7 +634,7 @@ export async function musicArtist({ fullArgs, from, sock }) {
         : "") +
       (details.nb_album ? `💿 *Albums:* ${details.nb_album}\n` : "") +
       topTracksList +
-      `\n${TAG}`;
+      `\n💡 Use *${ENV.PREFIX}play <song>* to download tracks!\n\n${TAG}`;
 
     await sock.sendMessage(from, { text: message });
   } catch (error) {
@@ -934,9 +701,6 @@ export async function musicAlbum({ fullArgs, from, sock }) {
       `👤 *Artist:* ${details.artist?.name || "Unknown"}\n` +
       `📅 *Release:* ${details.release_date || "Unknown"}\n` +
       (details.nb_tracks ? `🎵 *Tracks:* ${details.nb_tracks}\n` : "") +
-      (details.fans
-        ? `👥 *Fans:* ${Number(details.fans).toLocaleString()}\n`
-        : "") +
       tracksList +
       `\n${TAG}`;
 
@@ -1005,61 +769,6 @@ export async function musicSearch({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  .genius COMMAND
-// ════════════════════════════════════════════════════════════════════════════
-export async function musicGenius({ fullArgs, from, sock }) {
-  if (!fullArgs?.trim()) {
-    return sock.sendMessage(from, {
-      text: formatInfo(
-        "🎵 GENIUS LYRICS",
-        `Usage: *${ENV.PREFIX}genius <song name>*\n\n` +
-          `Examples:\n` +
-          `• ${ENV.PREFIX}genius Lose Yourself\n` +
-          `• ${ENV.PREFIX}genius Shape of You\n\n` +
-          `_Powered by Genius.com_`,
-      ),
-    });
-  }
-
-  await sock.sendMessage(from, {
-    text: `🔍 *Searching Genius for:* "${fullArgs.trim()}"\n⏳ _Please wait..._`,
-  });
-
-  try {
-    if (!ENV.GENIUS_API_KEY) throw new Error("GENIUS_API_KEY not set");
-
-    const response = await axios.get(
-      `https://api.genius.com/search?q=${encodeURIComponent(fullArgs.trim())}`,
-      {
-        headers: { Authorization: `Bearer ${ENV.GENIUS_API_KEY}` },
-        timeout: 10000,
-      },
-    );
-
-    const hit = response.data?.response?.hits?.[0];
-    if (!hit?.result?.url) throw new Error("No Genius page found");
-
-    const result = hit.result;
-    const message =
-      `🎵 *${result.title}*\n` +
-      `👤 *Artist:* ${result.primary_artist?.name}\n\n` +
-      `📖 *Full lyrics & annotations:*\n` +
-      `${result.url}\n\n` +
-      `${TAG}`;
-
-    await sock.sendMessage(from, { text: message });
-  } catch (error) {
-    return sock.sendMessage(from, {
-      text: formatError(
-        "GENIUS NOT FOUND",
-        `Could not find *"${fullArgs.trim()}"* on Genius\n\n` +
-          `💡 Try: *${ENV.PREFIX}lyrics ${fullArgs.trim()}* for plain lyrics instead`,
-      ),
-    });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 //  .music COMMAND (Menu)
 // ════════════════════════════════════════════════════════════════════════════
 export async function music({ from, sock }) {
@@ -1072,8 +781,7 @@ export async function music({ from, sock }) {
     `🎲 *${ENV.PREFIX}random* - Random song suggestion\n` +
     `🎤 *${ENV.PREFIX}artist <name>* - Artist information\n` +
     `💿 *${ENV.PREFIX}album <name>* - Album information\n` +
-    `🔍 *${ENV.PREFIX}musicsearch <song>* - Search for songs\n` +
-    `📖 *${ENV.PREFIX}genius <song>* - Genius lyrics & annotations\n\n` +
+    `🔍 *${ENV.PREFIX}musicsearch <song>* - Search for songs\n\n` +
     `💡 *Examples:*\n` +
     `• ${ENV.PREFIX}play Lose Yourself Eminem\n` +
     `• ${ENV.PREFIX}lyrics Shape of You\n` +
@@ -1095,5 +803,4 @@ export default {
   musicDownload,
   musicArtist,
   musicAlbum,
-  musicGenius,
 };

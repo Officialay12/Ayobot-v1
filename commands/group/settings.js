@@ -2,12 +2,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Group Settings Module — FIXED
 //  Author: AYOCODES
-//
-//  ROOT CAUSE FIX:
-//  The previous version imported ADMIN_CACHE_TTL from index.js, which was
-//  never exported there. One bad named import kills the entire ES module,
-//  making every command in this file register as "Unknown Command".
-//  All imports are now verified against actual exports.
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -45,7 +39,6 @@ function phone(jid) {
   return normalizeNum(jid);
 }
 
-// isAdmin = true → bot owner → bypass participant list entirely
 async function checkGroupAdmin(from, userJid, sock, isAdmin) {
   if (isAdmin) return true;
   try {
@@ -216,7 +209,10 @@ export async function lock({ from, userJid, sock, isAdmin }) {
     });
   }
 }
-// Add to commands/group/settings.js
+
+// ============================================================================
+//  SHOW PARTICIPANTS (diagnostic)
+// ============================================================================
 export async function showParticipants({ from, sock }) {
   try {
     const metadata = await sock.groupMetadata(from);
@@ -1221,6 +1217,7 @@ export async function debug({ from, userJid, sock, isAdmin }) {
 
 // ============================================================================
 //  DEFAULT EXPORT
+//  FIX: showParticipants was missing from the default export object
 // ============================================================================
 export default {
   mute,
@@ -1247,4 +1244,5 @@ export default {
   testAdmin,
   refreshAdmin,
   debug,
+  showParticipants,
 };

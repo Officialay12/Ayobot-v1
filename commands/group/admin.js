@@ -38,14 +38,23 @@ import {
 // ============================================================================
 //  ADD USER — AYOCODES
 // ============================================================================
-export async function addUser({ fullArgs, from, userJid, sock, isAdmin, session }) {
+export async function addUser({
+  fullArgs,
+  from,
+  userJid,
+  sock,
+  isAdmin,
+  session,
+}) {
   if (!isAdmin) return;
 
   const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
   if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID NUMBER",
-        "Please provide a valid phone number.\nExample: .adduser 2348123456789"),
+      text: formatError(
+        "INVALID NUMBER",
+        "Please provide a valid phone number.\nExample: .adduser 2348123456789",
+      ),
     });
   }
 
@@ -58,7 +67,10 @@ export async function addUser({ fullArgs, from, userJid, sock, isAdmin, session 
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess("USER AUTHORIZED", `✅ *${ph}* can now use the bot in private mode.`),
+    text: formatSuccess(
+      "USER AUTHORIZED",
+      `✅ *${ph}* can now use the bot in private mode.`,
+    ),
   });
 
   try {
@@ -81,8 +93,10 @@ export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
   const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
   if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID NUMBER",
-        "Please provide a valid phone number.\nExample: .removeuser 2348123456789"),
+      text: formatError(
+        "INVALID NUMBER",
+        "Please provide a valid phone number.\nExample: .removeuser 2348123456789",
+      ),
     });
   }
 
@@ -95,7 +109,10 @@ export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess("USER REMOVED", `✅ *${ph}* has been removed from authorized users.`),
+    text: formatSuccess(
+      "USER REMOVED",
+      `✅ *${ph}* has been removed from authorized users.`,
+    ),
   });
 }
 
@@ -105,7 +122,7 @@ export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
 export async function listUsers({ from, sock, isAdmin }) {
   if (!isAdmin) return;
 
-  let list  = "";
+  let list = "";
   let count = 0;
   for (const u of authorizedUsers) {
     if (u.includes("@")) {
@@ -132,7 +149,15 @@ export async function listUsers({ from, sock, isAdmin }) {
 //  Uses setMode() helper from context (set by commandHandler) + direct
 //  session object mutation as the reliable fallback. — AYOCODES
 // ============================================================================
-export async function mode({ fullArgs, from, sock, isAdmin, setMode, sessionMode, session }) {
+export async function mode({
+  fullArgs,
+  from,
+  sock,
+  isAdmin,
+  setMode,
+  sessionMode,
+  session,
+}) {
   if (!isAdmin) return;
 
   const newMode = fullArgs?.trim().toLowerCase();
@@ -140,11 +165,13 @@ export async function mode({ fullArgs, from, sock, isAdmin, setMode, sessionMode
 
   if (newMode !== "public" && newMode !== "private") {
     return sock.sendMessage(from, {
-      text: formatInfo("BOT MODE",
+      text: formatInfo(
+        "BOT MODE",
         `Current: *${current.toUpperCase()}*\n\n` +
-        `Usage:\n` +
-        `${ENV.PREFIX}mode public  — Anyone can use the bot\n` +
-        `${ENV.PREFIX}mode private — Only you can use the bot`),
+          `Usage:\n` +
+          `${ENV.PREFIX}mode public  — Anyone can use the bot\n` +
+          `${ENV.PREFIX}mode private — Only you can use the bot`,
+      ),
     });
   }
 
@@ -156,7 +183,7 @@ export async function mode({ fullArgs, from, sock, isAdmin, setMode, sessionMode
   }
 
   const modeEmoji = newMode === "private" ? "🔒" : "🌐";
-  const modeDesc  =
+  const modeDesc =
     newMode === "private"
       ? "Only *you* can use commands now."
       : "Everyone can use the bot now.";
@@ -178,15 +205,19 @@ export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("BROADCAST",
-        `Usage: ${ENV.PREFIX}broadcast <message>\nSends to all authorized users.`),
+      text: formatInfo(
+        "BROADCAST",
+        `Usage: ${ENV.PREFIX}broadcast <message>\nSends to all authorized users.`,
+      ),
     });
   }
 
-  await sock.sendMessage(from, { text: "📢 *Broadcasting to authorized users...*" });
+  await sock.sendMessage(from, {
+    text: "📢 *Broadcasting to authorized users...*",
+  });
 
-  let sent    = 0;
-  let failed  = 0;
+  let sent = 0;
+  let failed = 0;
   const targets = new Set();
 
   for (const u of authorizedUsers) {
@@ -209,36 +240,48 @@ export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
       await sock.sendMessage(target, { text: msg, mentions: [userJid] });
       sent++;
       await new Promise((r) => setTimeout(r, 600));
-    } catch (_) { failed++; }
+    } catch (_) {
+      failed++;
+    }
   }
 
   await sock.sendMessage(from, {
-    text: formatSuccess("BROADCAST DONE",
-      `✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}\n👥 *Total targets:* ${targets.size}`),
+    text: formatSuccess(
+      "BROADCAST DONE",
+      `✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}\n👥 *Total targets:* ${targets.size}`,
+    ),
   });
 }
 
 // ============================================================================
 //  GLOBAL BROADCAST — AYOCODES
 // ============================================================================
-export async function globalBroadcast({ fullArgs, from, userJid, sock, isAdmin }) {
+export async function globalBroadcast({
+  fullArgs,
+  from,
+  userJid,
+  sock,
+  isAdmin,
+}) {
   if (!isAdmin) return;
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("GLOBAL BROADCAST",
-        `Usage: ${ENV.PREFIX}globalbc <message>\nSends to ALL groups the bot is in.`),
+      text: formatInfo(
+        "GLOBAL BROADCAST",
+        `Usage: ${ENV.PREFIX}globalbc <message>\nSends to ALL groups the bot is in.`,
+      ),
     });
   }
 
   await sock.sendMessage(from, { text: "🌍 *Fetching all groups...*" });
 
-  let sent   = 0;
+  let sent = 0;
   let failed = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    const list   = Object.values(groups);
+    const list = Object.values(groups);
 
     await sock.sendMessage(from, {
       text: `🌍 *Found ${list.length} groups. Broadcasting now...*`,
@@ -264,15 +307,21 @@ export async function globalBroadcast({ fullArgs, from, userJid, sock, isAdmin }
           });
         }
         await new Promise((r) => setTimeout(r, 1200));
-      } catch (_) { failed++; }
+      } catch (_) {
+        failed++;
+      }
     }
 
     await sock.sendMessage(from, {
-      text: formatSuccess("GLOBAL BROADCAST DONE",
-        `🌍 *Total groups:* ${list.length}\n✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}`),
+      text: formatSuccess(
+        "GLOBAL BROADCAST DONE",
+        `🌍 *Total groups:* ${list.length}\n✅ *Sent:* ${sent}\n❌ *Failed:* ${failed}`,
+      ),
     });
   } catch (err) {
-    await sock.sendMessage(from, { text: formatError("BROADCAST FAILED", err.message) });
+    await sock.sendMessage(from, {
+      text: formatError("BROADCAST FAILED", err.message),
+    });
   }
 }
 
@@ -286,13 +335,13 @@ export async function stats({ from, userJid, sock, isAdmin, session }) {
     });
   }
 
-  const mem     = process.memoryUsage();
+  const mem = process.memoryUsage();
   const current = session?.mode || ENV.BOT_MODE || "public";
   let groupCount = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    groupCount   = Object.keys(groups).length;
+    groupCount = Object.keys(groups).length;
   } catch (_) {}
 
   await sock.sendMessage(from, {
@@ -328,18 +377,23 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("SUPER BAN",
-        `Usage: ${ENV.PREFIX}superban <phone> [reason]\nExample: ${ENV.PREFIX}superban 2348123456789 Spamming`),
+      text: formatInfo(
+        "SUPER BAN",
+        `Usage: ${ENV.PREFIX}superban <phone> [reason]\nExample: ${ENV.PREFIX}superban 2348123456789 Spamming`,
+      ),
     });
   }
 
-  const parts  = fullArgs.trim().split(/\s+/);
-  const ph     = parts[0].replace(/[^0-9]/g, "");
+  const parts = fullArgs.trim().split(/\s+/);
+  const ph = parts[0].replace(/[^0-9]/g, "");
   const reason = parts.slice(1).join(" ") || "Banned by admin";
 
   if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID NUMBER", "Please provide a valid phone number."),
+      text: formatError(
+        "INVALID NUMBER",
+        "Please provide a valid phone number.",
+      ),
     });
   }
 
@@ -359,7 +413,12 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
 
   authorizedUsers.delete(jid);
   authorizedUsers.delete(ph);
-  bannedUsers.set(jid, { bannedBy: userJid, time: Date.now(), reason, phone: ph });
+  bannedUsers.set(jid, {
+    bannedBy: userJid,
+    time: Date.now(),
+    reason,
+    phone: ph,
+  });
   saveBannedUsers();
 
   try {
@@ -378,8 +437,10 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
   } catch (_) {}
 
   await sock.sendMessage(from, {
-    text: formatSuccess("SUPER BAN EXECUTED",
-      `🚫 *${ph}* has been banned.\n📝 *Reason:* ${reason}`),
+    text: formatSuccess(
+      "SUPER BAN EXECUTED",
+      `🚫 *${ph}* has been banned.\n📝 *Reason:* ${reason}`,
+    ),
   });
 }
 
@@ -392,18 +453,26 @@ export async function unban({ fullArgs, from, sock, isAdmin }) {
   const ph = fullArgs?.trim().replace(/[^0-9]/g, "") || "";
   if (!ph || ph.length < 10) {
     return sock.sendMessage(from, {
-      text: formatInfo("UNBAN",
-        `Usage: ${ENV.PREFIX}unban <phone>\nExample: ${ENV.PREFIX}unban 2348123456789`),
+      text: formatInfo(
+        "UNBAN",
+        `Usage: ${ENV.PREFIX}unban <phone>\nExample: ${ENV.PREFIX}unban 2348123456789`,
+      ),
     });
   }
 
-  const jid     = `${ph}@s.whatsapp.net`;
-  let removed   = false;
+  const jid = `${ph}@s.whatsapp.net`;
+  let removed = false;
 
-  if (bannedUsers.has(jid)) { bannedUsers.delete(jid); removed = true; }
+  if (bannedUsers.has(jid)) {
+    bannedUsers.delete(jid);
+    removed = true;
+  }
 
   for (const key of bannedUsers.keys()) {
-    if (key.includes(ph)) { bannedUsers.delete(key); removed = true; }
+    if (key.includes(ph)) {
+      bannedUsers.delete(key);
+      removed = true;
+    }
   }
 
   if (removed) {
@@ -437,9 +506,9 @@ export async function listBanned({ from, sock, isAdmin }) {
   let index = 1;
 
   for (const [jid, data] of bannedUsers.entries()) {
-    const ph   = jid.split("@")[0];
+    const ph = jid.split("@")[0];
     const when = data.time ? new Date(data.time).toLocaleString() : "Unknown";
-    const by   = data.bannedBy?.split("@")[0] || "Unknown";
+    const by = data.bannedBy?.split("@")[0] || "Unknown";
     text +=
       `*${index}.* 📱 ${ph}\n` +
       `   📝 *Reason:* ${data.reason || "No reason given"}\n` +
@@ -481,8 +550,10 @@ export async function clearBans({ from, userJid, sock, isAdmin }) {
   saveBannedUsers();
 
   await sock.sendMessage(from, {
-    text: formatSuccess("BANS CLEARED",
-      `✅ Cleared *${count}* banned users.\n\n👑 @${userJid.split("@")[0]}`),
+    text: formatSuccess(
+      "BANS CLEARED",
+      `✅ Cleared *${count}* banned users.\n\n👑 @${userJid.split("@")[0]}`,
+    ),
     mentions: [userJid],
   });
 }
@@ -507,9 +578,15 @@ export async function restart({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  try { saveWarnings();      } catch (_) {}
-  try { saveBannedUsers();   } catch (_) {}
-  try { saveGroupSettings(); } catch (_) {}
+  try {
+    saveWarnings();
+  } catch (_) {}
+  try {
+    saveBannedUsers();
+  } catch (_) {}
+  try {
+    saveGroupSettings();
+  } catch (_) {}
 
   await new Promise((r) => setTimeout(r, 2000));
   process.exit(0);
@@ -535,9 +612,15 @@ export async function shutdown({ from, userJid, sock, isAdmin }) {
     mentions: [userJid],
   });
 
-  try { saveWarnings();      } catch (_) {}
-  try { saveBannedUsers();   } catch (_) {}
-  try { saveGroupSettings(); } catch (_) {}
+  try {
+    saveWarnings();
+  } catch (_) {}
+  try {
+    saveBannedUsers();
+  } catch (_) {}
+  try {
+    saveGroupSettings();
+  } catch (_) {}
 
   await new Promise((r) => setTimeout(r, 2000));
   process.exit(1);
@@ -549,18 +632,18 @@ export async function shutdown({ from, userJid, sock, isAdmin }) {
 export async function botStatus({ from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
-  const mem    = process.memoryUsage();
+  const mem = process.memoryUsage();
   const uptime = process.uptime();
-  const d      = Math.floor(uptime / 86400);
-  const h      = Math.floor((uptime % 86400) / 3600);
-  const m      = Math.floor((uptime % 3600) / 60);
-  const s      = Math.floor(uptime % 60);
-  const mode   = session?.mode || ENV.BOT_MODE || "public";
+  const d = Math.floor(uptime / 86400);
+  const h = Math.floor((uptime % 86400) / 3600);
+  const m = Math.floor((uptime % 3600) / 60);
+  const s = Math.floor(uptime % 60);
+  const mode = session?.mode || ENV.BOT_MODE || "public";
   let groupCount = 0;
 
   try {
     const groups = await sock.groupFetchAllParticipating();
-    groupCount   = Object.keys(groups).length;
+    groupCount = Object.keys(groups).length;
   } catch (_) {}
 
   await sock.sendMessage(from, {
@@ -596,18 +679,22 @@ export async function adminEval({ fullArgs, from, sock, isAdmin }) {
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
-      text: formatInfo("EVAL",
-        `Usage: ${ENV.PREFIX}eval <code>\n⚠️ *Dangerous — admin only!*`),
+      text: formatInfo(
+        "EVAL",
+        `Usage: ${ENV.PREFIX}eval <code>\n⚠️ *Dangerous — admin only!*`,
+      ),
     });
   }
 
   await sock.sendMessage(from, { text: "⚡ *Executing...*" });
 
   try {
-    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-    const fn            = new AsyncFunction("sock", "ENV", "from", fullArgs);
-    const result        = await fn(sock, ENV, from);
-    const output        =
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const fn = new AsyncFunction("sock", "ENV", "from", fullArgs);
+    const result = await fn(sock, ENV, from);
+    const output =
       typeof result === "object"
         ? JSON.stringify(result, null, 2)
         : String(result ?? "undefined");

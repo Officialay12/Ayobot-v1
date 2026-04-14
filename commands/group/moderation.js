@@ -2,12 +2,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Group Moderation Module — FIXED
 //  Author: AYOCODES
-//
-//  ROOT CAUSE FIX:
-//  Previous version imported ADMIN_CACHE_TTL from index.js (indirectly via
-//  validators.js) which caused the entire module to fail silently.
-//  All imports are now verified against actual exports in both index.js
-//  and utils/validators.js.
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -50,7 +44,6 @@ function warnBar(current, max) {
   return "🟥".repeat(filled) + "⬜".repeat(empty);
 }
 
-// isAdmin = true → bot owner → bypass participant list entirely
 async function checkGroupAdmin(from, userJid, sock, isAdmin) {
   if (isAdmin) return true;
   try {
@@ -454,8 +447,11 @@ export async function warn({ args, message, from, userJid, sock, isAdmin }) {
 
 // ============================================================================
 //  VIEW WARNINGS
+//  FIX: pass the actual message object to extractTargetUser so reply context
+//       can be resolved; previously passed { message: {} } which always
+//       returned null for reply-based lookups.
 // ============================================================================
-export async function warnings({ args, from, userJid, sock }) {
+export async function warnings({ args, message, from, userJid, sock }) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -467,7 +463,8 @@ export async function warnings({ args, from, userJid, sock }) {
     let targetPhone = phone(userJid);
 
     if (args.length > 0) {
-      const target = extractTargetUser(args, { message: {} });
+      // FIX: use the real message object so reply context resolves correctly
+      const target = extractTargetUser(args, message);
       if (target) {
         targetJid = target.jid;
         targetPhone = target.phone;
@@ -524,7 +521,14 @@ export async function warnings({ args, from, userJid, sock }) {
 // ============================================================================
 //  CLEAR WARNINGS
 // ============================================================================
-export async function clearWarns({ args, from, userJid, sock, isAdmin }) {
+export async function clearWarns({
+  args,
+  message,
+  from,
+  userJid,
+  sock,
+  isAdmin,
+}) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -561,7 +565,8 @@ export async function clearWarns({ args, from, userJid, sock, isAdmin }) {
       });
     }
 
-    const target = extractTargetUser(args, { message: {} });
+    // FIX: pass actual message so reply context works
+    const target = extractTargetUser(args, message);
     if (!target) {
       return sock.sendMessage(from, {
         text: fmt(
