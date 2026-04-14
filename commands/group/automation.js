@@ -1,14 +1,6 @@
 // commands/group/automation.js — AYOBOT v1.0.0
-// ════════════════════════════════════════════════════════════════════════════
-//  Group Automation Module — COMPLETE FIXED VERSION
-//  Author: AYOCODES
-//
-//  FIXES:
-//  1. ALLOWED_DOMAINS was [" "] — whitelist never matched anything — FIXED
-//  2. isUserAdmin() now correctly passes ownerPhone for global admin bypass
-//  3. senderJid now strips device suffix before use
-//  4. Warning key format unified: ${groupJid}:${senderJid}
-// ════════════════════════════════════════════════════════════════════════════
+// Group Automation Module — COMPLETE FIXED VERSION
+// Author: AYOCODES
 
 import {
   ENV,
@@ -17,12 +9,13 @@ import {
   groupWarnings,
   saveGroupSettings,
   saveWarnings,
-  isAdmin as isGlobalAdmin,
 } from "../../index.js";
 import {
   getGroupMetadataCached,
   normalizeNum,
+  isBotGroupAdminCached,
 } from "../../utils/validators.js";
+import { fmt, warnBar } from "../../utils/formatters.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -46,30 +39,18 @@ async function getGtts() {
   return _gtts;
 }
 
-// Safe JID extraction
-function safeJid(jid) {
-  if (!jid) return "";
-  if (typeof jid === "string") return jid;
-  if (typeof jid === "object" && (jid.id || jid.jid || jid.participant)) {
-    return jid.id || jid.jid || jid.participant || String(jid);
-  }
-  return String(jid);
-}
+// ============================================================================
+// PHONE NORMALIZATION HELPER
+// ============================================================================
 
-// Strip device suffix AND domain, return phone number only
 function safePhone(jid) {
-  return normalizeNum(safeJid(jid));
-}
-
-// Build clean @s.whatsapp.net JID from any raw JID
-function cleanJid(jid) {
-  const phone = normalizeNum(safeJid(jid));
-  return phone ? `${phone}@s.whatsapp.net` : safeJid(jid);
+  return normalizeNum(jid);
 }
 
 // ============================================================================
-//  LINK DETECTION PATTERNS
+// LINK DETECTION PATTERNS
 // ============================================================================
+
 const LINK_PATTERNS = [
   /https?:\/\/[^\s<>"']+/gi,
   /www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})+(:[0-9]+)?(\/[^\s<>"']*)?/gi,
@@ -115,8 +96,9 @@ const LINK_PATTERNS = [
 const MAX_ANTILINK_WARNINGS = 3;
 
 // ============================================================================
-//  LINK DETECTION
+// LINK DETECTION
 // ============================================================================
+
 export function containsLink(text) {
   if (!text || typeof text !== "string") return false;
 
@@ -142,14 +124,10 @@ export function containsLink(text) {
 }
 
 // ============================================================================
-//  ALLOWED DOMAINS
-//  FIX: was [" "] which never matched anything
-//  Add domains to whitelist here if needed e.g. "youtube.com"
+// ALLOWED DOMAINS (empty by default)
 // ============================================================================
-const ALLOWED_DOMAINS = [
-  // "youtube.com",
-  // "wa.me",
-];
+
+const ALLOWED_DOMAINS = [];
 
 export function isAllowedDomain(text) {
   if (!ALLOWED_DOMAINS.length) return false;
@@ -168,33 +146,40 @@ export function isAllowedDomain(text) {
 }
 
 // ============================================================================
-//  IS USER ADMIN
-//  FIX: always pass ownerPhone for global admin bypass
-//  FIX: strips device suffix before participant list comparison
+// IS USER ADMIN (PHONE-BASED)
 // ============================================================================
+
 async function isUserAdmin(sock, groupJid, userJid, ownerPhone = "") {
   // Global admin (bot owner) always passes
-  if (ownerPhone && normalizeNum(userJid) === normalizeNum(ownerPhone)) {
-    return true;
-  }
-  if (isGlobalAdmin(userJid, ownerPhone)) return true;
+  const userPhone = safePhone(userJid);
+  const ownerPhoneNorm = safePhone(ownerPhone);
+  const globalAdmin = safePhone(ENV.ADMIN || "");
+
+  if (ownerPhoneNorm && userPhone === ownerPhoneNorm) return true;
+  if (globalAdmin && userPhone === globalAdmin) return true;
 
   try {
-    const groupMetadata = await sock.groupMetadata(groupJid);
-    const userNum = normalizeNum(userJid);
-    return groupMetadata.participants.some(
-      (p) =>
-        normalizeNum(p.id) === userNum &&
-        (p.admin === "admin" || p.admin === "superadmin"),
+    const groupMetadata = await getGroupMetadataCached(groupJid, sock);
+    if (!groupMetadata?.participants) return false;
+
+    const participant = groupMetadata.participants.find(
+      (p) => safePhone(p.id) === userPhone,
     );
-  } catch {
+
+    return (
+      participant &&
+      (participant.admin === "admin" || participant.admin === "superadmin")
+    );
+  } catch (error) {
+    console.error("[automation] isUserAdmin error:", error.message);
     return false;
   }
 }
 
 // ============================================================================
-//  MAIN ANTILINK HANDLER
+// MAIN ANTILINK HANDLER
 // ============================================================================
+
 export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
   try {
     if (!groupJid.endsWith("@g.us")) return false;
@@ -214,12 +199,10 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
     if (!text) return false;
     if (!containsLink(text)) return false;
 
-    // FIX: strip device suffix from sender JID
     const rawSender = message.key?.participant || groupJid;
-    const senderPhone = normalizeNum(rawSender);
-    const senderJid = senderPhone ? `${senderPhone}@s.whatsapp.net` : rawSender;
+    const senderPhone = safePhone(rawSender);
+    const senderJid = `${senderPhone}@s.whatsapp.net`;
 
-    // FIX: pass ownerPhone so bot owner is never flagged
     const admin = await isUserAdmin(sock, groupJid, senderJid, ownerPhone);
     if (admin) {
       console.log(`👑 Admin/Owner ${senderPhone} posted link — allowed`);
@@ -243,7 +226,7 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
       console.log(`⚠️ Could not delete: ${deleteError.message}`);
     }
 
-    // Track warnings — unified key format
+    // Track warnings
     const warnKey = `${groupJid}:${senderJid}`;
     const userWarn = groupWarnings.get(warnKey) || 0;
     const newWarn = userWarn + 1;
@@ -254,41 +237,49 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
 
     if (newWarn >= MAX_ANTILINK_WARNINGS) {
       try {
-        await sock.groupParticipantsUpdate(groupJid, [senderJid], "remove");
-        await sock.sendMessage(groupJid, {
-          text:
-            `🚫 *@${senderPhone} has been removed for posting links after ${MAX_ANTILINK_WARNINGS} warnings.*\n` +
-            `━━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚠️ Links are strictly prohibited in this group.\n\n` +
-            `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-          mentions: [senderJid],
-        });
-        groupWarnings.delete(warnKey);
-        saveWarnings();
-        console.log(
-          `👢 User ${senderPhone} kicked after ${MAX_ANTILINK_WARNINGS} warnings`,
-        );
+        const botIsAdmin = await isBotGroupAdminCached(groupJid, sock);
+        if (botIsAdmin) {
+          await sock.groupParticipantsUpdate(groupJid, [senderJid], "remove");
+          await sock.sendMessage(groupJid, {
+            text: fmt(
+              "🚫",
+              "AUTO-REMOVED",
+              `@${senderPhone} has been removed for posting links after ${MAX_ANTILINK_WARNINGS} warnings.\n\n⚠️ Links are strictly prohibited in this group.`,
+            ),
+            mentions: [senderJid],
+          });
+          groupWarnings.delete(warnKey);
+          saveWarnings();
+          console.log(
+            `👢 User ${senderPhone} kicked after ${MAX_ANTILINK_WARNINGS} warnings`,
+          );
+        } else {
+          await sock.sendMessage(groupJid, {
+            text: fmt(
+              "⚠️",
+              "WARNING LIMIT REACHED",
+              `@${senderPhone} has reached ${MAX_ANTILINK_WARNINGS} warnings but I cannot remove them (not admin).`,
+            ),
+            mentions: [senderJid],
+          });
+        }
       } catch (kickError) {
         await sock.sendMessage(groupJid, {
-          text:
-            `⚠️ *WARNING ${newWarn}/${MAX_ANTILINK_WARNINGS}* — @${senderPhone}\n` +
-            `❌ Could not remove (bot not admin)\n\n` +
-            `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+          text: fmt(
+            "⚠️",
+            "WARNING LIMIT REACHED",
+            `@${senderPhone} has reached ${MAX_ANTILINK_WARNINGS} warnings but removal failed: ${kickError.message}`,
+          ),
           mentions: [senderJid],
         });
       }
     } else {
       await sock.sendMessage(groupJid, {
-        text:
-          `╔══════════════════════════╗\n` +
-          `║   🚫 *NO LINKS ALLOWED*  ║\n` +
-          `╚══════════════════════════╝\n\n` +
-          `👤 *User:* @${senderPhone}\n` +
-          `⚠️ *Warning:* ${newWarn}/${MAX_ANTILINK_WARNINGS}\n` +
-          `💢 *Action:* Message deleted ${deleted ? "✅" : "❌"}\n` +
-          `━━━━━━━━━━━━━━━━━━━━━\n` +
-          `⚠️ ${warningsLeft} more warning(s) before removal.\n\n` +
-          `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        text: fmt(
+          "🚫",
+          "NO LINKS ALLOWED",
+          `👤 User: @${senderPhone}\n⚠️ Warning: ${newWarn}/${MAX_ANTILINK_WARNINGS}\n💢 Action: Message deleted ${deleted ? "✅" : "❌"}\n\n${warnBar(newWarn, MAX_ANTILINK_WARNINGS)}\n\n⚠️ ${warningsLeft} more warning(s) before removal.`,
+        ),
         mentions: [senderJid],
       });
       console.log(
@@ -304,15 +295,19 @@ export async function handleAntiLink(message, groupJid, sock, ownerPhone = "") {
 }
 
 // ============================================================================
-//  GROUP PARTICIPANT HANDLER
+// GROUP PARTICIPANT HANDLER
 // ============================================================================
+
 export async function handleGroupParticipant(update, sock) {
   const { id: groupJid, participants, action } = update;
   if (!groupJid || !participants || !Array.isArray(participants)) return;
 
   for (const participant of participants) {
     try {
-      const participantJid = safeJid(participant);
+      const participantJid =
+        typeof participant === "string"
+          ? participant
+          : participant.id || participant;
       if (!participantJid) continue;
 
       if (action === "add") {
@@ -327,11 +322,13 @@ export async function handleGroupParticipant(update, sock) {
 }
 
 // ============================================================================
-//  GROUP JOIN
+// GROUP JOIN
 // ============================================================================
+
 async function handleGroupJoin(groupJid, participantJid, sock) {
   try {
     const settings = groupSettings.get(groupJid) || {};
+    const participantPhone = safePhone(participantJid);
     const banKey = `${groupJid}_${participantJid}`;
 
     if (bannedUsers.has(banKey)) {
@@ -359,8 +356,9 @@ async function handleGroupJoin(groupJid, participantJid, sock) {
 }
 
 // ============================================================================
-//  SEND WELCOME MESSAGE
+// SEND WELCOME MESSAGE
 // ============================================================================
+
 async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
   try {
     let metadata = null;
@@ -383,10 +381,11 @@ async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
       .replace(/@time/gi, new Date().toLocaleTimeString())
       .replace(/@date/gi, new Date().toLocaleDateString());
 
-    const caption =
-      `👋 *Welcome to ${groupName}* 👋\n\n${welcomeText}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+    const caption = fmt(
+      "👋",
+      `WELCOME TO ${groupName.toUpperCase()}`,
+      welcomeText,
+    );
 
     try {
       await sock.sendMessage(groupJid, {
@@ -408,8 +407,9 @@ async function sendWelcomeMessage(groupJid, participantJid, sock, settings) {
 }
 
 // ============================================================================
-//  VOICE WELCOME
+// VOICE WELCOME
 // ============================================================================
+
 async function sendVoiceWelcome(groupJid, participantJid, sock) {
   try {
     const gtts = await getGtts();
@@ -446,8 +446,9 @@ async function sendVoiceWelcome(groupJid, participantJid, sock) {
 }
 
 // ============================================================================
-//  GROUP LEAVE
+// GROUP LEAVE
 // ============================================================================
+
 async function handleGroupLeave(groupJid, participantJid, sock) {
   try {
     const settings = groupSettings.get(groupJid) || {};
@@ -460,8 +461,9 @@ async function handleGroupLeave(groupJid, participantJid, sock) {
 }
 
 // ============================================================================
-//  SEND GOODBYE MESSAGE
+// SEND GOODBYE MESSAGE
 // ============================================================================
+
 async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
   try {
     let metadata = null;
@@ -482,10 +484,11 @@ async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
       .replace(/@time/gi, new Date().toLocaleTimeString())
       .replace(/@date/gi, new Date().toLocaleDateString());
 
-    const caption =
-      `👋 *Goodbye from ${groupName}* 👋\n\n${goodbyeText}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+    const caption = fmt(
+      "👋",
+      `GOODBYE FROM ${groupName.toUpperCase()}`,
+      goodbyeText,
+    );
 
     try {
       await sock.sendMessage(groupJid, {
@@ -507,28 +510,9 @@ async function sendGoodbyeMessage(groupJid, participantJid, sock, settings) {
 }
 
 // ============================================================================
-//  BACKWARD-COMPAT WRAPPERS
+// SETTINGS HELPERS
 // ============================================================================
-export async function checkMessageViolation() {
-  return false;
-}
 
-export async function handleRuleViolation(
-  type,
-  groupJid,
-  senderJid,
-  sock,
-  message,
-  ownerPhone = "",
-) {
-  if (type === "link")
-    return handleAntiLink(message, groupJid, sock, ownerPhone);
-  return false;
-}
-
-// ============================================================================
-//  SETTINGS HELPERS
-// ============================================================================
 export async function setWelcome(groupJid, enabled, message = null) {
   try {
     const settings = groupSettings.get(groupJid) || {};
@@ -584,8 +568,30 @@ export function getGroupSettings(groupJid) {
 }
 
 // ============================================================================
-//  DEFAULT EXPORT
+// BACKWARD-COMPAT WRAPPERS
 // ============================================================================
+
+export async function checkMessageViolation() {
+  return false;
+}
+
+export async function handleRuleViolation(
+  type,
+  groupJid,
+  senderJid,
+  sock,
+  message,
+  ownerPhone = "",
+) {
+  if (type === "link")
+    return handleAntiLink(message, groupJid, sock, ownerPhone);
+  return false;
+}
+
+// ============================================================================
+// DEFAULT EXPORT
+// ============================================================================
+
 export default {
   handleGroupParticipant,
   handleAntiLink,

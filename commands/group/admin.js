@@ -1,21 +1,6 @@
 // commands/group/admin.js — AYOBOT v1.0.0
-// ════════════════════════════════════════════════════════════════════════════
-//  Admin Commands — PRODUCTION REWRITE
-//  Author: AYOCODES
-//
-//  FIXES IN THIS FILE:
-//
-//  1. mode() — CRITICAL CRASH FIX
-//     Old code had a dynamic `import("../../index.js")` inside mode() to
-//     get sessionMetaCollection. This caused a MODULE_NOT_FOUND crash at
-//     runtime because dynamic re-importing ESM modules with side effects
-//     is unreliable. Fixed by only using the setMode() helper from context
-//     and the session object directly. — AYOCODES
-//
-//  2. All functions — isAdmin guard uses context.isAdmin (set by
-//     commandHandler) so they never run for non-owners regardless of how
-//     the command was invoked. — AYOCODES
-// ════════════════════════════════════════════════════════════════════════════
+// Admin Commands — PRODUCTION REWRITE WITH PHONE-BASED ADMIN DETECTION
+// Author: AYOCODES
 
 import {
   ENV,
@@ -33,11 +18,14 @@ import {
   formatInfo,
   formatSuccess,
   formatUptime,
+  fmt,
 } from "../../utils/formatters.js";
+import { normalizePhone } from "../../utils/validators.js";
 
 // ============================================================================
-//  ADD USER — AYOCODES
+// ADD USER
 // ============================================================================
+
 export async function addUser({
   fullArgs,
   from,
@@ -75,18 +63,19 @@ export async function addUser({
 
   try {
     await sock.sendMessage(jid, {
-      text:
-        `🎉 *Access Granted!*\n\n` +
-        `You have been authorized to use *AYOBOT*!\n\n` +
-        `Type *${ENV.PREFIX}menu* to explore all features.\n\n` +
-        `👑 AYOCODES`,
+      text: fmt(
+        "🎉",
+        "ACCESS GRANTED",
+        `You have been authorized to use *AYOBOT*!\n\nType *${ENV.PREFIX}menu* to explore all features.`,
+      ),
     });
   } catch (_) {}
 }
 
 // ============================================================================
-//  REMOVE USER — AYOCODES
+// REMOVE USER
 // ============================================================================
+
 export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
@@ -117,8 +106,9 @@ export async function removeUser({ fullArgs, from, sock, isAdmin, session }) {
 }
 
 // ============================================================================
-//  LIST USERS — AYOCODES
+// LIST USERS
 // ============================================================================
+
 export async function listUsers({ from, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -132,23 +122,19 @@ export async function listUsers({ from, sock, isAdmin }) {
   }
 
   await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n` +
-      `║   📋 *AUTHORIZED USERS*  ║\n` +
-      `╚══════════════════════════╝\n\n` +
+    text: fmt(
+      "📋",
+      "AUTHORIZED USERS",
       (list || "▰ No authorized users yet") +
-      `\n\n━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👥 *Total:* ${count}\n` +
-      `👑 AYOCODES`,
+        `\n\n━━━━━━━━━━━━━━━━━━━━━\n👥 *Total:* ${count}`,
+    ),
   });
 }
 
 // ============================================================================
-//  MODE — AYOCODES
-//  FIX: Removed dynamic import of index.js which caused runtime crashes.
-//  Uses setMode() helper from context (set by commandHandler) + direct
-//  session object mutation as the reliable fallback. — AYOCODES
+// MODE — FIXED: No dynamic import
 // ============================================================================
+
 export async function mode({
   fullArgs,
   from,
@@ -167,15 +153,11 @@ export async function mode({
     return sock.sendMessage(from, {
       text: formatInfo(
         "BOT MODE",
-        `Current: *${current.toUpperCase()}*\n\n` +
-          `Usage:\n` +
-          `${ENV.PREFIX}mode public  — Anyone can use the bot\n` +
-          `${ENV.PREFIX}mode private — Only you can use the bot`,
+        `Current: *${current.toUpperCase()}*\n\nUsage:\n${ENV.PREFIX}mode public  — Anyone can use the bot\n${ENV.PREFIX}mode private — Only you can use the bot`,
       ),
     });
   }
 
-  // FIX: Use injected setMode helper — no dynamic imports needed — AYOCODES
   if (typeof setMode === "function") {
     await setMode(newMode);
   } else if (session) {
@@ -189,17 +171,18 @@ export async function mode({
       : "Everyone can use the bot now.";
 
   await sock.sendMessage(from, {
-    text:
-      `${modeEmoji} *MODE UPDATED*\n\n` +
-      `Bot is now in *${newMode.toUpperCase()}* mode.\n\n` +
-      `${modeDesc}\n\n` +
-      `👑 AYOCODES`,
+    text: fmt(
+      modeEmoji,
+      "MODE UPDATED",
+      `Bot is now in *${newMode.toUpperCase()}* mode.\n\n${modeDesc}`,
+    ),
   });
 }
 
 // ============================================================================
-//  BROADCAST — AYOCODES
+// BROADCAST
 // ============================================================================
+
 export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -225,15 +208,11 @@ export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
     if (jid.includes("@s.whatsapp.net")) targets.add(jid);
   }
 
-  const msg =
-    `╔══════════════════════════╗\n` +
-    `║     📢 *ADMIN BROADCAST*  ║\n` +
-    `╚══════════════════════════╝\n\n` +
-    `${fullArgs}\n\n` +
-    `━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📢 *From:* @${userJid.split("@")[0]}\n` +
-    `⏰ *Time:* ${new Date().toLocaleString()}\n` +
-    `👑 AYOBOT v1 | Created by AYOCODES`;
+  const msg = fmt(
+    "📢",
+    "ADMIN BROADCAST",
+    `${fullArgs}\n\n━━━━━━━━━━━━━━━━━━━━━\n📢 *From:* @${normalizePhone(userJid)}\n⏰ *Time:* ${new Date().toLocaleString()}`,
+  );
 
   for (const target of targets) {
     try {
@@ -254,8 +233,9 @@ export async function broadcast({ fullArgs, from, userJid, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  GLOBAL BROADCAST — AYOCODES
+// GLOBAL BROADCAST
 // ============================================================================
+
 export async function globalBroadcast({
   fullArgs,
   from,
@@ -287,15 +267,11 @@ export async function globalBroadcast({
       text: `🌍 *Found ${list.length} groups. Broadcasting now...*`,
     });
 
-    const msg =
-      `╔══════════════════════════╗\n` +
-      `║   🌍 *GLOBAL ANNOUNCEMENT* ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `${fullArgs}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📢 *From:* @${userJid.split("@")[0]}\n` +
-      `⏰ *Time:* ${new Date().toLocaleString()}\n` +
-      `👑 AYOBOT v1 | Created by AYOCODES`;
+    const msg = fmt(
+      "🌍",
+      "GLOBAL ANNOUNCEMENT",
+      `${fullArgs}\n\n━━━━━━━━━━━━━━━━━━━━━\n📢 *From:* @${normalizePhone(userJid)}\n⏰ *Time:* ${new Date().toLocaleString()}`,
+    );
 
     for (const group of list) {
       try {
@@ -326,8 +302,9 @@ export async function globalBroadcast({
 }
 
 // ============================================================================
-//  STATS — AYOCODES
+// STATS
 // ============================================================================
+
 export async function stats({ from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) {
     return sock.sendMessage(from, {
@@ -345,33 +322,31 @@ export async function stats({ from, userJid, sock, isAdmin, session }) {
   } catch (_) {}
 
   await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n` +
-      `║      📊 *BOT STATS*       ║\n` +
-      `╚══════════════════════════╝\n\n` +
+    text: fmt(
+      "📊",
+      "BOT STATS",
       `⏱️ *Uptime:* ${formatUptime(Date.now() - botStartTime)}\n` +
-      `📨 *Messages Processed:* ${messageCount}\n` +
-      `⚡ *Unique Users:* ${commandUsage.size}\n` +
-      `👤 *Authorized:* ${authorizedUsers.size}\n` +
-      `🚫 *Banned:* ${bannedUsers.size}\n` +
-      `👥 *Groups:* ${groupCount}\n` +
-      `🤖 *Mode:* ${current.toUpperCase()}\n` +
-      `💾 *Memory:* ${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB\n` +
-      `⚡ *CPU Time:* ${(process.cpuUsage().user / 1_000_000).toFixed(2)}s\n` +
-      `🔧 *Node.js:* ${process.version}\n` +
-      `🤖 *Platform:* ${process.platform}\n` +
-      `📦 *PID:* ${process.pid}\n\n` +
-      `🔋 *Arc Reactor:* ██████████ 100%\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👑 *Admin:* @${userJid.split("@")[0]}\n` +
-      `⚡ AYOBOT v1 | Created by AYOCODES`,
+        `📨 *Messages Processed:* ${messageCount}\n` +
+        `⚡ *Unique Users:* ${commandUsage.size}\n` +
+        `👤 *Authorized:* ${authorizedUsers.size}\n` +
+        `🚫 *Banned:* ${bannedUsers.size}\n` +
+        `👥 *Groups:* ${groupCount}\n` +
+        `🤖 *Mode:* ${current.toUpperCase()}\n` +
+        `💾 *Memory:* ${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB\n` +
+        `⚡ *CPU Time:* ${(process.cpuUsage().user / 1_000_000).toFixed(2)}s\n` +
+        `🔧 *Node.js:* ${process.version}\n` +
+        `🤖 *Platform:* ${process.platform}\n` +
+        `📦 *PID:* ${process.pid}\n\n` +
+        `🔋 *Arc Reactor:* ██████████ 100%`,
+    ),
     mentions: [userJid],
   });
 }
 
 // ============================================================================
-//  SUPER BAN — AYOCODES
+// SUPER BAN
 // ============================================================================
+
 export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -397,7 +372,8 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
     });
   }
 
-  if (ph === userJid.split("@")[0] || ph === ENV.ADMIN) {
+  const adminPhone = normalizePhone(ENV.ADMIN || "");
+  if (ph === normalizePhone(userJid) || (adminPhone && ph === adminPhone)) {
     return sock.sendMessage(from, {
       text: formatError("INVALID ACTION", "You cannot ban the bot owner."),
     });
@@ -423,16 +399,11 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
 
   try {
     await sock.sendMessage(jid, {
-      text:
-        `╔══════════════════════════╗\n` +
-        `║        🚫 *BANNED*        ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `You have been banned from using *AYOBOT*.\n\n` +
-        `📝 *Reason:* ${reason}\n` +
-        `⏰ *Time:* ${new Date().toLocaleString()}\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Contact the bot admin to appeal.\n` +
-        `👑 AYOCODES`,
+      text: fmt(
+        "🚫",
+        "BANNED",
+        `You have been banned from using *AYOBOT*.\n\n📝 *Reason:* ${reason}\n⏰ *Time:* ${new Date().toLocaleString()}\n\nContact the bot admin to appeal.`,
+      ),
     });
   } catch (_) {}
 
@@ -445,8 +416,9 @@ export async function superBan({ fullArgs, from, userJid, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  UNBAN — AYOCODES
+// UNBAN
 // ============================================================================
+
 export async function unban({ fullArgs, from, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -488,8 +460,9 @@ export async function unban({ fullArgs, from, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  LIST BANNED — AYOCODES
+// LIST BANNED
 // ============================================================================
+
 export async function listBanned({ from, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -499,28 +472,18 @@ export async function listBanned({ from, sock, isAdmin }) {
     });
   }
 
-  let text =
-    `╔══════════════════════════╗\n` +
-    `║   🚫 *BANNED USERS*      ║\n` +
-    `╚══════════════════════════╝\n\n`;
+  let text = `╔══════════════════════════╗\n║   🚫 *BANNED USERS*      ║\n╚══════════════════════════╝\n\n`;
   let index = 1;
 
   for (const [jid, data] of bannedUsers.entries()) {
     const ph = jid.split("@")[0];
     const when = data.time ? new Date(data.time).toLocaleString() : "Unknown";
     const by = data.bannedBy?.split("@")[0] || "Unknown";
-    text +=
-      `*${index}.* 📱 ${ph}\n` +
-      `   📝 *Reason:* ${data.reason || "No reason given"}\n` +
-      `   👑 *By:* ${by}\n` +
-      `   ⏰ *When:* ${when}\n\n`;
+    text += `*${index}.* 📱 ${ph}\n   📝 *Reason:* ${data.reason || "No reason given"}\n   👑 *By:* ${by}\n   ⏰ *When:* ${when}\n\n`;
     index++;
   }
 
-  text +=
-    `━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📊 *Total banned:* ${bannedUsers.size}\n` +
-    `👑 AYOCODES`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n📊 *Total banned:* ${bannedUsers.size}\n👑 AYOCODES`;
 
   if (text.length > 4000) {
     const chunks = text.match(/[\s\S]{1,4000}/g) || [];
@@ -534,8 +497,9 @@ export async function listBanned({ from, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  CLEAR BANS — AYOCODES
+// CLEAR BANS
 // ============================================================================
+
 export async function clearBans({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -552,29 +516,25 @@ export async function clearBans({ from, userJid, sock, isAdmin }) {
   await sock.sendMessage(from, {
     text: formatSuccess(
       "BANS CLEARED",
-      `✅ Cleared *${count}* banned users.\n\n👑 @${userJid.split("@")[0]}`,
+      `✅ Cleared *${count}* banned users.\n\n👑 @${normalizePhone(userJid)}`,
     ),
     mentions: [userJid],
   });
 }
 
 // ============================================================================
-//  RESTART — AYOCODES
+// RESTART
 // ============================================================================
+
 export async function restart({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
   await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n` +
-      `║      🔄 *RESTARTING*      ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `🔄 *Bot is restarting...*\n` +
-      `⏰ *Time:* ${new Date().toLocaleString()}\n` +
-      `👑 *By:* @${userJid.split("@")[0]}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚡ Will be back online in seconds.\n` +
-      `👑 AYOCODES`,
+    text: fmt(
+      "🔄",
+      "RESTARTING",
+      `🔄 *Bot is restarting...*\n⏰ *Time:* ${new Date().toLocaleString()}\n👑 *By:* @${normalizePhone(userJid)}\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ Will be back online in seconds.`,
+    ),
     mentions: [userJid],
   });
 
@@ -593,22 +553,18 @@ export async function restart({ from, userJid, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  SHUTDOWN — AYOCODES
+// SHUTDOWN
 // ============================================================================
+
 export async function shutdown({ from, userJid, sock, isAdmin }) {
   if (!isAdmin) return;
 
   await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n` +
-      `║      ⛔ *SHUTTING DOWN*    ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `🛑 *Bot is shutting down...*\n` +
-      `⏰ *Time:* ${new Date().toLocaleString()}\n` +
-      `👑 *By:* @${userJid.split("@")[0]}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `⚠️ *Manual restart required.*\n` +
-      `👑 AYOCODES`,
+    text: fmt(
+      "⛔",
+      "SHUTTING DOWN",
+      `🛑 *Bot is shutting down...*\n⏰ *Time:* ${new Date().toLocaleString()}\n👑 *By:* @${normalizePhone(userJid)}\n\n━━━━━━━━━━━━━━━━━━━━━\n⚠️ *Manual restart required.*`,
+    ),
     mentions: [userJid],
   });
 
@@ -627,8 +583,9 @@ export async function shutdown({ from, userJid, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  BOT STATUS — AYOCODES
+// BOT STATUS
 // ============================================================================
+
 export async function botStatus({ from, userJid, sock, isAdmin, session }) {
   if (!isAdmin) return;
 
@@ -647,33 +604,31 @@ export async function botStatus({ from, userJid, sock, isAdmin, session }) {
   } catch (_) {}
 
   await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n` +
-      `║      📊 *BOT STATUS*      ║\n` +
-      `╚══════════════════════════╝\n\n` +
+    text: fmt(
+      "📊",
+      "BOT STATUS",
       `⏱️ *Uptime:* ${d}d ${h}h ${m}m ${s}s\n` +
-      `📨 *Messages:* ${messageCount}\n` +
-      `⚡ *Unique Users:* ${commandUsage.size}\n` +
-      `👤 *Authorized:* ${authorizedUsers.size}\n` +
-      `🚫 *Banned:* ${bannedUsers.size}\n` +
-      `👥 *Groups:* ${groupCount}\n` +
-      `🤖 *Mode:* ${mode.toUpperCase()}\n` +
-      `💾 *Memory:* ${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB\n` +
-      `⚡ *CPU Time:* ${(process.cpuUsage().user / 1_000_000).toFixed(2)}s\n` +
-      `🔧 *Node.js:* ${process.version}\n` +
-      `🤖 *Platform:* ${process.platform}\n` +
-      `📦 *PID:* ${process.pid}\n\n` +
-      `🔋 *Arc Reactor:* ██████████ 100%\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👑 *Admin:* @${userJid.split("@")[0]}\n` +
-      `⚡ AYOBOT v1 | Created by AYOCODES`,
+        `📨 *Messages:* ${messageCount}\n` +
+        `⚡ *Unique Users:* ${commandUsage.size}\n` +
+        `👤 *Authorized:* ${authorizedUsers.size}\n` +
+        `🚫 *Banned:* ${bannedUsers.size}\n` +
+        `👥 *Groups:* ${groupCount}\n` +
+        `🤖 *Mode:* ${mode.toUpperCase()}\n` +
+        `💾 *Memory:* ${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB / ${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB\n` +
+        `⚡ *CPU Time:* ${(process.cpuUsage().user / 1_000_000).toFixed(2)}s\n` +
+        `🔧 *Node.js:* ${process.version}\n` +
+        `🤖 *Platform:* ${process.platform}\n` +
+        `📦 *PID:* ${process.pid}\n\n` +
+        `🔋 *Arc Reactor:* ██████████ 100%`,
+    ),
     mentions: [userJid],
   });
 }
 
 // ============================================================================
-//  ADMIN EVAL — AYOCODES
+// ADMIN EVAL
 // ============================================================================
+
 export async function adminEval({ fullArgs, from, sock, isAdmin }) {
   if (!isAdmin) return;
 
@@ -700,26 +655,23 @@ export async function adminEval({ fullArgs, from, sock, isAdmin }) {
         : String(result ?? "undefined");
 
     await sock.sendMessage(from, {
-      text:
-        `╔══════════════════════════╗\n` +
-        `║     ⚡ *EVAL RESULT*      ║\n` +
-        `╚══════════════════════════╝\n\n` +
+      text: fmt(
+        "⚡",
+        "EVAL RESULT",
         `\`\`\`js\n${output.substring(0, 3500)}${output.length > 3500 ? "\n\n... (truncated)" : ""}\n\`\`\``,
+      ),
     });
   } catch (err) {
     await sock.sendMessage(from, {
-      text:
-        `╔══════════════════════════╗\n` +
-        `║     ❌ *EVAL ERROR*       ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `\`\`\`\n${err.message}\n\`\`\``,
+      text: fmt("❌", "EVAL ERROR", `\`\`\`\n${err.message}\n\`\`\``),
     });
   }
 }
 
 // ============================================================================
-//  DEFAULT EXPORT — AYOCODES
+// DEFAULT EXPORT
 // ============================================================================
+
 export default {
   addUser,
   removeUser,
