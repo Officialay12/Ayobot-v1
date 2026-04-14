@@ -2,7 +2,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  commands/group/downloader.js — AYOBOT v1.0.0
 //  Author  : AYOCODES
-//  Enhanced: All APIs updated, bugs fixed, robust fallbacks
+//  Fixed   : cobalt v2 API, updated all dead endpoints, TikTok/IG refreshed
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
@@ -16,7 +16,6 @@ import { formatError, formatInfo } from "../utils/formatters.js";
 //  SHARED UTILITIES
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Extract YouTube video ID from any YouTube URL format */
 function extractVideoId(url) {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
@@ -30,7 +29,6 @@ function extractVideoId(url) {
   return null;
 }
 
-/** Format seconds → H:MM:SS or M:SS */
 function formatDuration(secs) {
   const s = parseInt(secs) || 0;
   const h = Math.floor(s / 3600);
@@ -41,7 +39,6 @@ function formatDuration(secs) {
     : `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-/** Format large numbers → K/M/B */
 function formatNumber(n) {
   if (!n) return "N/A";
   const v = parseInt(n);
@@ -52,7 +49,6 @@ function formatNumber(n) {
   return v.toString();
 }
 
-/** Format byte size → KB/MB */
 function formatSize(bytes) {
   if (!bytes || bytes <= 0) return "Unknown";
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
@@ -60,7 +56,6 @@ function formatSize(bytes) {
   return `${bytes} B`;
 }
 
-/** Download URL to Buffer with retry logic */
 async function downloadBuffer(url, timeoutMs = 60_000, retries = 2) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -68,12 +63,14 @@ async function downloadBuffer(url, timeoutMs = 60_000, retries = 2) {
       const res = await axios.get(url, {
         responseType: "arraybuffer",
         timeout: timeoutMs,
-        maxContentLength: 150_000_000, // 150 MB max
+        maxContentLength: 150_000_000,
+        maxRedirects: 10,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           Accept: "*/*",
-          "Accept-Encoding": "gzip, deflate, br",
+          "Accept-Encoding": "identity",
+          Range: "bytes=0-",
         },
       });
       const buf = Buffer.from(res.data);
@@ -89,10 +86,6 @@ async function downloadBuffer(url, timeoutMs = 60_000, retries = 2) {
   throw lastErr;
 }
 
-/**
- * Try a list of async API functions in order.
- * Returns { result, source } on first success, or null.
- */
 async function tryApis(fns, labels) {
   for (let i = 0; i < fns.length; i++) {
     try {
@@ -108,7 +101,6 @@ async function tryApis(fns, labels) {
   return null;
 }
 
-/** Standard browser-like request headers */
 const BROWSER_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -122,10 +114,7 @@ const AYOBOT_TAG = "⚡ _AYOBOT v1 by AYOCODES_";
 
 // ════════════════════════════════════════════════════════════════════════════
 //  YOUTUBE SEARCH
-//  Updated Invidious instances + improved ytInitialData parsing
 // ════════════════════════════════════════════════════════════════════════════
-
-/** Currently active Invidious instances (updated list) */
 const INVIDIOUS_INSTANCES = [
   "https://invidious.privacydev.net",
   "https://inv.nadeko.net",
@@ -135,23 +124,21 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.flokinet.to",
   "https://yt.artemislena.eu",
   "https://invidious.protokolla.fi",
+  "https://yewtu.be",
+  "https://iv.datura.network",
 ];
 
 async function searchYouTube(query) {
-  // ── Method 1: Direct YouTube scrape (ytInitialData) ───────────────────────
+  // ── Method 1: Direct YouTube scrape ───────────────────────────────────────
   try {
     const res = await axios.get(
       `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%3D%3D`,
       {
-        headers: {
-          ...BROWSER_HEADERS,
-          "Accept-Language": "en-US,en;q=0.9",
-        },
+        headers: { ...BROWSER_HEADERS, "Accept-Language": "en-US,en;q=0.9" },
         timeout: 15_000,
       },
     );
 
-    // Try full ytInitialData parse
     const dataMatch = res.data.match(
       /var ytInitialData\s*=\s*(\{.+?\});<\/script>/s,
     );
@@ -188,7 +175,6 @@ async function searchYouTube(query) {
       } catch (_) {}
     }
 
-    // Fallback regex inside the YT page
     const vidMatch = res.data.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
     const titleMatch = res.data.match(
       /"title":\{"runs":\[\{"text":"([^"]+)"\}/,
@@ -211,7 +197,7 @@ async function searchYouTube(query) {
     console.log("YT direct scrape failed:", err.message);
   }
 
-  // ── Method 2: Invidious API (iterate until one works) ────────────────────
+  // ── Method 2: Invidious API ────────────────────────────────────────────────
   for (const instance of INVIDIOUS_INSTANCES) {
     try {
       const res = await axios.get(`${instance}/api/v1/search`, {
@@ -240,72 +226,68 @@ async function searchYouTube(query) {
     } catch (_) {}
   }
 
-  // ── Method 3: YouTube oEmbed (minimal metadata, last resort) ─────────────
-  try {
-    // Search via YouTube suggest API to get a video ID
-    const suggestRes = await axios.get(
-      `https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&q=${encodeURIComponent(query)}&ds=yt&callback=cb`,
-      { timeout: 8_000 },
-    );
-    // Can't get video ID from suggests, but it proves connectivity
-  } catch (_) {}
-
   return null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  YOUTUBE AUDIO DOWNLOAD
-//  Updated cobalt domain + working alternatives
+//  cobalt updated to v2 API format; dead services replaced
 // ════════════════════════════════════════════════════════════════════════════
 
 async function downloadYouTubeAudio(videoId, videoUrl) {
   const url = videoUrl || `https://www.youtube.com/watch?v=${videoId}`;
 
-  // ── M1: api.cobalt.tools (updated domain from co.wuk.sh) ─────────────────
+  // ── M1: cobalt.tools v2 API ───────────────────────────────────────────────
   try {
-    const res = await axios.post(
-      "https://api.cobalt.tools/api/json",
-      {
-        url,
-        isAudioOnly: true,
-        aFormat: "mp3",
-        filenamePattern: "basic",
-        isNoTTWatermark: true,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
+    // Try v2 format first
+    for (const [endpoint, body] of [
+      [
+        "https://api.cobalt.tools/",
+        {
+          url,
+          downloadMode: "audio",
+          audioFormat: "mp3",
+          audioBitrate: "320",
+          filenameStyle: "basic",
         },
-        timeout: 20_000,
-      },
-    );
-    if (res.data?.url) {
-      const buf = await downloadBuffer(res.data.url, 60_000);
-      if (buf.length > 10_000) return { buffer: buf, source: "cobalt" };
+      ],
+      [
+        "https://api.cobalt.tools/",
+        {
+          url,
+          isAudioOnly: true,
+          aFormat: "mp3",
+          filenamePattern: "basic",
+        },
+      ],
+    ]) {
+      try {
+        const res = await axios.post(endpoint, body, {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": "AYOBOT/1.0",
+          },
+          timeout: 25_000,
+        });
+        const dlUrl =
+          res.data?.url ||
+          res.data?.audio ||
+          (["stream", "redirect", "tunnel"].includes(res.data?.status)
+            ? res.data?.url
+            : null);
+        if (dlUrl) {
+          const buf = await downloadBuffer(dlUrl, 90_000);
+          if (buf.length > 10_000)
+            return { buffer: buf, source: "cobalt.tools" };
+        }
+      } catch (_) {}
     }
   } catch (err) {
     console.log("Audio M1 (cobalt) failed:", err.message);
   }
 
-  // ── M2: tomp3.cc (reliable, no scraping required) ─────────────────────────
-  try {
-    const res = await axios.get(
-      `https://tomp3.cc/api/widget/mp3?v=${videoId}`,
-      {
-        timeout: 20_000,
-        headers: { Accept: "application/json", ...BROWSER_HEADERS },
-      },
-    );
-    if (res.data?.url) {
-      const buf = await downloadBuffer(res.data.url, 60_000);
-      if (buf.length > 10_000) return { buffer: buf, source: "tomp3.cc" };
-    }
-  } catch (err) {
-    console.log("Audio M2 (tomp3) failed:", err.message);
-  }
-
-  // ── M3: y2mate.is (form-based, reliable) ─────────────────────────────────
+  // ── M2: y2mate.is ─────────────────────────────────────────────────────────
   try {
     const analyzeRes = await axios.post(
       "https://www.y2mate.com/mates/analyzeV2/ajax",
@@ -344,78 +326,41 @@ async function downloadYouTubeAudio(videoId, videoUrl) {
           },
         );
         if (convertRes.data?.dlink) {
-          const buf = await downloadBuffer(convertRes.data.dlink, 60_000);
+          const buf = await downloadBuffer(convertRes.data.dlink, 90_000);
           if (buf.length > 10_000) return { buffer: buf, source: "y2mate" };
         }
       }
     }
   } catch (err) {
-    console.log("Audio M3 (y2mate) failed:", err.message);
+    console.log("Audio M2 (y2mate) failed:", err.message);
   }
 
-  // ── M4: yt1s.com (fallback, form-based) ────────────────────────────────────
-  try {
-    const searchRes = await axios.post(
-      "https://yt1s.com/api/ajaxSearch/index",
-      new URLSearchParams({ q: url, vt: "home" }).toString(),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          ...BROWSER_HEADERS,
-        },
-        timeout: 15_000,
-      },
-    );
-    if (searchRes.data?.links?.mp3) {
-      const mp3Keys = Object.keys(searchRes.data.links.mp3);
-      const k = searchRes.data.links.mp3[mp3Keys[0]]?.k;
-      if (k) {
-        const convertRes = await axios.post(
-          "https://yt1s.com/api/ajaxConvert/convert",
-          new URLSearchParams({ vid: videoId, k }).toString(),
-          {
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              ...BROWSER_HEADERS,
-            },
-            timeout: 20_000,
-          },
-        );
-        if (convertRes.data?.dlink) {
-          const buf = await downloadBuffer(convertRes.data.dlink, 60_000);
-          if (buf.length > 10_000) return { buffer: buf, source: "yt1s" };
-        }
-      }
-    }
-  } catch (err) {
-    console.log("Audio M4 (yt1s) failed:", err.message);
-  }
-
-  // ── M5: loader.to with polling ────────────────────────────────────────────
+  // ── M3: loader.to with polling ────────────────────────────────────────────
   try {
     const initRes = await axios.get("https://loader.to/api/button/", {
       params: { url, f: "mp3" },
       timeout: 15_000,
     });
     if (initRes.data?.id) {
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 3_000));
         const pollRes = await axios.get(
           `https://loader.to/api/progress/?id=${initRes.data.id}`,
           { timeout: 8_000 },
         );
         if (pollRes.data?.download_url) {
-          const buf = await downloadBuffer(pollRes.data.download_url, 60_000);
+          const buf = await downloadBuffer(pollRes.data.download_url, 90_000);
           if (buf.length > 10_000) return { buffer: buf, source: "loader.to" };
           break;
         }
+        if (pollRes.data?.progress === 1000) break; // done but no URL
       }
     }
   } catch (err) {
-    console.log("Audio M5 (loader.to) failed:", err.message);
+    console.log("Audio M3 (loader.to) failed:", err.message);
   }
 
-  // ── M6: RapidAPI YouTube MP3 (optional env key) ───────────────────────────
+  // ── M4: RapidAPI YouTube MP3 (optional env key) ───────────────────────────
   if (ENV.RAPIDAPI_KEY) {
     try {
       const res = await axios.get("https://youtube-mp36.p.rapidapi.com/dl", {
@@ -424,15 +369,36 @@ async function downloadYouTubeAudio(videoId, videoUrl) {
           "X-RapidAPI-Key": ENV.RAPIDAPI_KEY,
           "X-RapidAPI-Host": "youtube-mp36.p.rapidapi.com",
         },
-        timeout: 15_000,
+        timeout: 20_000,
       });
       if (res.data?.link) {
-        const buf = await downloadBuffer(res.data.link, 60_000);
+        const buf = await downloadBuffer(res.data.link, 90_000);
         if (buf.length > 10_000) return { buffer: buf, source: "rapidapi" };
       }
     } catch (err) {
-      console.log("Audio M6 (rapidapi) failed:", err.message);
+      console.log("Audio M4 (rapidapi) failed:", err.message);
     }
+  }
+
+  // ── M5: Invidious adaptive audio stream ───────────────────────────────────
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const videoRes = await axios.get(
+        `${instance}/api/v1/videos/${videoId}?fields=adaptiveFormats`,
+        { timeout: 10_000 },
+      );
+      const formats = (videoRes.data?.adaptiveFormats || [])
+        .filter((f) => f.type?.startsWith("audio/"))
+        .sort(
+          (a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0),
+        );
+      const best = formats[0];
+      if (best?.url) {
+        const buf = await downloadBuffer(best.url, 90_000);
+        if (buf.length > 10_000)
+          return { buffer: buf, source: `invidious(${instance})` };
+      }
+    } catch (_) {}
   }
 
   return null;
@@ -456,7 +422,6 @@ export async function play({ fullArgs: query, from, sock }) {
   const q = query.trim();
   await sendMsg(sock, from, { text: `🔍 Searching for *${q}*...` });
 
-  // Resolve video info
   let videoInfo = null;
   if (q.includes("youtu")) {
     const id = extractVideoId(q);
@@ -483,7 +448,6 @@ export async function play({ fullArgs: query, from, sock }) {
     });
   }
 
-  // Show song info + thumbnail
   const infoCaption =
     `📀 *${videoInfo.title}*\n` +
     `🎤 ${videoInfo.author} | ⏱️ ${videoInfo.duration} | 👁️ ${videoInfo.views || "N/A"}\n\n` +
@@ -498,7 +462,6 @@ export async function play({ fullArgs: query, from, sock }) {
     await sendMsg(sock, from, { text: infoCaption });
   }
 
-  // Download audio
   const audio = await downloadYouTubeAudio(videoInfo.videoId, videoInfo.url);
 
   if (audio?.buffer) {
@@ -553,7 +516,6 @@ export async function youtube({ fullArgs: query, from, sock }) {
     });
   }
 
-  // Try Invidious instances for video metadata
   let videoData = null;
   for (const instance of INVIDIOUS_INSTANCES) {
     try {
@@ -568,7 +530,6 @@ export async function youtube({ fullArgs: query, from, sock }) {
     } catch (_) {}
   }
 
-  // Fallback: YouTube oEmbed for basic info
   if (!videoData) {
     try {
       const res = await axios.get(
@@ -585,7 +546,7 @@ export async function youtube({ fullArgs: query, from, sock }) {
           lengthSeconds: 0,
           viewCount: 0,
           likeCount: 0,
-          description: "No description available via this source.",
+          description: "No description available.",
           keywords: [],
           genre: "N/A",
           published: null,
@@ -683,62 +644,29 @@ export async function tiktok({ fullArgs: query, from, sock }) {
           music: d.music_info?.title,
         };
       },
-      // ── API 2: snaptik.app (scrape-based fallback) ───────────────────
+      // ── API 2: tiktok.com rapid downloader via musicaldown ────────────
       async () => {
-        const pageRes = await axios.get("https://snaptik.app/", {
-          headers: BROWSER_HEADERS,
-          timeout: 10_000,
-        });
-        const tokenMatch = pageRes.data?.match(
-          /name="token"\s+value="([^"]+)"/,
-        );
-        if (!tokenMatch) throw new Error("No token");
-        const dlRes = await axios.post(
-          "https://snaptik.app/abc2.php",
-          new URLSearchParams({ url, token: tokenMatch[1] }).toString(),
+        const res = await axios.post(
+          "https://musicaldown.com/download",
+          new URLSearchParams({ link: url }).toString(),
           {
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
-              Referer: "https://snaptik.app/",
+              Referer: "https://musicaldown.com/",
               ...BROWSER_HEADERS,
             },
             timeout: 15_000,
           },
         );
-        // Extract MP4 link from response HTML/JSON
-        const mp4Match =
-          dlRes.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/) ||
-          dlRes.data?.match(/"url":"(https:[^"]+\.mp4[^"]*)"/);
+        const mp4Match = res.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/);
         if (!mp4Match) throw new Error("No mp4");
-        const videoUrl = mp4Match[1].replace(/\\u0026/g, "&");
         return {
-          videoUrl,
+          videoUrl: mp4Match[1],
           author: "TikTok User",
           title: "TikTok Video",
-          thumbnail: null,
         };
       },
-      // ── API 3: tikcdn.io (alternative CDN approach) ───────────────────
-      async () => {
-        const res = await axios.get(
-          `https://api.tikcdn.io/ssstik/${encodeURIComponent(url)}`,
-          {
-            headers: { Accept: "application/json", ...BROWSER_HEADERS },
-            timeout: 15_000,
-          },
-        );
-        if (!res.data?.video) throw new Error("No video");
-        return {
-          videoUrl: res.data.video,
-          author: res.data.author?.name || "TikTok User",
-          title: res.data.title || "TikTok Video",
-          thumbnail: res.data.cover || null,
-          duration: res.data.duration
-            ? formatDuration(res.data.duration)
-            : "Unknown",
-        };
-      },
-      // ── API 4: ssstik.io (token-based) ────────────────────────────────
+      // ── API 3: ssstik.io ───────────────────────────────────────────────
       async () => {
         const homeRes = await axios.get("https://ssstik.io/en", {
           headers: BROWSER_HEADERS,
@@ -768,30 +696,57 @@ export async function tiktok({ fullArgs: query, from, sock }) {
           thumbnail: thumbMatch?.[1],
         };
       },
-      // ── API 5: musicaldown.com ─────────────────────────────────────────
+      // ── API 4: snaptik.app ────────────────────────────────────────────
       async () => {
-        const res = await axios.post(
-          "https://musicaldown.com/download",
-          new URLSearchParams({ link: url }).toString(),
+        const pageRes = await axios.get("https://snaptik.app/", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const tokenMatch = pageRes.data?.match(
+          /name="token"\s+value="([^"]+)"/,
+        );
+        if (!tokenMatch) throw new Error("No token");
+        const dlRes = await axios.post(
+          "https://snaptik.app/abc2.php",
+          new URLSearchParams({ url, token: tokenMatch[1] }).toString(),
           {
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
-              Referer: "https://musicaldown.com/",
+              Referer: "https://snaptik.app/",
               ...BROWSER_HEADERS,
             },
             timeout: 15_000,
           },
         );
-        const mp4Match = res.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/);
+        const mp4Match =
+          dlRes.data?.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/) ||
+          dlRes.data?.match(/"url":"(https:[^"]+\.mp4[^"]*)"/);
         if (!mp4Match) throw new Error("No mp4");
         return {
-          videoUrl: mp4Match[1],
+          videoUrl: mp4Match[1].replace(/\\u0026/g, "&"),
           author: "TikTok User",
           title: "TikTok Video",
         };
       },
+      // ── API 5: cobalt.tools ───────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://api.cobalt.tools/",
+          { url, downloadMode: "auto" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            timeout: 15_000,
+          },
+        );
+        const videoUrl = res.data?.url;
+        if (!videoUrl) throw new Error("No URL from cobalt");
+        return { videoUrl, author: "TikTok User", title: "TikTok Video" };
+      },
     ],
-    ["tikwm", "snaptik", "tikcdn", "ssstik", "musicaldown"],
+    ["tikwm", "musicaldown", "ssstik", "snaptik", "cobalt"],
   );
 
   if (!result) {
@@ -818,7 +773,7 @@ export async function tiktok({ fullArgs: query, from, sock }) {
   }
 
   try {
-    const buf = await downloadBuffer(info.videoUrl, 60_000);
+    const buf = await downloadBuffer(info.videoUrl, 90_000);
     let caption = `📱 *${info.title}*\n👤 ${info.author}`;
     if (info.duration) caption += ` | ⏱️ ${info.duration}`;
     if (info.likes) caption += `\n❤️ ${info.likes}`;
@@ -853,7 +808,50 @@ export async function instagram({ fullArgs: query, from, sock }) {
 
   const result = await tryApis(
     [
-      // ── API 1: igram.world (JSON API) ─────────────────────────────────
+      // ── API 1: snapinsta.app (most reliable scrape) ───────────────────
+      async () => {
+        const pageRes = await axios.get("https://snapinsta.app/en", {
+          headers: BROWSER_HEADERS,
+          timeout: 10_000,
+        });
+        const tokenMatch = pageRes.data?.match(
+          /name="_token"\s+value="([^"]+)"/,
+        );
+        const dlRes = await axios.post(
+          "https://snapinsta.app/api",
+          new URLSearchParams({
+            url,
+            lang: "en",
+            _token: tokenMatch?.[1] || "",
+          }).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Referer: "https://snapinsta.app/en",
+              ...BROWSER_HEADERS,
+            },
+            timeout: 15_000,
+          },
+        );
+        const mp4 = (typeof dlRes.data === "string" ? dlRes.data : "").match(
+          /href="(https?:\/\/[^"]+\.mp4[^"]*)"/,
+        );
+        const img = (typeof dlRes.data === "string" ? dlRes.data : "").match(
+          /src="(https?:\/\/[^"]+\.jpg[^"]*)"/,
+        );
+        if (mp4) return { type: "video", url: mp4[1] };
+        if (img) return { type: "image", url: img[1] };
+        // Check JSON response
+        const data = typeof dlRes.data === "object" ? dlRes.data : null;
+        const item = data?.data?.[0] || data?.[0];
+        if (item?.url)
+          return {
+            type: item.type === "video" ? "video" : "image",
+            url: item.url,
+          };
+        throw new Error("No media");
+      },
+      // ── API 2: igram.world ────────────────────────────────────────────
       async () => {
         const res = await axios.post(
           "https://igram.world/api/convert",
@@ -868,25 +866,6 @@ export async function instagram({ fullArgs: query, from, sock }) {
         return {
           type: item.type === "video" ? "video" : "image",
           url: item.url,
-          thumbnail: item.thumbnail || null,
-        };
-      },
-      // ── API 2: instasave.org ──────────────────────────────────────────
-      async () => {
-        const res = await axios.post(
-          "https://instasave.org/wp-json/instasave/v1/download",
-          { url },
-          {
-            headers: { "Content-Type": "application/json", ...BROWSER_HEADERS },
-            timeout: 15_000,
-          },
-        );
-        const media = res.data?.data?.medias?.[0];
-        if (!media?.url) throw new Error("No media");
-        return {
-          type: media.type === "video" ? "video" : "image",
-          url: media.url,
-          thumbnail: res.data?.data?.thumbnail || null,
         };
       },
       // ── API 3: reelsaver.net ───────────────────────────────────────────
@@ -917,7 +896,23 @@ export async function instagram({ fullArgs: query, from, sock }) {
         if (img) return { type: "image", url: img[1] };
         throw new Error("No media");
       },
-      // ── API 4: saveig.app ─────────────────────────────────────────────
+      // ── API 4: cobalt.tools ───────────────────────────────────────────
+      async () => {
+        const res = await axios.post(
+          "https://api.cobalt.tools/",
+          { url, downloadMode: "auto" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            timeout: 15_000,
+          },
+        );
+        if (!res.data?.url) throw new Error("No URL");
+        return { type: "video", url: res.data.url };
+      },
+      // ── API 5: saveig.app ─────────────────────────────────────────────
       async () => {
         const pageRes = await axios.get("https://saveig.app/en", {
           headers: BROWSER_HEADERS,
@@ -953,33 +948,8 @@ export async function instagram({ fullArgs: query, from, sock }) {
         if (img) return { type: "image", url: img[1] };
         throw new Error("No media");
       },
-      // ── API 5: snapinsta.app ──────────────────────────────────────────
-      async () => {
-        const res = await axios.post(
-          "https://snapinsta.app/api",
-          new URLSearchParams({ url }).toString(),
-          {
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              ...BROWSER_HEADERS,
-            },
-            timeout: 15_000,
-          },
-        );
-        const mp4 = res.data?.match(/href="(https?:\/\/[^"]+\.mp4[^"]*)"/);
-        const img = res.data?.match(/src="(https?:\/\/[^"]+\.jpg[^"]*)"/);
-        if (mp4) return { type: "video", url: mp4[1] };
-        if (img) return { type: "image", url: img[1] };
-        throw new Error("No media");
-      },
     ],
-    [
-      "igram.world",
-      "instasave.org",
-      "reelsaver.net",
-      "saveig.app",
-      "snapinsta.app",
-    ],
+    ["snapinsta", "igram.world", "reelsaver.net", "cobalt.tools", "saveig.app"],
   );
 
   if (!result) {
@@ -994,7 +964,7 @@ export async function instagram({ fullArgs: query, from, sock }) {
   const { result: info, source } = result;
 
   try {
-    const buf = await downloadBuffer(info.url, 60_000);
+    const buf = await downloadBuffer(info.url, 90_000);
     const caption = `📸 *Instagram Media*\n📦 ${formatSize(buf.length)} | 🔧 ${source}\n\n${AYOBOT_TAG}`;
     if (info.type === "video") {
       await sendMsg(sock, from, { video: buf, caption });
@@ -1027,11 +997,11 @@ export async function facebook({ fullArgs: query, from, sock }) {
 
   const result = await tryApis(
     [
-      // ── API 1: api.cobalt.tools (updated domain) ──────────────────────
+      // ── API 1: cobalt.tools v2 ────────────────────────────────────────
       async () => {
         const res = await axios.post(
-          "https://api.cobalt.tools/api/json",
-          { url },
+          "https://api.cobalt.tools/",
+          { url, downloadMode: "auto" },
           {
             headers: {
               "Content-Type": "application/json",
@@ -1143,16 +1113,14 @@ export async function twitter({ fullArgs: query, from, sock }) {
 
   const result = await tryApis(
     [
-      // ── API 1: fxtwitter JSON API (most reliable — no scraping needed) ──
+      // ── API 1: fxtwitter JSON API ──────────────────────────────────────
       async () => {
-        // Convert twitter.com/x.com URL to fxtwitter API format
         const tweetId = url.match(/\/status\/(\d+)/)?.[1];
         if (!tweetId) throw new Error("No tweet ID");
         const res = await axios.get(
           `https://api.fxtwitter.com/status/${tweetId}`,
           { headers: { Accept: "application/json" }, timeout: 15_000 },
         );
-        // Find highest quality video variant
         const variants = res.data?.tweet?.media?.videos?.[0]?.variants || [];
         const mp4s = variants.filter(
           (v) => v.content_type === "video/mp4" || v.url?.includes(".mp4"),
@@ -1162,21 +1130,23 @@ export async function twitter({ fullArgs: query, from, sock }) {
         if (!videoUrl) throw new Error("No video in tweet");
         return { videoUrl };
       },
-      // ── API 2: vxtwitter (alternative JSON endpoint) ──────────────────
+      // ── API 2: cobalt.tools ───────────────────────────────────────────
       async () => {
-        const tweetId = url.match(/\/status\/(\d+)/)?.[1];
-        if (!tweetId) throw new Error("No tweet ID");
-        const fixedUrl = url.replace(/(twitter|x)\.com/, "vxtwitter.com");
-        const res = await axios.get(fixedUrl, {
-          headers: { Accept: "application/json", ...BROWSER_HEADERS },
-          timeout: 15_000,
-        });
-        // vxtwitter redirects to OGP page; extract video URL
-        const mp4 = res.data?.match(/content="(https?:\/\/[^"]+\.mp4[^"]*)"/);
-        if (!mp4) throw new Error("No video");
-        return { videoUrl: mp4[1] };
+        const res = await axios.post(
+          "https://api.cobalt.tools/",
+          { url, downloadMode: "auto" },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            timeout: 15_000,
+          },
+        );
+        if (!res.data?.url) throw new Error("No URL");
+        return { videoUrl: res.data.url };
       },
-      // ── API 3: twitsave.com (scrape-based) ───────────────────────────
+      // ── API 3: twitsave.com ───────────────────────────────────────────
       async () => {
         const res = await axios.get("https://twitsave.com/info", {
           params: { url },
@@ -1189,21 +1159,18 @@ export async function twitter({ fullArgs: query, from, sock }) {
         if (!matches.length) throw new Error("No video");
         return { videoUrl: matches[0][1] };
       },
-      // ── API 4: api.cobalt.tools ───────────────────────────────────────
+      // ── API 4: vxtwitter ──────────────────────────────────────────────
       async () => {
-        const res = await axios.post(
-          "https://api.cobalt.tools/api/json",
-          { url },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            timeout: 15_000,
-          },
-        );
-        if (!res.data?.url) throw new Error("No URL");
-        return { videoUrl: res.data.url };
+        const tweetId = url.match(/\/status\/(\d+)/)?.[1];
+        if (!tweetId) throw new Error("No tweet ID");
+        const vxUrl = url.replace(/(twitter|x)\.com/, "vxtwitter.com");
+        const res = await axios.get(vxUrl, {
+          headers: { Accept: "application/json", ...BROWSER_HEADERS },
+          timeout: 15_000,
+        });
+        const mp4 = res.data?.match(/content="(https?:\/\/[^"]+\.mp4[^"]*)"/);
+        if (!mp4) throw new Error("No video");
+        return { videoUrl: mp4[1] };
       },
       // ── API 5: twittervideodownloader.com ────────────────────────────
       async () => {
@@ -1225,9 +1192,9 @@ export async function twitter({ fullArgs: query, from, sock }) {
     ],
     [
       "fxtwitter",
-      "vxtwitter",
-      "twitsave",
       "cobalt.tools",
+      "twitsave",
+      "vxtwitter",
       "twittervideodownloader",
     ],
   );
@@ -1265,7 +1232,7 @@ export async function spotify({ fullArgs: query, from, sock }) {
     return sendMsg(sock, from, {
       text: formatInfo(
         "🎵 SPOTIFY",
-        "Get Spotify track info + audio preview\n\nUsage: .spotify <url or track name>\n\nExamples:\n.spotify https://open.spotify.com/track/xxxxx\n.spotify Blinding Lights",
+        "Get Spotify track info + audio\n\nUsage: .spotify <url or track name>\n\nExamples:\n.spotify https://open.spotify.com/track/xxxxx\n.spotify Blinding Lights",
       ),
     });
   }
@@ -1274,7 +1241,7 @@ export async function spotify({ fullArgs: query, from, sock }) {
   const q = query.trim();
   let trackInfo = null;
 
-  // ── Source 1: JioSaavn API (best audio + metadata) ────────────────────
+  // ── Source 1: JioSaavn (full song audio + metadata) ───────────────────
   try {
     const res = await axios.get(
       `https://saavn.dev/api/search/songs?query=${encodeURIComponent(q)}&page=1&limit=1`,
@@ -1282,14 +1249,14 @@ export async function spotify({ fullArgs: query, from, sock }) {
     );
     const track = res.data?.data?.results?.[0];
     if (track) {
+      const downloadUrls = track.downloadUrl || [];
+      const audioUrl =
+        downloadUrls.find((d) => d.quality === "320kbps")?.url ||
+        downloadUrls.find((d) => d.quality === "160kbps")?.url ||
+        downloadUrls[downloadUrls.length - 1]?.url;
       const thumb =
         track.image?.find((i) => i.quality === "500x500")?.url ||
-        track.image?.find((i) => i.quality === "150x150")?.url ||
-        track.image?.[0]?.url;
-      const audioUrl =
-        track.downloadUrl?.find((d) => d.quality === "320kbps")?.url ||
-        track.downloadUrl?.find((d) => d.quality === "160kbps")?.url ||
-        track.downloadUrl?.[0]?.url;
+        track.image?.[track.image.length - 1]?.url;
       trackInfo = {
         title: track.name,
         artist:
@@ -1308,14 +1275,14 @@ export async function spotify({ fullArgs: query, from, sock }) {
     console.log("Saavn failed:", err.message);
   }
 
-  // ── Source 2: Spotify oEmbed metadata (if URL given) ──────────────────
+  // ── Source 2: Spotify oEmbed (metadata only if URL given) ────────────
   if (!trackInfo && q.includes("spotify.com/track/")) {
     try {
       const res = await axios.get(
         `https://open.spotify.com/oembed?url=${encodeURIComponent(q)}`,
         { timeout: 15_000 },
       );
-      if (res.data) {
+      if (res.data?.title) {
         trackInfo = {
           title: res.data.title,
           artist: res.data.author_name,
@@ -1338,7 +1305,6 @@ export async function spotify({ fullArgs: query, from, sock }) {
     });
   }
 
-  // Send thumbnail
   if (trackInfo.thumbnail) {
     try {
       const caption =
@@ -1367,10 +1333,9 @@ export async function spotify({ fullArgs: query, from, sock }) {
       `\n\n🔗 ${trackInfo.url}\n🔧 ${trackInfo.source}\n\n${AYOBOT_TAG}`,
   });
 
-  // Send audio if available
   if (trackInfo.audioUrl) {
     try {
-      const buf = await downloadBuffer(trackInfo.audioUrl, 60_000);
+      const buf = await downloadBuffer(trackInfo.audioUrl, 90_000);
       await sendMsg(sock, from, {
         audio: buf,
         mimetype: "audio/mpeg",
@@ -1473,7 +1438,6 @@ export async function image({ fullArgs: query, from, sock }) {
   let imageUrl = null;
   let source = "";
 
-  // ── Source 1: Pixabay (if key set) ────────────────────────────────────
   if (ENV.PIXABAY_KEY && !imageUrl) {
     try {
       const res = await axios.get("https://pixabay.com/api/", {
@@ -1496,7 +1460,6 @@ export async function image({ fullArgs: query, from, sock }) {
     }
   }
 
-  // ── Source 2: Unsplash (if key set) ───────────────────────────────────
   if (ENV.UNSPLASH_KEY && !imageUrl) {
     try {
       const res = await axios.get("https://api.unsplash.com/search/photos", {
@@ -1515,7 +1478,6 @@ export async function image({ fullArgs: query, from, sock }) {
     }
   }
 
-  // ── Source 3: DuckDuckGo Images (free, no key) ────────────────────────
   if (!imageUrl) {
     try {
       const tokenRes = await axios.get(
@@ -1557,7 +1519,6 @@ export async function image({ fullArgs: query, from, sock }) {
 }
 
 // ── GIF SEARCH ────────────────────────────────────────────────────────────
-// FIX: Variable shadowing bug — `t` (Buffer) shadowed the `query` string
 export async function gif({ fullArgs: query, from, sock }) {
   if (!query) {
     return sendMsg(sock, from, {
@@ -1573,7 +1534,6 @@ export async function gif({ fullArgs: query, from, sock }) {
   let gifUrl = null;
   let gifTitle = null;
 
-  // ── Source 1: GIPHY (if key set) ──────────────────────────────────────
   if (ENV.GIPHY_KEY) {
     try {
       const res = await axios.get("https://api.giphy.com/v1/gifs/search", {
@@ -1591,7 +1551,6 @@ export async function gif({ fullArgs: query, from, sock }) {
     }
   }
 
-  // ── Source 2: Tenor (if key set) ─────────────────────────────────────
   if (!gifUrl && ENV.TENOR_KEY) {
     try {
       const res = await axios.get("https://tenor.googleapis.com/v2/search", {
@@ -1624,7 +1583,6 @@ export async function gif({ fullArgs: query, from, sock }) {
   }
 
   try {
-    // ✅ FIX: Use `query` (the search term) in caption, NOT the buffer variable
     const caption =
       `🎞️ *${query}*` +
       (gifTitle ? `\n📝 ${gifTitle}` : "") +
@@ -1661,7 +1619,6 @@ export async function download({ fullArgs: query, from, sock }) {
   let url = query.trim();
   if (!url.startsWith("http")) url = "https://" + url;
 
-  // Route by platform
   if (url.includes("youtube.com") || url.includes("youtu.be"))
     return play({ fullArgs: url, from, sock });
   if (url.includes("tiktok.com")) return tiktok({ fullArgs: url, from, sock });
@@ -1676,7 +1633,7 @@ export async function download({ fullArgs: query, from, sock }) {
   if (url.includes("pinterest.com"))
     return pinterest({ fullArgs: url, from, sock });
 
-  // ── Direct file URL (image/video/audio/doc) ────────────────────────────
+  // ── Direct file URL ────────────────────────────────────────────────────
   const extMatch = url.match(
     /\.(jpg|jpeg|png|gif|mp4|mp3|pdf|docx?|webp|avi|mov|mkv|wav|ogg|m4a|zip|rar)(\?.*)?$/i,
   );

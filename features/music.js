@@ -1,4 +1,4 @@
-// features/music.js — AYOBOT v1.0.0 (COMPLETE FIX)
+// features/music.js — AYOBOT v1.0.0 (FULL FIX)
 // ════════════════════════════════════════════════════════════════════════════
 
 import axios from "axios";
@@ -26,6 +26,8 @@ const INVIDIOUS_INSTANCES = [
   "https://invidious.fdn.fr",
   "https://iv.datura.network",
   "https://yewtu.be",
+  "https://invidious.lunar.icu",
+  "https://yt.artemislena.eu",
 ];
 
 const PIPED_INSTANCES = [
@@ -39,8 +41,10 @@ const PIPED_INSTANCES = [
 function fmtDur(secs) {
   if (!secs || isNaN(parseInt(secs))) return "N/A";
   const t = parseInt(secs);
-  const m = Math.floor(t / 60);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
   const s = (t % 60).toString().padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${s}`;
   return `${m}:${s}`;
 }
 
@@ -55,39 +59,28 @@ function fmtSize(bytes) {
  * Parses a query like:
  *   "Wildflower by Billie Eilish"  → { title: "Wildflower", artist: "Billie Eilish" }
  *   "Shape of You - Ed Sheeran"   → { title: "Shape of You", artist: "Ed Sheeran" }
- *   "Wildflower Billie Eilish"    → { title: "Wildflower Billie Eilish", artist: null }
  */
 function parseQuery(input) {
   if (!input) return { title: "", artist: null };
   const q = input.trim();
-
-  // "song by artist"
   const byMatch = q.match(/^(.+?)\s+by\s+(.+)$/i);
   if (byMatch) return { title: byMatch[1].trim(), artist: byMatch[2].trim() };
-
-  // "song - artist" / "song – artist" / "song — artist"
   const dashMatch = q.match(/^(.+?)\s*[-–—]\s*(.+)$/);
   if (dashMatch)
     return { title: dashMatch[1].trim(), artist: dashMatch[2].trim() };
-
   return { title: q, artist: null };
 }
 
-/**
- * Build a deduplicated list of search queries to try.
- */
 function buildSearchQueries(raw) {
   const { title, artist } = parseQuery(raw);
   const candidates = artist
     ? [
-        `${title} ${artist}`, // "Wildflower Billie Eilish" ← best for YT
+        `${title} ${artist}`,
         `${title} ${artist} official audio`,
         `${artist} ${title}`,
-        raw, // original untouched input
+        raw,
       ]
     : [raw, `${raw} official audio`, `${raw} lyrics`];
-
-  // Deduplicate while preserving order
   return [...new Map(candidates.map((q) => [q.toLowerCase(), q])).values()];
 }
 
@@ -125,7 +118,7 @@ async function downloadBuffer(url, timeoutMs = 90000) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 1 — Piped
+//  SOURCE 1 — Piped  (FULL song via YouTube stream)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchPiped(query) {
   for (const instance of PIPED_INSTANCES) {
@@ -179,7 +172,7 @@ async function searchPiped(query) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 2 — Invidious
+//  SOURCE 2 — Invidious  (FULL song via YouTube stream)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchInvidious(query) {
   for (const instance of INVIDIOUS_INSTANCES) {
@@ -241,9 +234,6 @@ async function searchInvidious(query) {
   return null;
 }
 
-/**
- * Re-fetches a fresh Invidious audio URL right before downloading.
- */
 async function refreshInvidiousUrl(videoId, instance) {
   try {
     const videoRes = await http.get(
@@ -260,37 +250,58 @@ async function refreshInvidiousUrl(videoId, instance) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 3 — cobalt.tools
+//  SOURCE 3 — cobalt.tools  (FULL song, updated API v2)
 // ════════════════════════════════════════════════════════════════════════════
 async function getCobaltAudioUrl(videoId) {
+  // cobalt API v2 — current endpoint as of 2024
+  const endpoints = [
+    "https://api.cobalt.tools/",
+    "https://co.wuk.sh/api/json", // legacy fallback
+  ];
+
   const bodies = [
-    {
-      url: `https://www.youtube.com/watch?v=${videoId}`,
-      isAudioOnly: true,
-      aFormat: "mp3",
-    },
+    // v2 format
     {
       url: `https://www.youtube.com/watch?v=${videoId}`,
       downloadMode: "audio",
       audioFormat: "mp3",
-      audioBitrate: "128",
+      audioBitrate: "320",
+    },
+    // v1 format (legacy)
+    {
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      isAudioOnly: true,
+      aFormat: "mp3",
+      filenamePattern: "basic",
     },
   ];
 
-  for (const body of bodies) {
-    try {
-      const res = await axios.post("https://api.cobalt.tools/", body, {
-        timeout: 20000,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "User-Agent": "AYOBOT/1.0",
-        },
-      });
-      const url = res.data?.url || res.data?.audio;
-      if (url) return url;
-    } catch (err) {
-      console.log(`[cobalt] body variant failed: ${err.message}`);
+  for (const endpoint of endpoints) {
+    for (const body of bodies) {
+      try {
+        const res = await axios.post(endpoint, body, {
+          timeout: 25000,
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": "AYOBOT/1.0",
+          },
+        });
+        // v2 response
+        const url =
+          res.data?.url ||
+          res.data?.audio ||
+          res.data?.urls?.[0] ||
+          (res.data?.status === "stream" ? res.data?.url : null) ||
+          (res.data?.status === "redirect" ? res.data?.url : null) ||
+          (res.data?.status === "tunnel" ? res.data?.url : null);
+        if (url) {
+          console.log(`[cobalt] Got URL from ${endpoint}`);
+          return url;
+        }
+      } catch (err) {
+        console.log(`[cobalt] ${endpoint} body variant failed: ${err.message}`);
+      }
     }
   }
   return null;
@@ -351,7 +362,7 @@ async function searchCobalt(query) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 4 — JioSaavn via saavn.dev
+//  SOURCE 4 — JioSaavn  (FULL song, legal Bollywood/pop library)
 // ════════════════════════════════════════════════════════════════════════════
 async function searchJioSaavn(query) {
   try {
@@ -365,9 +376,11 @@ async function searchJioSaavn(query) {
 
     const track = results[0];
     const downloadUrls = track.downloadUrl || [];
+    // Always pick highest quality — 320kbps = FULL song
     const best =
       downloadUrls.find((d) => d.quality === "320kbps") ||
       downloadUrls.find((d) => d.quality === "160kbps") ||
+      downloadUrls.find((d) => d.quality === "96kbps") ||
       downloadUrls[downloadUrls.length - 1];
 
     if (!best?.url) return null;
@@ -386,7 +399,7 @@ async function searchJioSaavn(query) {
         null,
       audioUrl: best.url,
       source: "JioSaavn",
-      isPreview: false,
+      isPreview: false, // JioSaavn always returns full song
       year: track.year || null,
     };
   } catch (err) {
@@ -396,30 +409,28 @@ async function searchJioSaavn(query) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SOURCE 5 — Deezer
+//  SOURCE 5 — Deezer  (METADATA ONLY — no audio, 30s preview removed)
+//  Used only for .musicsearch, .trending, .artist, .album, .random
 // ════════════════════════════════════════════════════════════════════════════
-async function searchDeezer(query) {
+async function getDeezerMeta(query) {
   try {
-    console.log(`[Deezer] "${query}"`);
     const res = await http.get(
       `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
       { timeout: 10000 },
     );
     const track = res.data?.data?.[0];
-    if (!track?.preview) return null;
-
+    if (!track) return null;
+    // Return metadata ONLY — no audioUrl so it never gets used as audio source
     return {
       title: track.title,
       artist: track.artist?.name,
       album: track.album?.title,
       duration: track.duration,
       thumbnail: track.album?.cover_xl,
-      audioUrl: track.preview,
-      source: "Deezer",
-      isPreview: true,
       year: track.release_date
         ? new Date(track.release_date).getFullYear()
         : null,
+      deezerId: track.id,
     };
   } catch (err) {
     console.log(`[Deezer] ${err.message}`);
@@ -428,7 +439,7 @@ async function searchDeezer(query) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MASTER SEARCH
+//  MASTER SEARCH  — FULL songs only, Deezer never used as audio source
 // ════════════════════════════════════════════════════════════════════════════
 async function findSong(rawQuery) {
   const queries = buildSearchQueries(rawQuery);
@@ -436,16 +447,15 @@ async function findSong(rawQuery) {
 
   for (const q of queries) {
     for (const [name, fn] of [
+      ["JioSaavn", () => searchJioSaavn(q)], // Best for non-English too
       ["Piped", () => searchPiped(q)],
       ["Invidious", () => searchInvidious(q)],
       ["cobalt", () => searchCobalt(q)],
-      ["JioSaavn", () => searchJioSaavn(q)],
-      ["Deezer", () => searchDeezer(q)],
     ]) {
       try {
         const result = await fn();
-        if (result?.audioUrl) {
-          console.log(`[findSong] ✓ ${name} matched "${q}"`);
+        if (result?.audioUrl && !result.isPreview) {
+          console.log(`[findSong] ✓ ${name} matched "${q}" — FULL song`);
           return result;
         }
       } catch (err) {
@@ -548,8 +558,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
     (durationStr ? `⏱️ *Duration:* ${durationStr}\n` : "") +
     (songInfo.year ? `📅 *Year:* ${songInfo.year}\n` : "") +
     `📡 *Source:* ${songInfo.source}\n` +
-    (songInfo.isPreview ? `⚠️ *Preview only (30s)*\n` : "") +
-    `\n⬇️ _Downloading audio..._`;
+    `\n⬇️ _Downloading full audio..._`;
 
   if (songInfo.thumbnail) {
     try {
@@ -590,7 +599,6 @@ export async function musicDownload({ fullArgs, from, sock }) {
         `🎵 *${songInfo.title}*\n` +
         `👤 ${songInfo.artist}\n` +
         `📦 ${fmtSize(audioBuffer.length)}\n` +
-        (songInfo.isPreview ? `⚠️ _Preview only (30 seconds)_\n` : "") +
         `\n${TAG}`,
     });
   } catch (sendErr) {
@@ -606,7 +614,7 @@ export async function musicDownload({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  .lyrics COMMAND
+//  .lyrics COMMAND  — Fixed API call format
 // ════════════════════════════════════════════════════════════════════════════
 export async function musicLyrics({ fullArgs, from, sock }) {
   if (!fullArgs?.trim()) {
@@ -616,8 +624,8 @@ export async function musicLyrics({ fullArgs, from, sock }) {
         `Usage: *${ENV.PREFIX}lyrics <song name>*\n\n` +
           `Examples:\n` +
           `• ${ENV.PREFIX}lyrics Lose Yourself\n` +
-          `• ${ENV.PREFIX}lyrics Shape of You\n` +
-          `• ${ENV.PREFIX}lyrics Billie Eilish Wildflower`,
+          `• ${ENV.PREFIX}lyrics Eminem Lose Yourself\n` +
+          `• ${ENV.PREFIX}lyrics Shape of You Ed Sheeran`,
       ),
     });
   }
@@ -626,37 +634,87 @@ export async function musicLyrics({ fullArgs, from, sock }) {
     text: `🔍 *Searching lyrics for:* "${fullArgs.trim()}"\n⏳ _Please wait..._`,
   });
 
+  const query = fullArgs.trim();
+  let lyrics = null;
+  let songTitle = query;
+
+  // ── Source 1: lyrics.ovh — correct API format: /v1/artist/title ──────────
   try {
-    const query = encodeURIComponent(fullArgs.trim());
-    const response = await axios.get(
-      `https://api.lyrics.ovh/v1/${query.replace(/ /g, "%20")}`,
-      { timeout: 10000 },
-    );
-
-    if (!response.data?.lyrics) {
-      throw new Error("No lyrics found");
+    // Try to split "Title Artist" into artist + title
+    const parts = query.split(" ");
+    // Try first word as artist (common format), rest as title
+    for (let split = 1; split < Math.min(parts.length, 4); split++) {
+      const artist = parts.slice(0, split).join(" ");
+      const title = parts.slice(split).join(" ");
+      try {
+        const res = await axios.get(
+          `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`,
+          { timeout: 10000 },
+        );
+        if (res.data?.lyrics) {
+          lyrics = res.data.lyrics;
+          songTitle = `${title} — ${artist}`;
+          break;
+        }
+      } catch (_) {}
     }
-
-    let lyrics = response.data.lyrics;
-    if (lyrics.length > 4000) {
-      lyrics = lyrics.substring(0, 3900) + "\n\n... (truncated)";
+    // Fallback: treat whole query as title, "Unknown" as artist
+    if (!lyrics) {
+      const res = await axios.get(
+        `https://api.lyrics.ovh/v1/${encodeURIComponent("Unknown")}/${encodeURIComponent(query)}`,
+        { timeout: 10000 },
+      );
+      if (res.data?.lyrics) lyrics = res.data.lyrics;
     }
+  } catch (_) {}
 
-    await sock.sendMessage(from, {
-      text: `🎵 *${fullArgs.trim()}*\n\n${lyrics}\n\n${TAG}`,
-    });
-  } catch (error) {
+  // ── Source 2: Deezer lyrics endpoint ─────────────────────────────────────
+  if (!lyrics) {
+    try {
+      const searchRes = await axios.get(
+        `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`,
+        { timeout: 8000 },
+      );
+      const track = searchRes.data?.data?.[0];
+      if (track) songTitle = `${track.title} — ${track.artist?.name}`;
+    } catch (_) {}
+  }
+
+  // ── Source 3: lrclib.net (has synced + plain lyrics) ──────────────────────
+  if (!lyrics) {
+    try {
+      const res = await axios.get(
+        `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`,
+        { timeout: 10000 },
+      );
+      const hit = res.data?.[0];
+      if (hit?.plainLyrics) {
+        lyrics = hit.plainLyrics;
+        songTitle = `${hit.trackName} — ${hit.artistName}`;
+      }
+    } catch (_) {}
+  }
+
+  if (!lyrics) {
     return sock.sendMessage(from, {
       text: formatError(
         "LYRICS NOT FOUND",
         `Could not find lyrics for *"${fullArgs.trim()}"*\n\n` +
           `💡 *Tips:*\n` +
-          `• Try with artist name: *${ENV.PREFIX}lyrics Lose Yourself Eminem*\n` +
+          `• Try with artist name: *${ENV.PREFIX}lyrics Eminem Lose Yourself*\n` +
           `• Check spelling\n` +
-          `• Try a different song`,
+          `• Try the exact song title`,
       ),
     });
   }
+
+  // Trim if too long for WhatsApp
+  if (lyrics.length > 4000)
+    lyrics = lyrics.substring(0, 3900) + "\n\n_(truncated)_";
+
+  await sock.sendMessage(from, {
+    text: `🎵 *${songTitle}*\n\n${lyrics}\n\n${TAG}`,
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -674,9 +732,7 @@ export async function musicTrending({ from, sock }) {
     );
 
     const tracks = response.data?.data || [];
-    if (!tracks.length) {
-      throw new Error("No trending songs found");
-    }
+    if (!tracks.length) throw new Error("No trending songs found");
 
     let message = "🔥 *TRENDING SONGS*\n\n";
     tracks.forEach((track, i) => {
@@ -706,48 +762,53 @@ export async function musicRandom({ from, sock }) {
     text: `🎲 *Finding a random song...*\n⏳ _Please wait..._`,
   });
 
-  try {
-    const randomId = Math.floor(Math.random() * 1000000) + 1;
-    const response = await axios.get(
-      `https://api.deezer.com/track/${randomId}`,
-      { timeout: 10000 },
-    );
+  // Try a random track ID — Deezer IDs go into the millions
+  let track = null;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const randomId = Math.floor(Math.random() * 2_000_000) + 1;
+      const response = await axios.get(
+        `https://api.deezer.com/track/${randomId}`,
+        { timeout: 8000 },
+      );
+      if (response.data?.id && response.data?.title) {
+        track = response.data;
+        break;
+      }
+    } catch (_) {}
+  }
 
-    const track = response.data;
-    if (!track?.id) {
-      throw new Error("No random track found");
-    }
-
+  if (track) {
     const message =
       `🎲 *RANDOM SONG*\n\n` +
       `🎵 *${track.title}*\n` +
       `👤 *Artist:* ${track.artist?.name || "Unknown"}\n` +
       `💿 *Album:* ${track.album?.title || "Single"}\n` +
-      `⏱️ *Duration:* ${fmtDur(track.duration)}\n` +
-      (track.preview ? `🎧 *Preview:* ${track.preview}\n` : "") +
-      `\n${TAG}`;
-
-    await sock.sendMessage(from, { text: message });
-  } catch (error) {
-    const popularSongs = [
-      "Shape of You",
-      "Blinding Lights",
-      "Dance Monkey",
-      "Someone You Loved",
-      "Bad Guy",
-    ];
-    const randomSong =
-      popularSongs[Math.floor(Math.random() * popularSongs.length)];
-
-    return sock.sendMessage(from, {
-      text: formatInfo(
-        "RANDOM SONG SUGGESTION",
-        `🎲 *Try this popular song:*\n\n` +
-          `*${randomSong}*\n\n` +
-          `Use *${ENV.PREFIX}play ${randomSong}* to download it!`,
-      ),
-    });
+      `⏱️ *Duration:* ${fmtDur(track.duration)}\n\n` +
+      `💡 Use *${ENV.PREFIX}play ${track.title} ${track.artist?.name || ""}* to download!\n\n` +
+      `${TAG}`;
+    return sock.sendMessage(from, { text: message });
   }
+
+  const popularSongs = [
+    "Shape of You Ed Sheeran",
+    "Blinding Lights The Weeknd",
+    "Dance Monkey Tones and I",
+    "Someone You Loved Lewis Capaldi",
+    "Bad Guy Billie Eilish",
+    "Lose Yourself Eminem",
+    "Happier Marshmello",
+    "Rockstar Post Malone",
+  ];
+  const randomSong =
+    popularSongs[Math.floor(Math.random() * popularSongs.length)];
+
+  return sock.sendMessage(from, {
+    text: formatInfo(
+      "🎲 RANDOM SONG",
+      `*Try this:*\n\n*${randomSong}*\n\nUse *${ENV.PREFIX}play ${randomSong}* to download it!\n\n${TAG}`,
+    ),
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -773,44 +834,38 @@ export async function musicArtist({ fullArgs, from, sock }) {
 
   try {
     const query = encodeURIComponent(fullArgs.trim());
-    const response = await axios.get(
+    const searchRes = await axios.get(
       `https://api.deezer.com/search/artist?q=${query}&limit=1`,
       { timeout: 10000 },
     );
 
-    const artist = response.data?.data?.[0];
-    if (!artist?.id) {
-      throw new Error("Artist not found");
-    }
+    const artist = searchRes.data?.data?.[0];
+    if (!artist?.id) throw new Error("Artist not found");
 
-    const artistDetails = await axios.get(
-      `https://api.deezer.com/artist/${artist.id}`,
-      { timeout: 10000 },
-    );
+    const [detailsRes, topRes] = await Promise.all([
+      axios.get(`https://api.deezer.com/artist/${artist.id}`, {
+        timeout: 10000,
+      }),
+      axios.get(`https://api.deezer.com/artist/${artist.id}/top?limit=5`, {
+        timeout: 10000,
+      }),
+    ]);
 
-    const details = artistDetails.data;
-    const topTracks = await axios.get(
-      `https://api.deezer.com/artist/${artist.id}/top?limit=5`,
-      { timeout: 10000 },
-    );
-
+    const details = detailsRes.data;
     let topTracksList = "";
-    if (topTracks.data?.data?.length) {
+    if (topRes.data?.data?.length) {
       topTracksList = "\n🎵 *Top Tracks:*\n";
-      topTracks.data.data.forEach((track, i) => {
-        topTracksList += `${i + 1}. ${track.title}\n`;
+      topRes.data.data.forEach((track, i) => {
+        topTracksList += `${i + 1}. ${track.title} (${fmtDur(track.duration)})\n`;
       });
     }
 
     const message =
       `🎤 *ARTIST: ${details.name}*\n\n` +
       (details.nb_fan
-        ? `👥 *Fans:* ${details.nb_fan.toLocaleString()}\n`
+        ? `👥 *Fans:* ${Number(details.nb_fan).toLocaleString()}\n`
         : "") +
       (details.nb_album ? `💿 *Albums:* ${details.nb_album}\n` : "") +
-      (details.radio
-        ? `📻 *Radio:* ${details.radio ? "Available" : "N/A"}\n`
-        : "") +
       topTracksList +
       `\n${TAG}`;
 
@@ -820,10 +875,7 @@ export async function musicArtist({ fullArgs, from, sock }) {
       text: formatError(
         "ARTIST NOT FOUND",
         `Could not find artist *"${fullArgs.trim()}"*\n\n` +
-          `💡 *Tips:*\n` +
-          `• Check spelling\n` +
-          `• Try with full name\n` +
-          `• Use *${ENV.PREFIX}play* to search for their songs instead`,
+          `💡 Check spelling or use *${ENV.PREFIX}play* to search their songs.`,
       ),
     });
   }
@@ -851,26 +903,25 @@ export async function musicAlbum({ fullArgs, from, sock }) {
 
   try {
     const query = encodeURIComponent(fullArgs.trim());
-    const response = await axios.get(
+    const searchRes = await axios.get(
       `https://api.deezer.com/search/album?q=${query}&limit=1`,
       { timeout: 10000 },
     );
 
-    const album = response.data?.data?.[0];
-    if (!album?.id) {
-      throw new Error("Album not found");
-    }
+    const album = searchRes.data?.data?.[0];
+    if (!album?.id) throw new Error("Album not found");
 
-    const albumDetails = await axios.get(
+    const detailsRes = await axios.get(
       `https://api.deezer.com/album/${album.id}`,
       { timeout: 10000 },
     );
 
-    const details = albumDetails.data;
+    const details = detailsRes.data;
     let tracksList = "";
     if (details.tracks?.data?.length) {
+      const shown = details.tracks.data.slice(0, 10);
       tracksList = "\n🎵 *Tracklist:*\n";
-      details.tracks.data.forEach((track, i) => {
+      shown.forEach((track, i) => {
         tracksList += `${i + 1}. ${track.title} (${fmtDur(track.duration)})\n`;
       });
       if (details.tracks.data.length > 10) {
@@ -883,7 +934,9 @@ export async function musicAlbum({ fullArgs, from, sock }) {
       `👤 *Artist:* ${details.artist?.name || "Unknown"}\n` +
       `📅 *Release:* ${details.release_date || "Unknown"}\n` +
       (details.nb_tracks ? `🎵 *Tracks:* ${details.nb_tracks}\n` : "") +
-      (details.fans ? `👥 *Fans:* ${details.fans.toLocaleString()}\n` : "") +
+      (details.fans
+        ? `👥 *Fans:* ${Number(details.fans).toLocaleString()}\n`
+        : "") +
       tracksList +
       `\n${TAG}`;
 
@@ -893,10 +946,7 @@ export async function musicAlbum({ fullArgs, from, sock }) {
       text: formatError(
         "ALBUM NOT FOUND",
         `Could not find album *"${fullArgs.trim()}"*\n\n` +
-          `💡 *Tips:*\n` +
-          `• Check spelling\n` +
-          `• Try with artist name: *${ENV.PREFIX}album Eminem Show*\n` +
-          `• Use *${ENV.PREFIX}artist* to find an artist's albums`,
+          `💡 Try with artist name: *${ENV.PREFIX}album Eminem Show*`,
       ),
     });
   }
@@ -931,17 +981,14 @@ export async function musicSearch({ fullArgs, from, sock }) {
     );
 
     const tracks = response.data?.data || [];
-    if (!tracks.length) {
-      throw new Error("No results found");
-    }
+    if (!tracks.length) throw new Error("No results found");
 
     let message = `🔍 *SEARCH RESULTS FOR:* "${fullArgs.trim()}"\n\n`;
     tracks.forEach((track, i) => {
       message += `${i + 1}. *${track.title}*\n`;
       message += `   👤 ${track.artist?.name}\n`;
       message += `   💿 ${track.album?.title || "Single"}\n`;
-      message += `   ⏱️ ${fmtDur(track.duration)}\n`;
-      message += `   🎧 ${track.preview ? "Preview available" : "No preview"}\n\n`;
+      message += `   ⏱️ ${fmtDur(track.duration)}\n\n`;
     });
     message += `💡 *To download:* ${ENV.PREFIX}play ${fullArgs.trim()}\n\n${TAG}`;
 
@@ -951,10 +998,7 @@ export async function musicSearch({ fullArgs, from, sock }) {
       text: formatError(
         "SEARCH FAILED",
         `Could not find songs matching *"${fullArgs.trim()}"*\n\n` +
-          `💡 *Tips:*\n` +
-          `• Check spelling\n` +
-          `• Try with artist name\n` +
-          `• Use *${ENV.PREFIX}play* to search and download directly`,
+          `💡 Check spelling or use *${ENV.PREFIX}play* to search and download directly.`,
       ),
     });
   }
@@ -982,26 +1026,24 @@ export async function musicGenius({ fullArgs, from, sock }) {
   });
 
   try {
+    if (!ENV.GENIUS_API_KEY) throw new Error("GENIUS_API_KEY not set");
+
     const response = await axios.get(
       `https://api.genius.com/search?q=${encodeURIComponent(fullArgs.trim())}`,
       {
-        headers: {
-          Authorization: `Bearer ${ENV.GENIUS_API_KEY || ""}`,
-        },
+        headers: { Authorization: `Bearer ${ENV.GENIUS_API_KEY}` },
         timeout: 10000,
       },
     );
 
     const hit = response.data?.response?.hits?.[0];
-    if (!hit?.result?.url) {
-      throw new Error("No Genius page found");
-    }
+    if (!hit?.result?.url) throw new Error("No Genius page found");
 
     const result = hit.result;
     const message =
       `🎵 *${result.title}*\n` +
       `👤 *Artist:* ${result.primary_artist?.name}\n\n` +
-      `📖 *Full lyrics and annotations:*\n` +
+      `📖 *Full lyrics & annotations:*\n` +
       `${result.url}\n\n` +
       `${TAG}`;
 
@@ -1024,7 +1066,7 @@ export async function music({ from, sock }) {
   const message =
     `🎵 *AYOBOT MUSIC HUB*\n\n` +
     `📋 *Available Music Commands:*\n\n` +
-    `🎵 *${ENV.PREFIX}play <song>* - Download and play music\n` +
+    `🎵 *${ENV.PREFIX}play <song>* - Download full song\n` +
     `📝 *${ENV.PREFIX}lyrics <song>* - Get song lyrics\n` +
     `🔥 *${ENV.PREFIX}trending* - View trending songs\n` +
     `🎲 *${ENV.PREFIX}random* - Random song suggestion\n` +
@@ -1033,7 +1075,7 @@ export async function music({ from, sock }) {
     `🔍 *${ENV.PREFIX}musicsearch <song>* - Search for songs\n` +
     `📖 *${ENV.PREFIX}genius <song>* - Genius lyrics & annotations\n\n` +
     `💡 *Examples:*\n` +
-    `• ${ENV.PREFIX}play Lose Yourself\n` +
+    `• ${ENV.PREFIX}play Lose Yourself Eminem\n` +
     `• ${ENV.PREFIX}lyrics Shape of You\n` +
     `• ${ENV.PREFIX}artist Eminem\n\n` +
     `${TAG}`;
