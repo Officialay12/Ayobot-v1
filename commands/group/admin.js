@@ -1,6 +1,15 @@
 // commands/group/admin.js — AYOBOT v1.0.0
-// Admin Commands — PRODUCTION REWRITE WITH PHONE-BASED ADMIN DETECTION
+// Admin Commands — PRODUCTION REWRITE WITH ENHANCED EVAL
 // Author: AYOCODES
+//
+// ENHANCEMENTS:
+//   • adminEval — Full async/await support with console.log capture
+//   • adminEval — Execution time tracking
+//   • adminEval — Proper error stack traces
+//   • adminEval — Formatted code blocks
+//   • adminEval — Auto-detects Promise resolution
+//   • adminEval — Truncates large outputs safely
+// ════════════════════════════════════════════════════════════════════════════
 
 import {
   ENV,
@@ -21,6 +30,133 @@ import {
   fmt,
 } from "../../utils/formatters.js";
 import { normalizePhone } from "../../utils/validators.js";
+
+// ============================================================================
+// HELPER: Capture console.log output
+// ============================================================================
+function captureConsole() {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const originalInfo = console.info;
+  const originalDebug = console.debug;
+
+  const logs = [];
+
+  console.log = (...args) => {
+    logs.push({ type: 'log', content: args.map(a => String(a)).join(' ') });
+    originalLog.apply(console, args);
+  };
+
+  console.error = (...args) => {
+    logs.push({ type: 'error', content: args.map(a => String(a)).join(' ') });
+    originalError.apply(console, args);
+  };
+
+  console.warn = (...args) => {
+    logs.push({ type: 'warn', content: args.map(a => String(a)).join(' ') });
+    originalWarn.apply(console, args);
+  };
+
+  console.info = (...args) => {
+    logs.push({ type: 'info', content: args.map(a => String(a)).join(' ') });
+    originalInfo.apply(console, args);
+  };
+
+  console.debug = (...args) => {
+    logs.push({ type: 'debug', content: args.map(a => String(a)).join(' ') });
+    originalDebug.apply(console, args);
+  };
+
+  return {
+    logs,
+    restore: () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+      console.info = originalInfo;
+      console.debug = originalDebug;
+    }
+  };
+}
+
+// ============================================================================
+// HELPER: Safe stringify with circular reference handling
+// ============================================================================
+function safeStringify(obj, indent = 2) {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular Reference]';
+      }
+      seen.add(value);
+    }
+    if (typeof value === 'function') {
+      return `[Function: ${value.name || 'anonymous'}]`;
+    }
+    if (typeof value === 'symbol') {
+      return value.toString();
+    }
+    if (value instanceof Promise) {
+      return '[Promise]';
+    }
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        stack: value.stack?.split('\n')
+      };
+    }
+    return value;
+  }, indent);
+}
+
+// ============================================================================
+// HELPER: Format eval output
+// ============================================================================
+function formatEvalResult(result, logs, executionTime, code) {
+  const maxLength = 3000;
+  let output = '';
+
+  // Add console logs if any
+  if (logs && logs.length > 0) {
+    output += `📟 *Console Output:*\n`;
+    logs.slice(0, 20).forEach(log => {
+      const content = log.content.substring(0, 200);
+      output += `[${log.type}] ${content}\n`;
+    });
+    if (logs.length > 20) {
+      output += `... and ${logs.length - 20} more log entries\n`;
+    }
+    output += `\n`;
+  }
+
+  // Add result
+  if (result !== undefined) {
+    const type = result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result;
+    output += `📤 *Result:* (${type})\n`;
+
+    let resultStr;
+    if (typeof result === 'object') {
+      resultStr = safeStringify(result, 2);
+    } else if (typeof result === 'string') {
+      resultStr = result;
+    } else {
+      resultStr = String(result);
+    }
+
+    if (resultStr.length > maxLength) {
+      resultStr = resultStr.substring(0, maxLength) + `\n\n... (truncated, total ${resultStr.length} chars)`;
+    }
+
+    output += `\`\`\`${resultStr}\`\`\`\n`;
+  } else {
+    output += `📤 *Result:* \`undefined\`\n`;
+  }
+
+  return output;
+}
 
 // ============================================================================
 // ADD USER
@@ -626,47 +762,178 @@ export async function botStatus({ from, userJid, sock, isAdmin, session }) {
 }
 
 // ============================================================================
-// ADMIN EVAL
+// ADMIN EVAL — ENHANCED VERSION WITH FULL ASYNC/AWAIT & CONSOLE CAPTURE
 // ============================================================================
 
-export async function adminEval({ fullArgs, from, sock, isAdmin }) {
-  if (!isAdmin) return;
+export async function adminEval({ fullArgs, from, sock, isAdmin, message, userJid }) {
+  if (!isAdmin) {
+    return sock.sendMessage(from, {
+      text: formatError("ACCESS DENIED", "This command is for bot admins only."),
+    });
+  }
 
   if (!fullArgs?.trim()) {
     return sock.sendMessage(from, {
       text: formatInfo(
-        "EVAL",
-        `Usage: ${ENV.PREFIX}eval <code>\n⚠️ *Dangerous — admin only!*`,
+        "⚡ EVAL",
+        `*Execute JavaScript code*\n\n` +
+        `📌 *Usage:* ${ENV.PREFIX}eval <code>\n\n` +
+        `📋 *Available variables:*\n` +
+        `• \`sock\` - WhatsApp socket connection\n` +
+        `• \`ENV\` - Environment variables\n` +
+        `• \`from\` - Current chat JID\n` +
+        `• \`userJid\` - Your JID\n` +
+        `• \`message\` - Full message object\n` +
+        `• \`require\` - Node.js require function\n\n` +
+        `💡 *Examples:*\n` +
+        `${ENV.PREFIX}eval 2 + 2\n` +
+        `${ENV.PREFIX}eval await sock.sendMessage(from, { text: "Hello!" })\n` +
+        `${ENV.PREFIX}eval Object.keys(sock)\n\n` +
+        `⚠️ *Dangerous — admin only!*`
       ),
     });
   }
 
-  await sock.sendMessage(from, { text: "⚡ *Executing...*" });
+  // Send initial processing message
+  const processingMsg = await sock.sendMessage(from, {
+    text: "⚡ *Executing eval...*\n⏳ _Please wait..._"
+  });
+
+  const startTime = Date.now();
+  let code = fullArgs.trim();
+
+  // Clean code if wrapped in backticks
+  code = code.replace(/^```(?:js|javascript)?\n?/, '').replace(/\n?```$/, '');
+
+  // Setup console capture
+  const consoleCapture = captureConsole();
 
   try {
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
-    const fn = new AsyncFunction("sock", "ENV", "from", fullArgs);
-    const result = await fn(sock, ENV, from);
-    const output =
-      typeof result === "object"
-        ? JSON.stringify(result, null, 2)
-        : String(result ?? "undefined");
+    // Create async function with all available context
+    const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
 
-    await sock.sendMessage(from, {
-      text: fmt(
-        "⚡",
-        "EVAL RESULT",
-        `\`\`\`js\n${output.substring(0, 3500)}${output.length > 3500 ? "\n\n... (truncated)" : ""}\n\`\`\``,
-      ),
+    // Prepare context variables
+    const context = {
+      sock,
+      ENV,
+      from,
+      userJid,
+      message,
+      require,
+      process,
+      Buffer,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      Promise,
+      Date,
+      Math,
+      JSON,
+      Array,
+      Object,
+      String,
+      Number,
+      Boolean,
+      RegExp,
+      Error,
+      Map,
+      Set,
+      WeakMap,
+      WeakSet,
+    };
+
+    // Create the function with context variables as parameters
+    const paramNames = Object.keys(context);
+    const paramValues = Object.values(context);
+
+    // Build the function body
+    const fnBody = `
+      try {
+        ${code.includes('await') || code.includes('return') ? code : `return (${code})`}
+      } catch (e) {
+        throw e;
+      }
+    `;
+
+    const fn = new AsyncFunction(...paramNames, fnBody);
+
+    // Execute with timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Eval execution timeout (30 seconds)')), 30000);
     });
-  } catch (err) {
-    await sock.sendMessage(from, {
-      text: fmt("❌", "EVAL ERROR", `\`\`\`\n${err.message}\n\`\`\``),
-    });
+
+    const evalPromise = fn(...paramValues);
+    const result = await Promise.race([evalPromise, timeoutPromise]);
+
+    const executionTime = Date.now() - startTime;
+
+    // Restore console
+    consoleCapture.restore();
+
+    // Format the output
+    const output = formatEvalResult(result, consoleCapture.logs, executionTime, code);
+
+    // Prepare the response
+    const response = `╔══════════════════════════╗\n` +
+      `║     ⚡ *EVAL RESULT*     ║\n` +
+      `╚══════════════════════════╝\n\n` +
+      `⏱️ *Execution Time:* ${executionTime}ms\n` +
+      `📥 *Input:*\n\`\`\`js\n${code.substring(0, 500)}${code.length > 500 ? '...' : ''}\n\`\`\`\n\n` +
+      output +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👑 *AYOBOT v1.0.0* | Admin Eval`;
+
+    // Edit the processing message or send new if too long
+    try {
+      if (response.length <= 4000) {
+        await sock.sendMessage(from, {
+          text: response,
+          edit: processingMsg.key
+        });
+      } else {
+        // If too long, send as document
+        const fullOutput = `// AYOBOT EVAL OUTPUT\n// Execution Time: ${executionTime}ms\n// Date: ${new Date().toISOString()}\n\n// === INPUT ===\n${code}\n\n// === CONSOLE OUTPUT ===\n${consoleCapture.logs.map(l => `[${l.type}] ${l.content}`).join('\n')}\n\n// === RESULT ===\n${safeStringify(result, 2)}`;
+
+        await sock.sendMessage(from, {
+          document: Buffer.from(fullOutput, 'utf-8'),
+          mimetype: 'text/plain',
+          fileName: `eval_${Date.now()}.txt`,
+          caption: `⚡ *Eval Complete*\n⏱️ Execution Time: ${executionTime}ms\n📦 Output saved as file`
+        });
+      }
+    } catch (err) {
+      // Fallback if edit fails
+      await sock.sendMessage(from, { text: response.substring(0, 4000) });
+    }
+
+  } catch (error) {
+    const executionTime = Date.now() - startTime;
+
+    // Restore console
+    consoleCapture.restore();
+
+    // Format error with stack trace
+    const errorOutput = `❌ *EVAL ERROR*\n` +
+      `⏱️ *Time:* ${executionTime}ms\n\n` +
+      `📥 *Input:*\n\`\`\`js\n${code.substring(0, 300)}${code.length > 300 ? '...' : ''}\n\`\`\`\n\n` +
+      `💥 *Error:*\n\`\`\`\n${error.name}: ${error.message}\n\`\`\`\n\n` +
+      `📚 *Stack Trace:*\n\`\`\`\n${(error.stack || 'No stack trace').substring(0, 1500)}\n\`\`\``;
+
+    try {
+      await sock.sendMessage(from, {
+        text: errorOutput,
+        edit: processingMsg.key
+      });
+    } catch (_) {
+      await sock.sendMessage(from, { text: errorOutput.substring(0, 4000) });
+    }
   }
 }
+
+// Alias for eval
+export const evalCode = adminEval;
+export const execute = adminEval;
 
 // ============================================================================
 // DEFAULT EXPORT
@@ -688,4 +955,6 @@ export default {
   shutdown,
   botStatus,
   adminEval,
+  evalCode,
+  execute,
 };

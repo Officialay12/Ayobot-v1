@@ -12,6 +12,9 @@
 //  5. All permission checks now use the centralized admin functions
 //  6. Fixed module loading with detailed error reporting
 //  7. Added multi-name fallback for all commands
+//
+//  NEW ADDITIONS:
+//  8. .ok command registered - Send view-once media to DM with reactions
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -442,7 +445,7 @@ function getModuleFunction(module, functionName, fallbackName = null) {
 }
 
 // ============================================================================
-//  COMMAND REGISTRATION — COMPLETE
+//  COMMAND REGISTRATION — COMPLETE (ALL ORIGINAL + NEW .ok)
 // ============================================================================
 export function registerAllCommands() {
   if (!!ENV.DEBUG) {
@@ -697,6 +700,19 @@ export function registerAllCommands() {
         "viewoncemsg",
       ],
     });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  NEW: .ok COMMAND - VIEW ONCE TO DM WITH REACTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (b.viewOnceToDM || b.ok) {
+    const okHandler = b.viewOnceToDM || b.ok;
+    safeRegister("ok", okHandler, {
+      category: "media",
+      description: "Send view-once media to your DM",
+      aliases: ["dm", "tome", "senddm", "privatemedia", "savetodm", "sendtome"],
+    });
+    cmdLog.ok("✅ Registered .ok command (View Once to DM with reactions)");
+  }
 
   if (b.take)
     safeRegister("take", b.take, {
@@ -1997,8 +2013,16 @@ export function registerAllCommands() {
       category: "admin",
       adminOnly: true,
       description: "Execute code",
-      aliases: ["evalcode"],
+      aliases: ["evalcode", "execute", "exec", "js", "code", "run"],
     });
+
+  // ==================== AUTOMATION.JS ====================
+  const auto = MODULES.automation;
+  if (auto) {
+    // Register automation commands if they exist
+    if (auto.autoReply) safeRegister("autoreply", auto.autoReply, { category: "automation", description: "Auto-reply settings" });
+    if (auto.autoSticker) safeRegister("autosticker", auto.autoSticker, { category: "automation", description: "Auto-sticker settings" });
+  }
 
   if (!!ENV.DEBUG) {
     cmdLog.div();
@@ -2044,6 +2068,14 @@ const ACTIVATION_EXEMPT = new Set([
   "help",
   "ping",
   "status",
+  // NEW: .ok command and aliases exempt from activation requirement
+  "ok",
+  "dm",
+  "tome",
+  "senddm",
+  "privatemedia",
+  "savetodm",
+  "sendtome",
 ]);
 
 // ============================================================================

@@ -11,6 +11,7 @@
 //    • antilink — Clean subcommand handling (no duplicate status logic)
 //    • antilink — Proper error handling for metadata fetch
 //    • All functions now use consistent normalizeJid()
+//    • NEW: .ok command — Send view-once media to DM with reactions
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -99,6 +100,23 @@ function safeFixed(val, digits = 4) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  REACTION HELPER — For sending emoji reactions to messages
+// ─────────────────────────────────────────────────────────────────────────────
+async function sendReaction(sock, message, emoji) {
+  try {
+    await sock.sendMessage(message.key.remoteJid, {
+      react: {
+        text: emoji,
+        key: message.key
+      }
+    });
+  } catch (error) {
+    // Silently fail - reactions are not critical
+    console.debug("[Reaction] Failed to send:", error.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  HTTP HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const USER_AGENTS = [
@@ -183,6 +201,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
           ["`.prefix`", "ℹ️", "Prefix info"],
           ["`.auto`", "🤖", "Auto-reply"],
           ["`.test`", "🧪", "Test command"],
+          ["`.ok`", "📤", "View once to DM"],
         ],
       ],
       [
@@ -453,10 +472,7 @@ export async function ping({ from, sock }) {
   await sock.sendMessage(from, {
     text:
       `━━━━━ 🏓 *PONG!* ━━━━━\n\n` +
-      `${speedIcon} *Response:* ${responseMs}ms\n` +
       `⏱️ *Uptime:* ${uptimeStr}\n` +
-      `📊 *Messages:* ${messageCount || 0}\n` +
-      `💾 *Memory:* ${memMB}MB\n` +
       `🟢 *Status:* ONLINE\n` +
       `🤖 *Version:* 1.0.0\n` +
       `👑 *AYOBOT v1*\n`,
@@ -862,17 +878,15 @@ export async function shorten({ fullArgs, from, sock }) {
         break;
       }
     } catch (err) {
-      console.log(`[shorten] ${service.name} failed:`, err.message);
+      console.log("[shorten]", service.name, "failed:", err.message);
       continue;
     }
   }
 
   if (shortUrl) {
-    // ✅ FIX: Send as TEXT ONLY to prevent WhatsApp preview
-    // Use document or plain text without link preview
+    // Send as TEXT ONLY to prevent WhatsApp preview
     await sock.sendMessage(from, {
       text: `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${shortUrl}\n\n📊 *Service:* ${usedService}\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-      // Disable link preview
       linkPreview: false,
     });
   } else {
@@ -884,7 +898,7 @@ export async function shorten({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  VIEW ONCE
+//  VIEW ONCE (Original - Keep Intact)
 // ════════════════════════════════════════════════════════════════════════════
 export async function viewOnce({ message, from, sock }) {
   try {
@@ -949,6 +963,199 @@ export async function viewOnce({ message, from, sock }) {
     });
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NEW FEATURE: .ok - VIEW ONCE TO DM WITH REACTIONS
+//  Sends view-once media directly to the user's DM with emoji reactions
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Helper: Send media to user's DM
+ */
+async function sendMediaToDM(sock, userJid, buffer, type, caption = "") {
+  const cleanPhone = normalizeJid(userJid);
+  const dmJid = `${cleanPhone}@s.whatsapp.net`;
+
+  const timestamp = new Date().toLocaleString();
+  const footer = `\n\n━━━━━━━━━━━━━━━━━━━━━\n👑 *AYOBOT v1* | ⏰ ${timestamp}`;
+
+  try {
+    if (type === "image") {
+      await sock.sendMessage(dmJid, {
+        image: buffer,
+        caption: caption + footer,
+        mimetype: "image/jpeg"
+      });
+      return { success: true };
+    } else if (type === "video") {
+      await sock.sendMessage(dmJid, {
+        video: buffer,
+        caption: caption + footer,
+        mimetype: "video/mp4"
+      });
+      return { success: true };
+    } else if (type === "audio") {
+      await sock.sendMessage(dmJid, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: true
+      });
+      return { success: true };
+    }
+    return { success: false, error: "Unsupported media type" };
+  } catch (error) {
+    console.error("[sendMediaToDM] Failed:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * .ok command - Reply to view-once message to receive in DM
+ * Works with reactions: ⏳ (processing) → ✅ (success) / ❌ (failed) / ⚠️ (DM blocked)
+ */
+export async function viewOnceToDM({ message, from, userJid, sock, isGroup }) {
+  // Send initial reaction - processing
+  await sendReaction(sock, message, "⏳");
+
+  try {
+    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+
+    if (!quotedMsg) {
+      await sendReaction(sock, message, "❌");
+      return sock.sendMessage(from, {
+        text: formatInfo(
+          "📤 VIEW ONCE TO DM",
+          `Reply to a view-once message with *${ENV.PREFIX}ok*\n\nThe media will be sent to your private DM automatically.\n\n✅ Works for: Images, Videos, Audio\n\n📌 *Aliases:* .dm, .tome, .senddm, .privatemedia`
+        ),
+      });
+    }
+
+    // Extract media from various view-once formats
+    let mediaMsg = null;
+    let type = null;
+    let caption = "";
+
+    // Check all possible view-once message structures
+    const containers = [
+      { msg: quotedMsg.viewOnceMessageV2?.message, source: "viewOnceMessageV2" },
+      { msg: quotedMsg.viewOnceMessageV2Extension?.message, source: "viewOnceMessageV2Extension" },
+      { msg: quotedMsg.viewOnceMessage?.message, source: "viewOnceMessage" },
+      { msg: quotedMsg, source: "quotedMessage" }
+    ];
+
+    for (const container of containers) {
+      if (!container.msg) continue;
+
+      if (container.msg.imageMessage) {
+        mediaMsg = container.msg.imageMessage;
+        type = "image";
+        caption = container.msg.imageMessage.caption || "";
+        break;
+      }
+      if (container.msg.videoMessage) {
+        mediaMsg = container.msg.videoMessage;
+        type = "video";
+        caption = container.msg.videoMessage.caption || "";
+        break;
+      }
+      if (container.msg.audioMessage) {
+        mediaMsg = container.msg.audioMessage;
+        type = "audio";
+        break;
+      }
+    }
+
+    if (!mediaMsg || !type) {
+      await sendReaction(sock, message, "❌");
+      return sock.sendMessage(from, {
+        text: formatError(
+          "❌ NOT VIEW ONCE",
+          "This message is not a view-once media.\n\nOnly works on view-once images, videos, or audio messages."
+        ),
+      });
+    }
+
+    // Download the media content
+    const stream = await downloadContentFromMessage(mediaMsg, type);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
+
+    // Verify buffer has content
+    if (!buffer || buffer.length === 0) {
+      await sendReaction(sock, message, "🔴");
+      throw new Error("Failed to download media - empty buffer");
+    }
+
+    // Send to user's DM
+    const result = await sendMediaToDM(sock, userJid, buffer, type, caption);
+
+    // Send confirmation in the original chat
+    const fileSize = (buffer.length / 1024).toFixed(2);
+    const cleanPhone = normalizeJid(userJid);
+
+    if (result.success) {
+      await sendReaction(sock, message, "✅");
+      await sock.sendMessage(from, {
+        text: formatSuccess(
+          "✅ MEDIA SENT TO DM",
+          `📤 *View Once Media Saved!*\n\n` +
+          `📁 *Type:* ${type.toUpperCase()}\n` +
+          `📦 *Size:* ${fileSize} KB\n` +
+          `📱 *Sent to:* +${cleanPhone}\n\n` +
+          `🔒 _Check your private messages_`
+        ),
+      });
+    } else {
+      // Check if error is due to privacy settings (user hasn't started chat with bot)
+      const isPrivacyError = result.error?.includes("not allowed") ||
+                            result.error?.includes("privacy") ||
+                            result.error?.includes("blocked");
+
+      if (isPrivacyError) {
+        await sendReaction(sock, message, "⚠️");
+        await sock.sendMessage(from, {
+          text: formatError(
+            "⚠️ CANNOT SEND TO DM",
+            `*Please start a private chat with me first!*\n\n` +
+            `1️⃣ Click this link: wa.me/${normalizeJid(sock.user?.id)}\n` +
+            `2️⃣ Send me any message (like "hi")\n` +
+            `3️⃣ Then try *${ENV.PREFIX}ok* again\n\n` +
+            `📱 *Your number:* +${cleanPhone}`
+          ),
+        });
+      } else {
+        await sendReaction(sock, message, "🔴");
+        await sock.sendMessage(from, {
+          text: formatError(
+            "❌ FAILED TO SEND",
+            `Could not send media to your DM.\n\n` +
+            `📁 *Type:* ${type.toUpperCase()}\n` +
+            `📦 *Size:* ${fileSize} KB\n` +
+            `❌ *Error:* ${result.error || "Unknown error"}\n\n` +
+            `_Try again or use *${ENV.PREFIX}vv* to view here_`
+          ),
+        });
+      }
+    }
+  } catch (err) {
+    await sendReaction(sock, message, "🔴");
+    await sock.sendMessage(from, {
+      text: formatError(
+        "ERROR",
+        `Could not process view once message: ${err.message}`
+      ),
+    });
+  }
+}
+
+// Alias exports for the new command
+export const ok = viewOnceToDM;
+export const dm = viewOnceToDM;
+export const tome = viewOnceToDM;
+export const senddm = viewOnceToDM;
+export const privatemedia = viewOnceToDM;
 
 // ════════════════════════════════════════════════════════════════════════════
 //  WAITLIST
@@ -1517,219 +1724,35 @@ export async function myip({ from, sock, userJid, message }) {
 
   // Phone number prefix → country mapping
   const phoneCountryMap = [
-    {
-      prefix: "234",
-      country: "Nigeria",
-      code: "NG",
-      flag: "🇳🇬",
-      tz: "Africa/Lagos",
-      currency: "NGN",
-    },
-    {
-      prefix: "233",
-      country: "Ghana",
-      code: "GH",
-      flag: "🇬🇭",
-      tz: "Africa/Accra",
-      currency: "GHS",
-    },
-    {
-      prefix: "254",
-      country: "Kenya",
-      code: "KE",
-      flag: "🇰🇪",
-      tz: "Africa/Nairobi",
-      currency: "KES",
-    },
-    {
-      prefix: "27",
-      country: "South Africa",
-      code: "ZA",
-      flag: "🇿🇦",
-      tz: "Africa/Johannesburg",
-      currency: "ZAR",
-    },
-    {
-      prefix: "1",
-      country: "USA / Canada",
-      code: "US",
-      flag: "🇺🇸",
-      tz: "America/New_York",
-      currency: "USD",
-    },
-    {
-      prefix: "44",
-      country: "United Kingdom",
-      code: "GB",
-      flag: "🇬🇧",
-      tz: "Europe/London",
-      currency: "GBP",
-    },
-    {
-      prefix: "91",
-      country: "India",
-      code: "IN",
-      flag: "🇮🇳",
-      tz: "Asia/Kolkata",
-      currency: "INR",
-    },
-    {
-      prefix: "92",
-      country: "Pakistan",
-      code: "PK",
-      flag: "🇵🇰",
-      tz: "Asia/Karachi",
-      currency: "PKR",
-    },
-    {
-      prefix: "86",
-      country: "China",
-      code: "CN",
-      flag: "🇨🇳",
-      tz: "Asia/Shanghai",
-      currency: "CNY",
-    },
-    {
-      prefix: "81",
-      country: "Japan",
-      code: "JP",
-      flag: "🇯🇵",
-      tz: "Asia/Tokyo",
-      currency: "JPY",
-    },
-    {
-      prefix: "82",
-      country: "South Korea",
-      code: "KR",
-      flag: "🇰🇷",
-      tz: "Asia/Seoul",
-      currency: "KRW",
-    },
-    {
-      prefix: "62",
-      country: "Indonesia",
-      code: "ID",
-      flag: "🇮🇩",
-      tz: "Asia/Jakarta",
-      currency: "IDR",
-    },
-    {
-      prefix: "63",
-      country: "Philippines",
-      code: "PH",
-      flag: "🇵🇭",
-      tz: "Asia/Manila",
-      currency: "PHP",
-    },
-    {
-      prefix: "66",
-      country: "Thailand",
-      code: "TH",
-      flag: "🇹🇭",
-      tz: "Asia/Bangkok",
-      currency: "THB",
-    },
-    {
-      prefix: "84",
-      country: "Vietnam",
-      code: "VN",
-      flag: "🇻🇳",
-      tz: "Asia/Ho_Chi_Minh",
-      currency: "VND",
-    },
-    {
-      prefix: "60",
-      country: "Malaysia",
-      code: "MY",
-      flag: "🇲🇾",
-      tz: "Asia/Kuala_Lumpur",
-      currency: "MYR",
-    },
-    {
-      prefix: "65",
-      country: "Singapore",
-      code: "SG",
-      flag: "🇸🇬",
-      tz: "Asia/Singapore",
-      currency: "SGD",
-    },
-    {
-      prefix: "61",
-      country: "Australia",
-      code: "AU",
-      flag: "🇦🇺",
-      tz: "Australia/Sydney",
-      currency: "AUD",
-    },
-    {
-      prefix: "64",
-      country: "New Zealand",
-      code: "NZ",
-      flag: "🇳🇿",
-      tz: "Pacific/Auckland",
-      currency: "NZD",
-    },
-    {
-      prefix: "55",
-      country: "Brazil",
-      code: "BR",
-      flag: "🇧🇷",
-      tz: "America/Sao_Paulo",
-      currency: "BRL",
-    },
-    {
-      prefix: "52",
-      country: "Mexico",
-      code: "MX",
-      flag: "🇲🇽",
-      tz: "America/Mexico_City",
-      currency: "MXN",
-    },
-    {
-      prefix: "49",
-      country: "Germany",
-      code: "DE",
-      flag: "🇩🇪",
-      tz: "Europe/Berlin",
-      currency: "EUR",
-    },
-    {
-      prefix: "33",
-      country: "France",
-      code: "FR",
-      flag: "🇫🇷",
-      tz: "Europe/Paris",
-      currency: "EUR",
-    },
-    {
-      prefix: "39",
-      country: "Italy",
-      code: "IT",
-      flag: "🇮🇹",
-      tz: "Europe/Rome",
-      currency: "EUR",
-    },
-    {
-      prefix: "34",
-      country: "Spain",
-      code: "ES",
-      flag: "🇪🇸",
-      tz: "Europe/Madrid",
-      currency: "EUR",
-    },
-    {
-      prefix: "7",
-      country: "Russia",
-      code: "RU",
-      flag: "🇷🇺",
-      tz: "Europe/Moscow",
-      currency: "RUB",
-    },
+    { prefix: "234", country: "Nigeria", code: "NG", flag: "🇳🇬", tz: "Africa/Lagos", currency: "NGN" },
+    { prefix: "233", country: "Ghana", code: "GH", flag: "🇬🇭", tz: "Africa/Accra", currency: "GHS" },
+    { prefix: "254", country: "Kenya", code: "KE", flag: "🇰🇪", tz: "Africa/Nairobi", currency: "KES" },
+    { prefix: "27", country: "South Africa", code: "ZA", flag: "🇿🇦", tz: "Africa/Johannesburg", currency: "ZAR" },
+    { prefix: "1", country: "USA / Canada", code: "US", flag: "🇺🇸", tz: "America/New_York", currency: "USD" },
+    { prefix: "44", country: "United Kingdom", code: "GB", flag: "🇬🇧", tz: "Europe/London", currency: "GBP" },
+    { prefix: "91", country: "India", code: "IN", flag: "🇮🇳", tz: "Asia/Kolkata", currency: "INR" },
+    { prefix: "92", country: "Pakistan", code: "PK", flag: "🇵🇰", tz: "Asia/Karachi", currency: "PKR" },
+    { prefix: "86", country: "China", code: "CN", flag: "🇨🇳", tz: "Asia/Shanghai", currency: "CNY" },
+    { prefix: "81", country: "Japan", code: "JP", flag: "🇯🇵", tz: "Asia/Tokyo", currency: "JPY" },
+    { prefix: "82", country: "South Korea", code: "KR", flag: "🇰🇷", tz: "Asia/Seoul", currency: "KRW" },
+    { prefix: "62", country: "Indonesia", code: "ID", flag: "🇮🇩", tz: "Asia/Jakarta", currency: "IDR" },
+    { prefix: "63", country: "Philippines", code: "PH", flag: "🇵🇭", tz: "Asia/Manila", currency: "PHP" },
+    { prefix: "66", country: "Thailand", code: "TH", flag: "🇹🇭", tz: "Asia/Bangkok", currency: "THB" },
+    { prefix: "84", country: "Vietnam", code: "VN", flag: "🇻🇳", tz: "Asia/Ho_Chi_Minh", currency: "VND" },
+    { prefix: "60", country: "Malaysia", code: "MY", flag: "🇲🇾", tz: "Asia/Kuala_Lumpur", currency: "MYR" },
+    { prefix: "65", country: "Singapore", code: "SG", flag: "🇸🇬", tz: "Asia/Singapore", currency: "SGD" },
+    { prefix: "61", country: "Australia", code: "AU", flag: "🇦🇺", tz: "Australia/Sydney", currency: "AUD" },
+    { prefix: "64", country: "New Zealand", code: "NZ", flag: "🇳🇿", tz: "Pacific/Auckland", currency: "NZD" },
+    { prefix: "55", country: "Brazil", code: "BR", flag: "🇧🇷", tz: "America/Sao_Paulo", currency: "BRL" },
+    { prefix: "52", country: "Mexico", code: "MX", flag: "🇲🇽", tz: "America/Mexico_City", currency: "MXN" },
+    { prefix: "49", country: "Germany", code: "DE", flag: "🇩🇪", tz: "Europe/Berlin", currency: "EUR" },
+    { prefix: "33", country: "France", code: "FR", flag: "🇫🇷", tz: "Europe/Paris", currency: "EUR" },
+    { prefix: "39", country: "Italy", code: "IT", flag: "🇮🇹", tz: "Europe/Rome", currency: "EUR" },
+    { prefix: "34", country: "Spain", code: "ES", flag: "🇪🇸", tz: "Europe/Madrid", currency: "EUR" },
+    { prefix: "7", country: "Russia", code: "RU", flag: "🇷🇺", tz: "Europe/Moscow", currency: "RUB" },
   ];
 
-  const sorted = [...phoneCountryMap].sort(
-    (a, b) => b.prefix.length - a.prefix.length,
-  );
+  const sorted = [...phoneCountryMap].sort((a, b) => b.prefix.length - a.prefix.length);
   const match = sorted.find((c) => phoneNum.startsWith(c.prefix));
 
   let localTime = "N/A";
@@ -1751,20 +1774,11 @@ export async function myip({ from, sock, userJid, message }) {
 
   let serverIp = null;
   for (const svc of [
-    {
-      url: "https://api.ipify.org?format=json",
-      parser: (d) => (typeof d === "object" ? d.ip : d.trim()),
-    },
+    { url: "https://api.ipify.org?format=json", parser: (d) => (typeof d === "object" ? d.ip : d.trim()) },
     { url: "https://api4.my-ip.io/ip.json", parser: (d) => d.ip },
     { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
-    {
-      url: "https://ipecho.net/plain",
-      parser: (d) => (typeof d === "string" ? d.trim() : null),
-    },
-    {
-      url: "https://checkip.amazonaws.com/",
-      parser: (d) => (typeof d === "string" ? d.trim() : null),
-    },
+    { url: "https://ipecho.net/plain", parser: (d) => (typeof d === "string" ? d.trim() : null) },
+    { url: "https://checkip.amazonaws.com/", parser: (d) => (typeof d === "string" ? d.trim() : null) },
   ]) {
     try {
       const res = await axios.get(svc.url, { timeout: 6000 });
@@ -1779,9 +1793,7 @@ export async function myip({ from, sock, userJid, message }) {
   let serverLoc = null;
   if (serverIp) {
     try {
-      const r = await axios.get(`https://ipwho.is/${serverIp}`, {
-        timeout: 8000,
-      });
+      const r = await axios.get(`https://ipwho.is/${serverIp}`, { timeout: 8000 });
       if (r.data?.success)
         serverLoc = {
           country: r.data.country,
@@ -2522,39 +2534,25 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ANTILINK — FULLY FIXED
-//
-//  FIXES APPLIED:
-//    1. REMOVED owner bypass — ONLY group admins can toggle antilink
-//    2. Fixed groupSettings merge (no more overwriting all settings)
-//    3. Clean subcommand handling (no duplicate status logic)
-//    4. Proper error handling for metadata fetch
-//    5. Uses normalizeJid() consistently
-//
-//  ⚠️  BOT MUST BE GROUP ADMIN:
-//    Antilink can only DELETE messages and KICK members if the bot is a
-//    group admin. Make the bot admin in WhatsApp group settings.
 // ════════════════════════════════════════════════════════════════════════════
 export async function antilink({
   args,
   message,
   from,
   sock,
-  isAdmin, // BOT OWNER check - NOT used for toggling antilink
+  isAdmin,
   isGroup,
   userJid,
 }) {
-  // ── STEP 1: Group-only gate ────────────────────────────────────────────
   if (!isGroup) {
     return sock.sendMessage(from, {
       text: "❌ This command only works in groups.",
     });
   }
 
-  // Get current group settings
   const currentSettings = groupSettings.get(from) || {};
   const currentStatus = currentSettings.antilink || false;
 
-  // ── STEP 2: No args → show current status and help ─────────────────────
   if (!args || args.length === 0) {
     const statusLabel = currentStatus ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
@@ -2576,7 +2574,6 @@ export async function antilink({
 
   const sub = args[0]?.toLowerCase();
 
-  // ── STEP 3: Handle "status" subcommand ─────────────────────────────────
   if (sub === "status") {
     const statusLabel = currentStatus ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
@@ -2584,7 +2581,6 @@ export async function antilink({
     });
   }
 
-  // ── STEP 4: Only "on" and "off" require admin verification ────────────
   if (!["on", "off"].includes(sub)) {
     return sock.sendMessage(from, {
       text: formatInfo(
@@ -2594,7 +2590,6 @@ export async function antilink({
     });
   }
 
-  // ── STEP 5: Verify user is a GROUP ADMIN (NO OWNER BYPASS) ─────────────
   let isGroupAdmin = false;
   try {
     const metadata = await sock.groupMetadata(from);
@@ -2614,17 +2609,14 @@ export async function antilink({
     });
   }
 
-  // ── ONLY GROUP ADMINS CAN TOGGLE ANTILINK (NO OWNER BYPASS) ────────────
   if (!isGroupAdmin) {
     return sock.sendMessage(from, {
       text: "⛔ Only *group admins* can enable or disable anti-link protection.",
     });
   }
 
-  // ── STEP 6: Apply the setting (MERGE, don't overwrite) ─────────────────
   const newStatus = sub === "on";
 
-  // IMPORTANT: Merge with existing settings to preserve other group settings
   groupSettings.set(from, {
     ...currentSettings,
     antilink: newStatus,
@@ -2663,6 +2655,12 @@ export default {
   time,
   shorten,
   viewOnce,
+  viewOnceToDM,
+  ok: viewOnceToDM,
+  dm: viewOnceToDM,
+  tome: viewOnceToDM,
+  senddm: viewOnceToDM,
+  privatemedia: viewOnceToDM,
   joinWaitlist,
   scrape,
   connectInfo,

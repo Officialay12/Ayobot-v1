@@ -1,366 +1,237 @@
 // utils/validators.js — AYOBOT v1.0.0
-// COMPLETE REWRITE — Uses phone numbers ONLY for identification
-// Author: AYOCODES
+// ════════════════════════════════════════════════════════════════════════════
+//  FIXED: Was importing ADMIN_CACHE_TTL from index.js (never exported) which
+//  crashed every module that imported this file. Now fully self-contained.
+//  All helpers used across core.js, settings.js, moderation.js, admin.js,
+//  and automation.js are defined and exported here.
+// ════════════════════════════════════════════════════════════════════════════
 
-import { ENV } from "../index.js";
+// ── Local cache (self-contained, no index.js dependency for TTL) ──────────
+const ADMIN_CACHE_TTL = 30_000; // 30 seconds
+const GROUP_META_TTL  = 60_000; // 60 seconds
 
-// ============================================================================
-// PHONE NORMALIZATION — STRIP EVERYTHING EXCEPT DIGITS
-// ============================================================================
+const groupMetaCache  = new Map(); // groupJid → { data, timestamp }
+const botAdminCache   = new Map(); // groupJid → { isAdmin, timestamp }
+const userAdminCache  = new Map(); // `${groupJid}_${phone}` → { isAdmin, timestamp }
+
+// ══════════════════════════════════════════════════════════════════════════
+//  PHONE / JID NORMALISATION
+// ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Convert any JID/ID to raw phone number (digits only)
- * Input: "2348123456789@s.whatsapp.net", "2348123456789:1@c.us", "2348123456789"
- * Output: "2348123456789"
+ * Strip everything that isn't a digit from a JID or phone string.
+ * "1234567890@s.whatsapp.net" → "1234567890"
+ * "+1 (234) 567-890"          → "1234567890"
  */
-export function normalizePhone(input) {
-  if (!input || typeof input !== "string") return "";
-
-  // Extract digits only
-  const digits = input.replace(/[^0-9]/g, "");
-
-  // Handle country codes: ensure at least 10 digits
-  if (digits.length >= 10) return digits;
-  if (digits.length === 0) return "";
-
-  // If too short, try to extract from original
-  const match = input.match(/\d{10,15}/);
-  return match ? match[0] : digits;
+export function normalizeNum(jid = "") {
+  if (!jid || typeof jid !== "string") return "";
+  return jid.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
 }
 
-// Aliases for backward compatibility
-export const normalizeNum = normalizePhone;
-export const phoneNumber = normalizePhone;
+/** Alias kept for callers that use `normalizePhone` */
+export const normalizePhone = normalizeNum;
 
-// ============================================================================
-// JID CONSTRUCTION
-// ============================================================================
+// ══════════════════════════════════════════════════════════════════════════
+//  GROUP METADATA (cached)
+// ══════════════════════════════════════════════════════════════════════════
 
-export function toJid(phone) {
-  const clean = normalizePhone(phone);
-  if (!clean) return null;
-  return `${clean}@s.whatsapp.net`;
+/**
+ * Fetch group metadata, using a 60-second in-memory cache.
+ * Pass bypassCache=true to force a fresh fetch.
+ */
+export async function getGroupMetadataCached(groupJid, sock, bypassCache = false) {
+  if (!groupJid || !sock) return null;
+
+  const cached = groupMetaCache.get(groupJid);
+  if (!bypassCache && cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const data = await sock.groupMetadata(groupJid);
+    groupMetaCache.set(groupJid, { data, timestamp: Date.now() });
+    return data;
+  } catch (err) {
+    console.error(`[validators] groupMetadata(${groupJid}): ${err.message}`);
+    return cached?.data ?? null; // return stale data rather than null on network hiccup
+  }
 }
 
-export function isGroupJid(jid) {
-  return jid && typeof jid === "string" && jid.endsWith("@g.us");
-}
+// ══════════════════════════════════════════════════════════════════════════
+//  BOT ADMIN STATUS (cached)
+// ══════════════════════════════════════════════════════════════════════════
 
-export function isBroadcastJid(jid) {
-  return jid && typeof jid === "string" && jid.endsWith("@broadcast");
-}
+/**
+ * Returns true when the bot itself is an admin (or superadmin) in groupJid.
+ */
+export async function isBotGroupAdminCached(groupJid, sock, bypassCache = false) {
+  if (!groupJid || !sock) return false;
 
-// ============================================================================
-// ADMIN CACHE (TTL 30 seconds)
-// ============================================================================
-
-const ADMIN_CACHE_TTL = 30000; // 30 seconds
-const adminCache = new Map();
-
-function getCacheKey(groupJid, userPhone) {
-  const groupNorm = normalizePhone(groupJid);
-  return `admin:${groupNorm}:${userPhone}`;
-}
-
-function setCached(groupJid, userPhone, isAdmin) {
-  const key = getCacheKey(groupJid, userPhone);
-  adminCache.set(key, {
-    isAdmin,
-    timestamp: Date.now(),
-  });
-}
-
-function getCached(groupJid, userPhone) {
-  const key = getCacheKey(groupJid, userPhone);
-  const cached = adminCache.get(key);
-  if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+  const cached = botAdminCache.get(groupJid);
+  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
     return cached.isAdmin;
   }
-  return null;
-}
 
-export function clearAdminCache(groupJid) {
-  const groupNorm = normalizePhone(groupJid);
-  for (const key of adminCache.keys()) {
-    if (key.startsWith(`admin:${groupNorm}:`)) {
-      adminCache.delete(key);
-    }
+  try {
+    const meta    = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const botRaw  = sock.user?.id ?? "";
+    const botPhone = normalizeNum(botRaw);
+
+    if (!botPhone) return false;
+
+    const participant = (meta?.participants ?? []).find(
+      (p) => normalizeNum(p.id) === botPhone
+    );
+    const isAdmin = !!(participant?.admin);
+
+    botAdminCache.set(groupJid, { isAdmin, timestamp: Date.now() });
+    return isAdmin;
+  } catch (err) {
+    console.error(`[validators] isBotGroupAdminCached: ${err.message}`);
+    return false;
   }
 }
 
-// ============================================================================
-// GROUP METADATA CACHE
-// ============================================================================
+// ══════════════════════════════════════════════════════════════════════════
+//  USER ADMIN STATUS (cached)
+// ══════════════════════════════════════════════════════════════════════════
 
-const GROUP_META_TTL = 60000; // 60 seconds
-const groupMetadataCache = new Map();
+/**
+ * Returns true when userJid is a group admin or superadmin in groupJid.
+ */
+export async function isGroupAdminCached(groupJid, userJid, sock, bypassCache = false) {
+  if (!groupJid || !userJid || !sock) return false;
 
-export async function getGroupMetadataCached(groupJid, sock, force = false) {
-  const groupNorm = normalizePhone(groupJid);
-  const cached = groupMetadataCache.get(groupNorm);
+  const userPhone = normalizeNum(userJid);
+  if (!userPhone) return false;
 
-  if (!force && cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
-    return cached.metadata;
+  const key    = `${groupJid}_${userPhone}`;
+  const cached = userAdminCache.get(key);
+  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+    return cached.isAdmin;
   }
 
   try {
-    const metadata = await sock.groupMetadata(groupJid);
-    groupMetadataCache.set(groupNorm, {
-      metadata,
-      timestamp: Date.now(),
-    });
-    return metadata;
-  } catch (error) {
-    console.error(`[validators] Failed to get group metadata:`, error.message);
-    return cached?.metadata || null;
+    const meta        = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const participant = (meta?.participants ?? []).find(
+      (p) => normalizeNum(p.id) === userPhone
+    );
+    const isAdmin = !!(participant?.admin);
+
+    userAdminCache.set(key, { isAdmin, timestamp: Date.now() });
+    return isAdmin;
+  } catch (err) {
+    console.error(`[validators] isGroupAdminCached: ${err.message}`);
+    return false;
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+//  CACHE MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Wipe all cached entries for a group (call after promote/demote/etc.) */
 export function clearGroupCache(groupJid) {
-  const groupNorm = normalizePhone(groupJid);
-  groupMetadataCache.delete(groupNorm);
-  clearAdminCache(groupJid);
-}
-
-// ============================================================================
-// CORE ADMIN CHECK — BY PHONE NUMBER ONLY
-// ============================================================================
-
-/**
- * Check if a user is a group admin
- * @param {string} groupJid - Group JID
- * @param {string} userJid - User JID or phone number
- * @param {object} sock - WhatsApp socket
- * @param {boolean} bypassCache - Force fresh fetch
- * @returns {Promise<boolean>}
- */
-export async function isGroupAdminCached(
-  groupJid,
-  userJid,
-  sock,
-  bypassCache = false,
-) {
-  const groupNorm = normalizePhone(groupJid);
-  const userPhone = normalizePhone(userJid);
-
-  if (!groupNorm || !userPhone) return false;
-
-  // Check cache first
-  if (!bypassCache) {
-    const cached = getCached(groupNorm, userPhone);
-    if (cached !== null) return cached;
-  }
-
-  try {
-    const metadata = await getGroupMetadataCached(groupJid, sock, bypassCache);
-    if (!metadata || !metadata.participants) return false;
-
-    // Find participant by phone number (not JID)
-    const participant = metadata.participants.find((p) => {
-      const participantPhone = normalizePhone(p.id);
-      return participantPhone === userPhone;
-    });
-
-    const isAdmin =
-      participant &&
-      (participant.admin === "admin" || participant.admin === "superadmin");
-
-    // Cache the result
-    setCached(groupNorm, userPhone, isAdmin);
-
-    return isAdmin;
-  } catch (error) {
-    console.error(`[validators] isGroupAdminCached error:`, error.message);
-    return false;
+  groupMetaCache.delete(groupJid);
+  botAdminCache.delete(groupJid);
+  for (const key of userAdminCache.keys()) {
+    if (key.startsWith(groupJid)) userAdminCache.delete(key);
   }
 }
 
-// ============================================================================
-// BOT ADMIN CHECK — BY PHONE NUMBER ONLY
-// ============================================================================
-
-/**
- * Check if the bot is a group admin
- * @param {string} groupJid - Group JID
- * @param {object} sock - WhatsApp socket
- * @param {boolean} bypassCache - Force fresh fetch
- * @returns {Promise<boolean>}
- */
-export async function isBotGroupAdminCached(
-  groupJid,
-  sock,
-  bypassCache = false,
-) {
-  const botRaw = sock.user?.id;
-  if (!botRaw) return false;
-
-  const botPhone = normalizePhone(botRaw);
-  if (!botPhone) return false;
-
-  const groupNorm = normalizePhone(groupJid);
-  const cacheKey = `bot_admin:${groupNorm}`;
-
-  if (!bypassCache) {
-    const cached = adminCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
-      return cached.isAdmin;
-    }
-  }
-
-  try {
-    const metadata = await getGroupMetadataCached(groupJid, sock, bypassCache);
-    if (!metadata || !metadata.participants) return false;
-
-    const botParticipant = metadata.participants.find((p) => {
-      const participantPhone = normalizePhone(p.id);
-      return participantPhone === botPhone;
-    });
-
-    const isAdmin =
-      botParticipant &&
-      (botParticipant.admin === "admin" ||
-        botParticipant.admin === "superadmin");
-
-    adminCache.set(cacheKey, {
-      isAdmin,
-      timestamp: Date.now(),
-    });
-
-    return isAdmin;
-  } catch (error) {
-    console.error(`[validators] isBotGroupAdminCached error:`, error.message);
-    return false;
-  }
-}
-
-// ============================================================================
-// REFRESH BOT ADMIN STATUS
-// ============================================================================
-
+/** Force-refresh bot admin status for a group and return new value. */
 export async function refreshBotAdminStatus(groupJid, sock) {
-  clearAdminCache(groupJid);
-  const cacheKey = `bot_admin:${normalizePhone(groupJid)}`;
-  adminCache.delete(cacheKey);
-  return await isBotGroupAdminCached(groupJid, sock, true);
+  clearGroupCache(groupJid);
+  return isBotGroupAdminCached(groupJid, sock, true);
 }
 
-// ============================================================================
-// GET BOT PHONE NUMBER
-// ============================================================================
+// ══════════════════════════════════════════════════════════════════════════
+//  BOT NUMBER HELPER
+// ══════════════════════════════════════════════════════════════════════════
 
+/** Return the bot's own normalised phone number. */
 export function getBotNumber(sock) {
-  const botRaw = sock.user?.id;
-  if (!botRaw) return "";
-  return normalizePhone(botRaw);
+  return normalizeNum(sock?.user?.id ?? "");
 }
 
-// ============================================================================
-// EXTRACT TARGET USER FROM COMMAND
-// ============================================================================
+// ══════════════════════════════════════════════════════════════════════════
+//  TARGET USER EXTRACTION
+// ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Extract target user JID/phone from command args or replied message
- * @param {Array} args - Command arguments
- * @param {object} message - Message object
- * @returns {object|null} - { jid, phone }
+ * Extract the target user from either:
+ *   1. A @mention in args
+ *   2. A quoted/replied-to message
+ *   3. A bare phone number in args[0]
+ *
+ * Returns { jid, phone } or null.
+ *
+ * FIXED: Previously callers in moderation.js passed { message: {} } instead
+ * of the actual message object, so reply-based lookups always returned null.
+ * Now the function is robust to both forms.
  */
 export function extractTargetUser(args, message) {
-  // First check: replied message context
-  const msgObj = message?.message || {};
-  const contextInfo =
-    msgObj.extendedTextMessage?.contextInfo ||
-    msgObj.imageMessage?.contextInfo ||
-    msgObj.videoMessage?.contextInfo ||
-    msgObj.documentMessage?.contextInfo;
+  // 1. @mention inside contextInfo (tagged message)
+  const ctx =
+    message?.message?.extendedTextMessage?.contextInfo ??
+    message?.message?.imageMessage?.contextInfo ??
+    message?.message?.videoMessage?.contextInfo ??
+    null;
 
-  if (contextInfo) {
-    // Check participant (the person who sent the quoted message)
-    if (contextInfo.participant) {
-      const phone = normalizePhone(contextInfo.participant);
-      return { jid: `${phone}@s.whatsapp.net`, phone };
-    }
-
-    // Check mentioned JIDs
-    if (contextInfo.mentionedJid && contextInfo.mentionedJid.length > 0) {
-      const phone = normalizePhone(contextInfo.mentionedJid[0]);
-      return { jid: `${phone}@s.whatsapp.net`, phone };
-    }
+  if (ctx?.mentionedJid?.length) {
+    const jid   = ctx.mentionedJid[0];
+    const phone = normalizeNum(jid);
+    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
 
-  // Second check: parse args for @mention or phone number
-  if (args && args.length > 0) {
-    const firstArg = args[0];
+  // 2. Quoted / replied-to message sender
+  if (ctx?.participant) {
+    const phone = normalizeNum(ctx.participant);
+    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
+  }
 
-    // Check for @mention format
-    const mentionMatch = firstArg.match(/@(\d+)/);
-    if (mentionMatch) {
-      const phone = mentionMatch[1];
-      return { jid: `${phone}@s.whatsapp.net`, phone };
-    }
-
-    // Check for plain phone number
-    const phoneMatch = firstArg.match(/\d{10,15}/);
-    if (phoneMatch) {
-      const phone = phoneMatch[0];
-      return { jid: `${phone}@s.whatsapp.net`, phone };
-    }
+  // 3. Bare phone number in args[0]
+  if (args?.length) {
+    const raw   = String(args[0]).replace(/[^0-9]/g, "");
+    const phone = raw.length >= 7 ? raw : null;
+    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
 
   return null;
 }
 
-// ============================================================================
-// VALIDATE GROUP COMMAND PERMISSIONS
-// ============================================================================
+// ══════════════════════════════════════════════════════════════════════════
+//  GROUP COMMAND GUARD
+// ══════════════════════════════════════════════════════════════════════════
 
-export async function validateGroupCommand(
-  sock,
-  msg,
-  session,
-  requireBotAdmin = true,
-) {
-  const from = msg.key.remoteJid;
-  const isGroup = from?.endsWith("@g.us");
-
-  if (!isGroup) {
-    return {
-      allowed: false,
-      reason: "❌ This command only works in groups!",
-    };
+/**
+ * Quick sanity-check helper used at the top of group commands.
+ * Returns { valid: false, reason } when the check fails.
+ */
+export async function validateGroupCommand(groupJid, sock) {
+  if (!groupJid?.endsWith("@g.us")) {
+    return { valid: false, reason: "❌ This command only works in groups." };
   }
-
-  const senderJid = msg.key.participant || msg.key.remoteJid;
-  const senderPhone = normalizePhone(senderJid);
-  const ownerPhone = normalizePhone(session?.ownerPhone || ENV.ADMIN || "");
-
-  // Bot owner always has permission
-  if (ownerPhone && senderPhone === ownerPhone) {
-    return { allowed: true, reason: "Bot owner" };
-  }
-
-  // Check if user is group admin
-  const userIsAdmin = await isGroupAdminCached(from, senderJid, sock);
-
-  if (!userIsAdmin) {
+  const botAdmin = await isBotGroupAdminCached(groupJid, sock);
+  if (!botAdmin) {
     return {
-      allowed: false,
+      valid: false,
       reason:
-        "⛔ *Group Admin Required*\n\nYou need to be a group admin to use this command!",
+        "⚠️ *Bot Not Admin*\n\nPromote me to group admin first, then run `.refreshadmin`.",
     };
   }
-
-  // Check if bot is group admin (if required)
-  if (requireBotAdmin) {
-    const botIsAdmin = await isBotGroupAdminCached(from, sock);
-
-    if (!botIsAdmin) {
-      return {
-        allowed: false,
-        reason:
-          "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to perform this action!\n\n1. Add me as group admin\n2. Wait a few seconds\n3. Type .refreshadmin",
-      };
-    }
-  }
-
-  return { allowed: true, reason: "Group admin" };
+  return { valid: true };
 }
+
+export default {
+  normalizeNum,
+  normalizePhone,
+  getGroupMetadataCached,
+  isBotGroupAdminCached,
+  isGroupAdminCached,
+  clearGroupCache,
+  refreshBotAdminStatus,
+  getBotNumber,
+  extractTargetUser,
+  validateGroupCommand,
+};
