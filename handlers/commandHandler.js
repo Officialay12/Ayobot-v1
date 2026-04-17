@@ -64,7 +64,7 @@ const cmdLog = {
 // ============================================================================
 if (!ENV.PREFIX) {
   cmdLog.warn("PREFIX not set, using default: .");
-  ENV.PREFIX = ".";
+  ENV.PREFIX = "." "!" " " ",";
 }
 
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
@@ -202,45 +202,72 @@ function sanitizeInput(input) {
   if (!input || typeof input !== "string") return "";
   return input.slice(0, 2000).replace(/[<>]/g, "");
 }
+// ============================================================================
+//  MODULE LOADER WITH ENHANCED ERROR REPORTING & ABSOLUTE PATHS
+// ============================================================================
 
-// ============================================================================
-//  MODULE LOADER WITH ENHANCED ERROR REPORTING
-// ============================================================================
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
+
+// Get current directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 cmdLog.title("📦 LOADING COMMAND MODULES");
+cmdLog.info(`📍 CommandHandler location: ${__dirname}`);
+
+// Check if directories exist
+const commandsDir = join(__dirname, "../commands/group");
+const featuresDir = join(__dirname, "../features");
+
+cmdLog.info(`📁 Commands directory: ${commandsDir} - ${existsSync(commandsDir) ? '✅ EXISTS' : '❌ MISSING'}`);
+cmdLog.info(`📁 Features directory: ${featuresDir} - ${existsSync(featuresDir) ? '✅ EXISTS' : '❌ MISSING'}`);
+
+// Build absolute paths
 const MODULE_PATHS = {
-  basic: "../commands/group/basic.js",
-  admin: "../commands/group/admin.js",
-  groupCore: "../commands/group/core.js",
-  groupMod: "../commands/group/moderation.js",
-  groupSettings: "../commands/group/settings.js",
-  automation: "../commands/group/automation.js",
-  ai: "../features/ai.js",
-  calculator: "../features/calculator.js",
-  crypto: "../features/crypto.js",
-  dictionary: "../features/dictionary.js",
-  downloader: "../features/downloader.js",
-  encryption: "../features/encryption.js",
-  games: "../features/games.js",
-  imageTools: "../features/imageTools.js",
-  jokes: "../features/jokes.js",
-  movies: "../features/movies.js",
-  music: "../features/music.js",
-  news: "../features/news.js",
-  notes: "../features/notes.js",
-  quotes: "../features/quotes.js",
-  reminder: "../features/reminder.js",
-  security: "../features/security.js",
-  stocks: "../features/stocks.js",
-  translation: "../features/translation.js",
-  tts: "../features/tts.js",
-  unitConverter: "../features/unitConverter.js",
+  basic: join(__dirname, "../commands/group/basic.js"),
+  admin: join(__dirname, "../commands/group/admin.js"),
+  groupCore: join(__dirname, "../commands/group/core.js"),
+  groupMod: join(__dirname, "../commands/group/moderation.js"),
+  groupSettings: join(__dirname, "../commands/group/settings.js"),
+  automation: join(__dirname, "../commands/group/automation.js"),
+  ai: join(__dirname, "../features/ai.js"),
+  calculator: join(__dirname, "../features/calculator.js"),
+  crypto: join(__dirname, "../features/crypto.js"),
+  dictionary: join(__dirname, "../features/dictionary.js"),
+  downloader: join(__dirname, "../features/downloader.js"),
+  encryption: join(__dirname, "../features/encryption.js"),
+  games: join(__dirname, "../features/games.js"),
+  imageTools: join(__dirname, "../features/imageTools.js"),
+  jokes: join(__dirname, "../features/jokes.js"),
+  movies: join(__dirname, "../features/movies.js"),
+  music: join(__dirname, "../features/music.js"),
+  news: join(__dirname, "../features/news.js"),
+  notes: join(__dirname, "../features/notes.js"),
+  quotes: join(__dirname, "../features/quotes.js"),
+  reminder: join(__dirname, "../features/reminder.js"),
+  security: join(__dirname, "../features/security.js"),
+  stocks: join(__dirname, "../features/stocks.js"),
+  translation: join(__dirname, "../features/translation.js"),
+  tts: join(__dirname, "../features/tts.js"),
+  unitConverter: join(__dirname, "../features/unitConverter.js"),
 };
 
 const MODULES = {};
 
 async function safeImport(moduleName, modulePath) {
   try {
-    const mod = await import(modulePath);
+    // Check if file exists first
+    if (!existsSync(modulePath)) {
+      cmdLog.err(`❌ ${moduleName.padEnd(15)} ➜ FILE NOT FOUND: ${modulePath}`);
+      return {};
+    }
+
+    // Convert to file:// URL for import
+    const fileUrl = `file://${modulePath}`;
+    const mod = await import(fileUrl);
+
     const exportKeys = Object.keys(mod);
     const functionKeys = exportKeys.filter((k) => typeof mod[k] === "function");
     const defaultExport = mod.default;
@@ -252,17 +279,15 @@ async function safeImport(moduleName, modulePath) {
         : [];
 
     if (functionKeys.length === 0 && defaultKeys.length === 0) {
-      cmdLog.err(
-        `⚠️ ${moduleName.padEnd(15)} ➜ LOADED BUT HAS NO FUNCTIONS — check exports!`,
+      cmdLog.warn(
+        `⚠️ ${moduleName.padEnd(15)} ➜ Loaded but NO functions! Exports: ${exportKeys.slice(0, 5).join(", ")}`,
       );
-    } else if (!!ENV.DEBUG) {
-      cmdLog.ok(
-        `${moduleName.padEnd(15)} ➜ ${functionKeys.length} named exports`,
-      );
-      if (defaultKeys.length)
-        cmdLog.debug(`   └─ Default: ${defaultKeys.join(", ")}`);
     } else {
-      cmdLog.ok(`${moduleName.padEnd(15)} ➜ Loaded`);
+      const totalFns = functionKeys.length + defaultKeys.length;
+      cmdLog.ok(`${moduleName.padEnd(15)} ➜ ${totalFns} functions`);
+      if (ENV.DEBUG && functionKeys.length > 0) {
+        cmdLog.debug(`   └─ Named: ${functionKeys.slice(0, 3).join(", ")}`);
+      }
     }
 
     return {
@@ -272,13 +297,9 @@ async function safeImport(moduleName, modulePath) {
       __exportKeys: exportKeys,
     };
   } catch (error) {
-    cmdLog.err(`❌ FAILED TO LOAD MODULE: ${moduleName}`);
-    cmdLog.err(`   Path : ${modulePath}`);
+    cmdLog.err(`❌ ${moduleName.padEnd(15)} ➜ FAILED`);
+    cmdLog.err(`   Path: ${modulePath}`);
     cmdLog.err(`   Error: ${error.message}`);
-    if (error.stack) {
-      const lines = error.stack.split("\n").slice(0, 5);
-      lines.forEach((l) => cmdLog.err(`   ${l}`));
-    }
     return {};
   }
 }
@@ -287,54 +308,64 @@ async function loadAllModules() {
   cmdLog.div();
 
   const entries = Object.entries(MODULE_PATHS);
-  const results = await Promise.all(
-    entries.map(([, path]) =>
-      safeImport(path.split("/").pop().replace(".js", ""), path),
-    ),
-  );
-  entries.forEach(([name], i) => (MODULES[name] = results[i]));
+
+  // Load modules sequentially to see each result clearly
+  for (const [name, path] of entries) {
+    const result = await safeImport(name, path);
+    MODULES[name] = result;
+    // Small delay to keep logs readable
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
 
   const loaded = Object.values(MODULES).filter(
-    (m) => Object.keys(m).length > 0,
+    (m) => Object.keys(m).length > 0 && Object.keys(m).some(k => typeof m[k] === "function")
   ).length;
 
   cmdLog.div();
-  cmdLog.success(`Loaded ${loaded}/${entries.length} modules`);
+  cmdLog.success(`✅ Loaded ${loaded}/${entries.length} modules`);
 
   // Critical module check with detailed error reporting
+  cmdLog.div();
+  cmdLog.title("🔍 CRITICAL MODULE VERIFICATION");
+
   const criticalModules = {
-    groupSettings: [
-      "mute",
-      "unmute",
-      "link",
-      "rules",
-      "groupInfo",
-      "settingsOverview",
-    ],
+    basic: ["menu", "ping", "status", "start", "ok"],
+    groupSettings: ["mute", "unmute", "link", "rules", "groupInfo"],
     groupCore: ["kick", "add", "promote", "demote"],
     admin: ["mode", "broadcast", "stats"],
+    jokes: ["joke", "roast", "pickupLine"],
+    quotes: ["quote"],
+    downloader: ["youtube", "tiktok", "spotify"],
+    notes: ["note", "getnote", "notes"],
+    automation: ["handleGroupParticipant", "handleAntiLink"],
   };
 
-  for (const [modName, fns] of Object.entries(criticalModules)) {
+  for (const [modName, expectedFns] of Object.entries(criticalModules)) {
     const mod = MODULES[modName] || {};
-    const missing = fns.filter(
-      (fn) =>
-        !mod[fn] &&
-        !mod[fn.charAt(0).toUpperCase() + fn.slice(1)] &&
-        !mod.__default?.[fn],
+    const foundFns = expectedFns.filter(fn =>
+      typeof mod[fn] === "function" || typeof mod.__default?.[fn] === "function"
     );
-    if (missing.length > 0) {
-      cmdLog.err(
-        `⚠️  CRITICAL MODULE "${modName}" IS MISSING EXPORTS: ${missing.join(", ")}`,
-      );
-      cmdLog.err(
-        `    → Check ${MODULE_PATHS[modName]} for syntax errors or bad imports`,
-      );
-      const exportedKeys = Object.keys(mod).filter((k) => !k.startsWith("__"));
-      cmdLog.warn(
-        `    → Actual exports: [${exportedKeys.join(", ") || "NONE"}]`,
-      );
+
+    if (foundFns.length > 0) {
+      cmdLog.ok(`✅ ${modName.padEnd(15)} ➜ found ${foundFns.length}/${expectedFns.length} functions`);
+    } else {
+      cmdLog.err(`❌ ${modName.padEnd(15)} ➜ CRITICAL: No exports found!`);
+      if (modName === "basic") {
+        cmdLog.err(`   → This is why .menu, .ping, .ok, .start don't work!`);
+      }
     }
+  }
+
+  // Special check for basic.js
+  const basicMod = MODULES.basic;
+  if (basicMod && Object.keys(basicMod).length > 0) {
+    cmdLog.div();
+    cmdLog.info("📋 BASIC.JS EXPORTS:");
+    const exports = Object.keys(basicMod).filter(k => !k.startsWith("__"));
+    exports.forEach(exp => {
+      const type = typeof basicMod[exp] === "function" ? "📦 function" : "📄 variable";
+      cmdLog.debug(`   • ${exp} (${type})`);
+    });
   }
 
   console.log();
