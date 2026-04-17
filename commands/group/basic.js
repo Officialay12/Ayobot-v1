@@ -480,160 +480,43 @@ export async function status({ from, userJid, isAdmin: isAdminUser, isAuthorized
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR — Contact card with Message + Add to Contact buttons
+//  CREATOR — Native WhatsApp contact card (Message + Add contact UI)
 // ════════════════════════════════════════════════════════════════════════════
-
 export async function creator({ from, sock }) {
   const finalContact =
     String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "") || "2349159180375";
 
-  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
-
-  // ── vCard (used as fallback) ──────────────────────────────────────────────
+  // Build minimal vCard — WhatsApp uses FN + TEL;waid= to render the card UI
   const vcard =
     `BEGIN:VCARD\n` +
     `VERSION:3.0\n` +
     `FN:AYOCODES 👑 (Bot Owner)\n` +
-    `N:AYOCODES;The Architect;;;\n` +
-    `ORG:AYOBOT;\n` +
+    `N:AYOCODES;;;;\n` +
     `TEL;type=CELL;type=VOICE;waid=${finalContact}:+${finalContact}\n` +
     `END:VCARD`;
 
-  // ── Method 1: List message with action rows (most supported in 2024+) ─────
   try {
-    await sock.sendMessage(from, {
-      text:
-        `👑 *AYOCODES — Bot Owner*\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🤖 Creator of *AYOBOT*\n` +
-        `📞 +${finalContact}\n` +
-        `💻 ${github}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━\n` +
-        `_Select an option below_ 👇`,
-      footer: "👑 AYOBOT — Powered by AYOCODES",
-      title: "AYOCODES 👑",
-      buttonText: "🔽 Options",
-      sections: [
-        {
-          title: "📬 Connect with Creator",
-          rows: [
-            {
-              title: "💬 Message on WhatsApp",
-              description: `Chat with AYOCODES directly`,
-              rowId: `https://wa.me/${finalContact}`,
-            },
-            {
-              title: "💻 GitHub Profile",
-              description: "Check out AYOBOT source & projects",
-              rowId: github,
-            },
-          ],
-        },
-      ],
-    });
-    return;
-  } catch (_) {}
-
-  // ── Method 2: Template message with hydrated URL buttons ──────────────────
-  try {
-    await sock.sendMessage(from, {
-      templateMessage: {
-        hydratedTemplate: {
-          hydratedContentText:
-            `👑 *AYOCODES — Bot Owner*\n` +
-            `🤖 Creator of AYOBOT\n` +
-            `📞 +${finalContact}`,
-          hydratedFooterText: "👑 AYOBOT",
-          hydratedButtons: [
-            {
-              urlButton: {
-                displayText: "💬 Message on WhatsApp",
-                url: `https://wa.me/${finalContact}`,
-              },
-            },
-            {
-              urlButton: {
-                displayText: "💻 GitHub Profile",
-                url: github,
-              },
-            },
-          ],
-        },
-      },
-    });
-    return;
-  } catch (_) {}
-
-  // ── Method 3: Contact card (native Message + Add to contacts buttons) ─────
-  try {
+    // contacts message renders the "Message / Add contact" card UI
     await sock.sendMessage(from, {
       contacts: {
-        displayName: "AYOCODES 👑 (Bot Owner)",
+        displayName: "AYOCODES 👑 (The Architect)",
         contacts: [{ vcard }],
       },
     });
-    return;
-  } catch (_) {}
-
-  // ── Method 4: Plain text absolute fallback ────────────────────────────────
-  await sock.sendMessage(from, {
-    text:
-      `━━━━━ 👑 *AYOCODES* ━━━━━\n\n` +
-      `🤖 *Bot Owner & Creator*\n\n` +
-      `📞 *WhatsApp:*\nwa.me/${finalContact}\n\n` +
-      `💻 *GitHub:*\n${github}\n\n` +
-      `👑 _AYOCODES — The Architect_`,
-  });
+  } catch (_) {
+    // Fallback to plain text if contacts type fails
+    await sock.sendMessage(from, {
+      text: `👑 *AYOCODES — Bot Owner*\n📞 wa.me/${finalContact}`,
+    });
+  }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  CREATORGIT — GitHub profile card
-// ════════════════════════════════════════════════════════════════════════════
-
 export async function creatorGit({ from, sock }) {
-  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
-  const finalContact =
-    String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "") || "2349159180375";
-
-  // ── Method 1: Template with GitHub + WhatsApp buttons ────────────────────
-  try {
-    await sock.sendMessage(from, {
-      templateMessage: {
-        hydratedTemplate: {
-          hydratedContentText:
-            `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
-            `💻 *Featured Project:* AYOBOT v1.0.0\n` +
-            `🔧 _Open-source WhatsApp Bot_\n\n` +
-            `👇 Tap to visit:`,
-          hydratedFooterText: "👑 AYOBOT — by AYOCODES",
-          hydratedButtons: [
-            {
-              urlButton: {
-                displayText: "💻 Open GitHub Profile",
-                url: github,
-              },
-            },
-            {
-              urlButton: {
-                displayText: "💬 Message Creator",
-                url: `https://wa.me/${finalContact}`,
-              },
-            },
-          ],
-        },
-      },
-    });
-    return;
-  } catch (_) {}
-
-  // ── Method 2: Plain text fallback ─────────────────────────────────────────
   await sock.sendMessage(from, {
     text:
       `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
-      `🔗 *GitHub Profile:*\n${github}\n\n` +
-      `💻 _Check out my projects!_\n\n` +
-      `🤖 *Featured Project:* AYOBOT v1.0.0\n` +
-      `👑 _AYOCODES_`,
+      `🔗 *GitHub Profile:*\n${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
+      `💻 _Check out my projects!_\n\n🤖 *Featured Project:* AYOBOT v1.0.0\n👑 _AYOCODES_`,
   });
 }
 
