@@ -299,20 +299,6 @@ const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 
 // ============================================================
-//   HELPER: Normalize phone number from JID
-// ============================================================
-function normalizePhone(jid) {
-  if (!jid) return "";
-  if (typeof jid === "object") {
-    jid = jid.id || jid.jid || jid.phone || String(jid);
-  }
-  const str = String(jid);
-  let withoutDomain = str.split("@")[0];
-  let withoutDevice = withoutDomain.split(":")[0];
-  return withoutDevice.replace(/[^0-9]/g, "");
-}
-
-// ============================================================
 //   CHECK IF USER IS BOT OWNER
 // ============================================================
 export function isBotOwner(userJid, botOwnerJid) {
