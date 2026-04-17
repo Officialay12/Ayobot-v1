@@ -298,6 +298,7 @@ export const normalizePhone = normalizeToPhone;
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 
+
 // ============================================================
 //   CHECK IF USER IS BOT OWNER
 // ============================================================
@@ -1207,6 +1208,34 @@ async function processMessageQueue(session) {
 function attachListeners(session) {
   const { sock } = session;
   const sid = session.id.slice(0, 8);
+
+ // ✅ ADD THIS GROUP PARTICIPANT HANDLER WITH INHERITANCE
+  sock.ev.on("group-participants.update", async (update) => {
+    try {
+      const { id: groupJid, participants, action } = update;
+
+      // When bot joins a new group
+      if (action === "add" && participants.includes(session.botSelfJid)) {
+        log.info(`[${sid}] Bot added to group: ${groupJid}`);
+        // Wait a few seconds for WhatsApp to register
+        setTimeout(async () => {
+          try {
+            const { ensureBotAdminInheritance } = await import("./utils/validators.js");
+            await ensureBotAdminInheritance(groupJid, sock, session.ownerJid);
+          } catch (err) {
+            log.warn(`[${sid}] Inheritance failed: ${err.message}`);
+          }
+        }, 5000);
+      }
+
+      // Call existing group handler
+      if (session.groupHandler) {
+        await session.groupHandler(update, sock);
+      }
+    } catch (err) {
+      log.warn(`[${sid}] Group handler error: ${err.message}`);
+    }
+  });
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     try {
