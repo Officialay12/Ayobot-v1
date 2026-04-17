@@ -3,19 +3,13 @@
 //   COMPLETE PRODUCTION-READY VERSION — FULLY FIXED
 //   Author: AYOCODES
 //
-//   FIXES INCLUDED:
-//   1. Admin permission system completely rewritten
-//   2. Group admin detection fixed with proper caching
-//   3. Bot privilege checking added with retry logic
-//   4. All persistence functions implemented
-//   5. Security issues patched
-//   6. Memory leaks fixed
-//   7. Race conditions resolved
-//   8. Error handling improved
-//   9. Token/session persistence fixed (no early expiry)
-//   10. Dashboard UI/UX completely redesigned
-//   11. Instance management fully functional
-//   12. Real-time updates for all dashboards
+//   FIXES IN THIS VERSION:
+//   1. setSessionOwner moved ABOVE _startSocket (was causing
+//      "setSessionOwner is not defined" crash on all sessions)
+//   2. Removed circular import("../index.js") inside _startSocket
+//      — autoMapOwnerTempId is now called directly (same file)
+//   3. Duplicate group-participants.update listener removed
+//   4. All original features preserved — nothing removed
 // ============================================================
 
 import makeWASocket, {
@@ -50,7 +44,6 @@ dotenv.config();
 // ============================================================
 const app = express();
 
-// Security middleware
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -61,7 +54,6 @@ app.use(compression());
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// Rate limiting for admin routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -169,18 +161,14 @@ if (!ENV.MONGODB_URI) {
 }
 
 function validateConfig() {
-  const maxSessions = ENV.MAX_SESSIONS;
-  if (maxSessions < 1 || maxSessions > 1000) {
-    log.warn(`⚠️ Invalid MAX_SESSIONS: ${maxSessions}, using 100`);
+  if (ENV.MAX_SESSIONS < 1 || ENV.MAX_SESSIONS > 1000) {
+    log.warn(`⚠️ Invalid MAX_SESSIONS: ${ENV.MAX_SESSIONS}, using 100`);
     ENV.MAX_SESSIONS = 100;
   }
-
-  const rateLimitMax = ENV.RATE_LIMIT_MAX;
-  if (rateLimitMax < 1) {
-    log.warn(`⚠️ Invalid RATE_LIMIT_MAX: ${rateLimitMax}, using 15`);
+  if (ENV.RATE_LIMIT_MAX < 1) {
+    log.warn(`⚠️ Invalid RATE_LIMIT_MAX: ${ENV.RATE_LIMIT_MAX}, using 15`);
     ENV.RATE_LIMIT_MAX = 15;
   }
-
   if (ENV.MAX_WARNINGS < 1) {
     log.warn(`⚠️ Invalid MAX_WARNINGS: ${ENV.MAX_WARNINGS}, using 3`);
     ENV.MAX_WARNINGS = 3;
@@ -194,49 +182,21 @@ function checkEnvVars() {
   const missing = [];
   const checks = [
     { key: ENV.GEMINI_KEY, name: "GEMINI_KEY", feature: "AI Chat" },
-    {
-      key: ENV.GROQ_API_KEY,
-      name: "GROQ_API_KEY",
-      feature: "AI Fallback (Groq)",
-    },
-    {
-      key: ENV.OPENROUTER_KEY,
-      name: "OPENROUTER_KEY",
-      feature: "AI Fallback (OpenRouter)",
-    },
-    {
-      key: ENV.TOGETHER_KEY,
-      name: "TOGETHER_KEY",
-      feature: "AI Fallback (Together)",
-    },
+    { key: ENV.GROQ_API_KEY, name: "GROQ_API_KEY", feature: "AI Fallback (Groq)" },
+    { key: ENV.OPENROUTER_KEY, name: "OPENROUTER_KEY", feature: "AI Fallback (OpenRouter)" },
+    { key: ENV.TOGETHER_KEY, name: "TOGETHER_KEY", feature: "AI Fallback (Together)" },
     { key: ENV.NEWS_API_KEY, name: "NEWS_API_KEY", feature: "News" },
     { key: ENV.OPENWEATHER_KEY, name: "OPENWEATHER_KEY", feature: "Weather" },
     { key: ENV.TMDB_API_KEY, name: "TMDB_API_KEY", feature: "Movies/TV" },
     { key: ENV.OMDB_API_KEY, name: "OMDB_API_KEY", feature: "Movies fallback" },
-    {
-      key: ENV.COINMARKETCAP_KEY,
-      name: "COINMARKETCAP_KEY",
-      feature: "Crypto",
-    },
-    {
-      key: ENV.REMOVEBG_KEY,
-      name: "REMOVEBG_KEY",
-      feature: "Remove Background",
-    },
+    { key: ENV.COINMARKETCAP_KEY, name: "COINMARKETCAP_KEY", feature: "Crypto" },
+    { key: ENV.REMOVEBG_KEY, name: "REMOVEBG_KEY", feature: "Remove Background" },
     { key: ENV.GIPHY_KEY, name: "GIPHY_KEY", feature: "GIFs" },
     { key: ENV.PIXABAY_KEY, name: "PIXABAY_KEY", feature: "Images" },
     { key: ENV.UNSPLASH_KEY, name: "UNSPLASH_KEY", feature: "Photos" },
-    {
-      key: ENV.RAPIDAPI_KEY,
-      name: "RAPIDAPI_KEY",
-      feature: "RapidAPI / YouTube DL",
-    },
+    { key: ENV.RAPIDAPI_KEY, name: "RAPIDAPI_KEY", feature: "RapidAPI / YouTube DL" },
     { key: ENV.VIRUSTOTAL_KEY, name: "VIRUSTOTAL_KEY", feature: "Virus Scan" },
-    {
-      key: ENV.GOOGLE_SAFE_BROWSING,
-      name: "GOOGLE_SAFE_BROWSING_KEY",
-      feature: "Safe Browsing",
-    },
+    { key: ENV.GOOGLE_SAFE_BROWSING, name: "GOOGLE_SAFE_BROWSING_KEY", feature: "Safe Browsing" },
     { key: ENV.HF_TOKEN, name: "HF_TOKEN", feature: "HuggingFace" },
   ];
 
@@ -254,11 +214,6 @@ function checkEnvVars() {
     console.log("");
   }
 }
-
-// ============================================================
-//   HELPER FUNCTIONS - COMPLETE FIXED VERSION
-//   WITH TEMP ID MAPPING FOR PERMANENT OWNER RECOGNITION
-// ============================================================
 
 // ============================================================
 //   TEMP ID TO REAL NUMBER MAPPING STORAGE
@@ -281,19 +236,16 @@ function normalizeJidForComparison(jid = "") {
 
 /**
  * Register a mapping from temp ID to real phone number
- * Call this when you detect the owner using a temp ID
  */
 export function registerTempIdMapping(tempId, realPhone) {
   const cleanTemp = normalizeToPhone(tempId);
   const cleanReal = normalizeToPhone(realPhone);
 
   if (cleanTemp && cleanReal && cleanTemp !== cleanReal) {
-    // Don't map if it's already a real number
     if (cleanTemp.length >= 10 && cleanTemp.length <= 13 && !cleanTemp.startsWith("2231")) {
       console.log(`[TempMapping] ${cleanTemp} looks like a real number, not mapping`);
       return false;
     }
-
     tempIdMapping.set(cleanTemp, cleanReal);
     reverseMapping.set(cleanReal, cleanTemp);
     console.log(`✅ [TempMapping] Mapped: ${cleanTemp} → ${cleanReal}`);
@@ -304,19 +256,16 @@ export function registerTempIdMapping(tempId, realPhone) {
 
 /**
  * Get real phone number from any JID (handles temp IDs automatically)
- * This is the MAIN function to use for all owner checks
  */
 export function getRealPhoneFromJid(jid) {
   const cleanJid = normalizeToPhone(jid);
 
-  // Check if this JID is a temp ID that we have mapped
   if (tempIdMapping.has(cleanJid)) {
     const realNumber = tempIdMapping.get(cleanJid);
     console.log(`[getRealPhone] Mapped: ${cleanJid} → ${realNumber}`);
     return realNumber;
   }
 
-  // Check if any mapped temp ID is contained in this JID
   for (const [tempId, realNum] of tempIdMapping.entries()) {
     if (cleanJid.includes(tempId) || tempId.includes(cleanJid)) {
       console.log(`[getRealPhone] Partial match: ${cleanJid} → ${realNum}`);
@@ -329,7 +278,6 @@ export function getRealPhoneFromJid(jid) {
 
 /**
  * Auto-detect and map temp ID when owner sends a message
- * Call this in your message handler for EVERY message
  */
 export function autoMapOwnerTempId(senderJid, ownerPhone) {
   if (!senderJid || !ownerPhone) return false;
@@ -337,18 +285,18 @@ export function autoMapOwnerTempId(senderJid, ownerPhone) {
   const senderClean = normalizeToPhone(senderJid);
   const ownerClean = normalizeToPhone(ownerPhone);
 
-  // If sender already matches owner, no mapping needed
-  if (senderClean === ownerClean) {
-    return false;
-  }
+  if (senderClean === ownerClean) return false;
 
-  // Check if this is a temp ID (starts with 2231 or is very long)
-  const isTempId = senderClean.startsWith("2231") || senderClean.length > 13 || senderClean.length < 10;
+  const isTempId =
+    senderClean.startsWith("2231") ||
+    senderClean.length > 13 ||
+    senderClean.length < 10;
 
   if (isTempId) {
-    // Check if we already have this mapping
     if (!tempIdMapping.has(senderClean)) {
-      console.log(`📝 [AutoMap] Detected temp ID: ${senderClean} → mapping to owner: ${ownerClean}`);
+      console.log(
+        `📝 [AutoMap] Detected temp ID: ${senderClean} → mapping to owner: ${ownerClean}`,
+      );
       registerTempIdMapping(senderClean, ownerClean);
       return true;
     }
@@ -358,7 +306,7 @@ export function autoMapOwnerTempId(senderJid, ownerPhone) {
 }
 
 /**
- * Clear all temp ID mappings (useful for debugging/reset)
+ * Clear all temp ID mappings
  */
 export function clearTempIdMappings() {
   tempIdMapping.clear();
@@ -373,7 +321,7 @@ export function getTempIdMappings() {
   return Array.from(tempIdMapping.entries()).map(([temp, real]) => ({
     tempId: temp,
     realNumber: real,
-    isActive: true
+    isActive: true,
   }));
 }
 
@@ -393,7 +341,9 @@ export function normalizeToPhone(jid) {
   const cleanForLookup = str.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
   if (tempIdMapping.has(cleanForLookup)) {
     if (ENV.DEBUG) {
-      console.log(`[normalizeToPhone] Using mapped: ${cleanForLookup} → ${tempIdMapping.get(cleanForLookup)}`);
+      console.log(
+        `[normalizeToPhone] Using mapped: ${cleanForLookup} → ${tempIdMapping.get(cleanForLookup)}`,
+      );
     }
     return tempIdMapping.get(cleanForLookup);
   }
@@ -404,18 +354,25 @@ export function normalizeToPhone(jid) {
   let phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
 
   // Method 2: If result is invalid (temp ID like 223175560437838)
-  if (phoneNumber.length > 13 || phoneNumber.length < 9 || phoneNumber.startsWith("0") || phoneNumber.startsWith("2231")) {
-    // Look for Nigerian number pattern first
+  if (
+    phoneNumber.length > 13 ||
+    phoneNumber.length < 9 ||
+    phoneNumber.startsWith("0") ||
+    phoneNumber.startsWith("2231")
+  ) {
     const nigerianMatch = str.match(/234[0-9]{10}/);
     if (nigerianMatch) {
       phoneNumber = nigerianMatch[0];
     } else {
-      // Look for valid phone number pattern (10-13 digits)
       const matches = str.match(/\d{9,13}/g);
       if (matches && matches.length > 0) {
         for (const match of matches) {
-          // Valid phone: 10-13 digits, doesn't start with 0 or 2231 (temp ID pattern)
-          if (match.length >= 10 && match.length <= 13 && !match.startsWith("0") && !match.startsWith("2231")) {
+          if (
+            match.length >= 10 &&
+            match.length <= 13 &&
+            !match.startsWith("0") &&
+            !match.startsWith("2231")
+          ) {
             phoneNumber = match;
             break;
           }
@@ -425,21 +382,32 @@ export function normalizeToPhone(jid) {
   }
 
   // Method 3: Check for phone before colon (format: 2349159180375:58@...)
-  if ((phoneNumber.length > 13 || phoneNumber.startsWith("2231")) && str.includes(":")) {
+  if (
+    (phoneNumber.length > 13 || phoneNumber.startsWith("2231")) &&
+    str.includes(":")
+  ) {
     const beforeColon = str.split(":")[0].replace(/[^0-9]/g, "");
-    if (beforeColon.length >= 10 && beforeColon.length <= 13 && !beforeColon.startsWith("2231")) {
+    if (
+      beforeColon.length >= 10 &&
+      beforeColon.length <= 13 &&
+      !beforeColon.startsWith("2231")
+    ) {
       phoneNumber = beforeColon;
     }
   }
 
   // Method 4: Look for Nigerian/International phone pattern
-  if (phoneNumber.length > 13 || phoneNumber.length < 10 || phoneNumber.startsWith("2231")) {
+  if (
+    phoneNumber.length > 13 ||
+    phoneNumber.length < 10 ||
+    phoneNumber.startsWith("2231")
+  ) {
     const patterns = [
-      /234[0-9]{10}/,           // Nigerian: 234XXXXXXXXXX
-      /[0-9]{13}/,              // 13 digit numbers
-      /[0-9]{12}/,              // 12 digit numbers
-      /[0-9]{11}/,              // 11 digit numbers
-      /[0-9]{10}/               // 10 digit numbers
+      /234[0-9]{10}/, // Nigerian: 234XXXXXXXXXX
+      /[0-9]{13}/, // 13 digit numbers
+      /[0-9]{12}/, // 12 digit numbers
+      /[0-9]{11}/, // 11 digit numbers
+      /[0-9]{10}/, // 10 digit numbers
     ];
 
     for (const pattern of patterns) {
@@ -451,12 +419,17 @@ export function normalizeToPhone(jid) {
     }
   }
 
-  // Final fallback: if we still have a temp ID, try to extract from the original string differently
+  // Final fallback
   if (phoneNumber.startsWith("2231") || phoneNumber.length > 13) {
     const allNumbers = str.match(/\d+/g);
     if (allNumbers) {
       for (const num of allNumbers) {
-        if (num.length >= 10 && num.length <= 13 && !num.startsWith("2231") && !num.startsWith("0")) {
+        if (
+          num.length >= 10 &&
+          num.length <= 13 &&
+          !num.startsWith("2231") &&
+          !num.startsWith("0")
+        ) {
           phoneNumber = num;
           break;
         }
@@ -480,7 +453,6 @@ export const normalizePhone = normalizeToPhone;
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 
-// Store bot number globally
 let globalBotNumber = null;
 
 export function setGlobalBotNumber(number) {
@@ -498,7 +470,6 @@ export function getGlobalBotNumber() {
 export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
 
-  // Use getRealPhoneFromJid to resolve temp IDs
   const user = getRealPhoneFromJid(userJid);
   const owner = normalizePhone(botOwnerJid);
 
@@ -517,44 +488,46 @@ export function isBotOwner(userJid, botOwnerJid) {
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
 
-  // Use getRealPhoneFromJid to resolve temp IDs
   const user = getRealPhoneFromJid(userJid);
   const owner = normalizePhone(ownerPhone);
 
-  // Debug logging
   if (ENV.DEBUG) {
     console.log(`[isAdmin] User raw: ${userJid} → resolved: ${user}`);
     console.log(`[isAdmin] Owner raw: ${ownerPhone} → normalized: ${owner}`);
   }
 
-  // Direct match
   if (user === owner) {
     console.log(`[isAdmin] ✅ Direct match! User is owner`);
     return true;
   }
 
-  // Check if user normalized contains owner normalized
   if (user && owner && (user.includes(owner) || owner.includes(user))) {
     console.log(`[isAdmin] ✅ Partial match! User is owner`);
     return true;
   }
 
-  // Check raw strings
   const userStr = String(userJid);
   const ownerStr = String(ownerPhone);
-  if (userStr.includes(owner) || ownerStr.includes(user) || userStr.includes(ownerStr) || ownerStr.includes(userStr)) {
+  if (
+    userStr.includes(owner) ||
+    ownerStr.includes(user) ||
+    userStr.includes(ownerStr) ||
+    ownerStr.includes(userStr)
+  ) {
     console.log(`[isAdmin] ✅ String match! User is owner`);
     return true;
   }
 
-  // Check against global bot number
   if (globalBotNumber) {
     const botNorm = normalizePhone(globalBotNumber);
     if (user === botNorm && botNorm === owner) {
       console.log(`[isAdmin] ✅ Bot number match!`);
       return true;
     }
-    if (userStr.includes(globalBotNumber) || globalBotNumber.includes(userStr)) {
+    if (
+      userStr.includes(globalBotNumber) ||
+      globalBotNumber.includes(userStr)
+    ) {
       console.log(`[isAdmin] ✅ Bot number string match!`);
       return true;
     }
@@ -567,13 +540,17 @@ export function isAdmin(userJid, ownerPhone) {
 // ============================================================
 //   CHECK IF BOT IS GROUP ADMIN (With Owner Inheritance)
 // ============================================================
-export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypassCache = false) {
+export async function isBotGroupAdmin(
+  sock,
+  groupJid,
+  botOwnerJid = null,
+  bypassCache = false,
+) {
   try {
     if (!sock || !groupJid) return false;
 
     const cacheKey = `bot_admin_${groupJid}`;
 
-    // Check cache first
     if (!bypassCache && adminStatusCache.has(cacheKey)) {
       const cached = adminStatusCache.get(cacheKey);
       if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
@@ -581,21 +558,20 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
-    // Get bot's phone number
     const botRaw = sock.user?.id || "";
     const botPhone = normalizePhone(botRaw);
 
     if (!botPhone) {
-      console.log(`[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`);
+      console.log(
+        `[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`,
+      );
       return false;
     }
 
-    // Store globally if not set
     if (!globalBotNumber) {
       setGlobalBotNumber(botPhone);
     }
 
-    // Fetch group metadata
     const groupMetadata = await sock.groupMetadata(groupJid);
     if (!groupMetadata || !groupMetadata.participants) {
       return false;
@@ -610,8 +586,10 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
-    const botIsLiteralAdmin = botParticipant &&
-      (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
+    const botIsLiteralAdmin =
+      botParticipant &&
+      (botParticipant.admin === "admin" ||
+        botParticipant.admin === "superadmin");
 
     if (botIsLiteralAdmin) {
       console.log(`[isBotGroupAdmin] Bot is literal admin in ${groupJid}`);
@@ -625,23 +603,30 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
 
     // CHECK 2: Is bot owner a group admin? (Inheritance)
     if (botOwnerJid) {
-      const ownerPhone = getRealPhoneFromJid(botOwnerJid); // Use mapped phone
+      const ownerPhone = getRealPhoneFromJid(botOwnerJid);
 
       if (ownerPhone) {
         let ownerParticipant = null;
         for (const p of groupMetadata.participants) {
           const pNorm = normalizePhone(p.id);
-          if (pNorm === ownerPhone || (ownerPhone && pNorm.includes(ownerPhone))) {
+          if (
+            pNorm === ownerPhone ||
+            (ownerPhone && pNorm.includes(ownerPhone))
+          ) {
             ownerParticipant = p;
             break;
           }
         }
 
-        const ownerIsGroupAdmin = ownerParticipant &&
-          (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
+        const ownerIsGroupAdmin =
+          ownerParticipant &&
+          (ownerParticipant.admin === "admin" ||
+            ownerParticipant.admin === "superadmin");
 
         if (ownerIsGroupAdmin) {
-          console.log(`[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`);
+          console.log(
+            `[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`,
+          );
           adminStatusCache.set(cacheKey, {
             isAdmin: true,
             timestamp: Date.now(),
@@ -652,7 +637,6 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
-    // Neither bot nor owner is admin
     adminStatusCache.set(cacheKey, {
       isAdmin: false,
       timestamp: Date.now(),
@@ -660,7 +644,6 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
     });
 
     return false;
-
   } catch (error) {
     console.log(`[isBotGroupAdmin] Error: ${error.message}`);
     return false;
@@ -670,16 +653,20 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
 // ============================================================
 //   CHECK IF USER IS GROUP ADMIN
 // ============================================================
-export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = null) {
+export async function isUserGroupAdmin(
+  sock,
+  groupJid,
+  userJid,
+  botOwnerJid = null,
+) {
   try {
     if (!sock || !groupJid || !userJid) return false;
 
-    const userPhone = getRealPhoneFromJid(userJid); // Use mapped phone
+    const userPhone = getRealPhoneFromJid(userJid);
     if (!userPhone) return false;
 
     const cacheKey = `user_admin_${groupJid}_${userPhone}`;
 
-    // Check cache
     if (adminStatusCache.has(cacheKey)) {
       const cached = adminStatusCache.get(cacheKey);
       if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
@@ -687,10 +674,14 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
       }
     }
 
-    // Bot owner always has admin privileges everywhere
     if (botOwnerJid) {
       const ownerPhone = getRealPhoneFromJid(botOwnerJid);
-      if (ownerPhone && (userPhone === ownerPhone || userPhone.includes(ownerPhone) || ownerPhone.includes(userPhone))) {
+      if (
+        ownerPhone &&
+        (userPhone === ownerPhone ||
+          userPhone.includes(ownerPhone) ||
+          ownerPhone.includes(userPhone))
+      ) {
         adminStatusCache.set(cacheKey, {
           isAdmin: true,
           timestamp: Date.now(),
@@ -700,7 +691,6 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
       }
     }
 
-    // Check group membership
     const groupMetadata = await sock.groupMetadata(groupJid);
     if (!groupMetadata || !groupMetadata.participants) {
       return false;
@@ -715,17 +705,17 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
       }
     }
 
-    const isAdmin = participant &&
+    const isAdminResult =
+      participant &&
       (participant.admin === "admin" || participant.admin === "superadmin");
 
     adminStatusCache.set(cacheKey, {
-      isAdmin,
+      isAdmin: isAdminResult,
       timestamp: Date.now(),
       reason: "group_check",
     });
 
-    return isAdmin;
-
+    return isAdminResult;
   } catch (error) {
     console.log(`[isUserGroupAdmin] Error: ${error.message}`);
     return false;
@@ -759,29 +749,31 @@ export async function hasGroupAdminPermission(sock, msg, session) {
   const from = msg.key.remoteJid;
   const isGroup = from?.endsWith("@g.us");
 
-  // Step 1: Check if command is used in a group
   if (!isGroup) {
     return {
       allowed: false,
-      reason: "❌ This command only works in groups!"
+      reason: "❌ This command only works in groups!",
     };
   }
 
   const senderJid = msg.key.participant || msg.key.remoteJid;
-  const botOwnerJid = session?.ownerJid ||
+  const botOwnerJid =
+    session?.ownerJid ||
     (ENV.ADMIN ? `${normalizePhone(ENV.ADMIN)}@s.whatsapp.net` : null);
 
-  // Step 2: Check if sender is bot owner (always allowed)
   if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
-    console.log(`[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`);
-    return {
-      allowed: true,
-      reason: "Bot owner"
-    };
+    console.log(
+      `[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`,
+    );
+    return { allowed: true, reason: "Bot owner" };
   }
 
-  // Step 3: Check if sender is a group admin
-  const userIsAdmin = await isUserGroupAdmin(sock, from, senderJid, botOwnerJid);
+  const userIsAdmin = await isUserGroupAdmin(
+    sock,
+    from,
+    senderJid,
+    botOwnerJid,
+  );
 
   if (!userIsAdmin) {
     return {
@@ -790,24 +782,20 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     };
   }
 
-  // Step 4: Check if bot has admin rights (literal OR inherited from owner)
   const botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid);
 
   if (!botHasAdmin) {
-    // One retry with cache bypass
     const retried = await isBotGroupAdmin(sock, from, botOwnerJid, true);
     if (!retried) {
       return {
         allowed: false,
-        reason: "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* (or the bot owner must be a group admin) to perform this action!\n\n💡 *How to fix:*\n1. Make me a group admin, OR\n2. Make the bot owner a group admin\n3. Run .refreshadmin",
+        reason:
+          "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* (or the bot owner must be a group admin) to perform this action!\n\n💡 *How to fix:*\n1. Make me a group admin, OR\n2. Make the bot owner a group admin\n3. Run .refreshadmin",
       };
     }
   }
 
-  return {
-    allowed: true,
-    reason: "Group admin"
-  };
+  return { allowed: true, reason: "Group admin" };
 }
 
 // ============================================================
@@ -1339,7 +1327,10 @@ async function ensureMongoConnection() {
     userLogCollection = db.collection("user_log");
 
     await authCollection.createIndex({ _id: 1 });
-    await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true });
+    await sessionMetaCollection.createIndex(
+      { sessionId: 1 },
+      { unique: true },
+    );
     await sessionMetaCollection.createIndex({ active: 1 });
     await sessionMetaCollection.createIndex({ updatedAt: -1 });
     await userLogCollection.createIndex({ phone: 1 }, { unique: true });
@@ -1407,7 +1398,9 @@ async function loadHandlersForSession(session) {
   }
 
   session.handlersReady = !!session.commandHandler;
-  log.ok(`[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`);
+  log.ok(
+    `[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`,
+  );
 }
 
 // ============================================================
@@ -1438,25 +1431,107 @@ async function processMessageQueue(session) {
 }
 
 // ============================================================
+//   USER TRACKING
+// ============================================================
+async function trackUser(session) {
+  if (!userLogCollection || !session.ownerPhone) return;
+  try {
+    await userLogCollection.updateOne(
+      { phone: session.ownerPhone },
+      {
+        $set: {
+          phone: session.ownerPhone,
+          name: session.ownerName || "Unknown",
+          sessionId: session.id,
+          botNumber: session.botNumber,
+          authMethod: session.authMethod,
+          lastSeen: new Date(),
+          updatedAt: new Date(),
+        },
+        $setOnInsert: { firstSeen: new Date(), createdAt: new Date() },
+        $inc: { totalSessions: 1 },
+      },
+      { upsert: true },
+    );
+  } catch (err) {
+    log.warn(`[${session.id.slice(0, 8)}] Track user error: ${err.message}`);
+  }
+}
+
+async function updateUserMessageCount(session) {
+  if (!userLogCollection || !session.ownerPhone) return;
+  try {
+    await userLogCollection.updateOne(
+      { phone: session.ownerPhone },
+      { $set: { lastSeen: new Date() }, $inc: { totalMessages: 1 } },
+    );
+  } catch (err) {
+    log.debug(`User message count update failed: ${err.message}`);
+  }
+}
+
+// ============================================================
+//   OWNER HELPERS
+//   *** MUST BE DEFINED BEFORE _startSocket ***
+// ============================================================
+function setSessionOwner(session, jid, phone, name = "Owner") {
+  const cleanPhone = normalizePhone(phone);
+  const cleanJid = `${cleanPhone}@s.whatsapp.net`;
+  const cleanName =
+    name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
+
+  session.ownerJid = cleanJid;
+  session.ownerPhone = cleanPhone;
+  session.ownerName = cleanName;
+
+  if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
+
+  sessionMetaCollection
+    ?.updateOne(
+      { sessionId: session.id },
+      {
+        $set: {
+          ownerPhone: cleanPhone,
+          ownerName: cleanName,
+          botNumber: session.botNumber,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    )
+    .catch(() => {});
+
+  trackUser(session).catch(() => {});
+  log.ok(
+    `[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`,
+  );
+}
+
+// ============================================================
 //   ATTACH MESSAGE LISTENERS
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
   const sid = session.id.slice(0, 8);
 
- // ✅ ADD THIS GROUP PARTICIPANT HANDLER WITH INHERITANCE
+  // Group participant handler (with admin inheritance)
   sock.ev.on("group-participants.update", async (update) => {
     try {
       const { id: groupJid, participants, action } = update;
 
-      // When bot joins a new group
-      if (action === "add" && participants.includes(session.botSelfJid)) {
+      // When bot joins a new group — attempt admin inheritance
+      if (action === "add" && session.botSelfJid && participants.includes(session.botSelfJid)) {
         log.info(`[${sid}] Bot added to group: ${groupJid}`);
-        // Wait a few seconds for WhatsApp to register
         setTimeout(async () => {
           try {
-            const { ensureBotAdminInheritance } = await import("./utils/validators.js");
-            await ensureBotAdminInheritance(groupJid, sock, session.ownerJid);
+            const { ensureBotAdminInheritance } = await import(
+              "./utils/validators.js"
+            );
+            await ensureBotAdminInheritance(
+              groupJid,
+              sock,
+              session.ownerJid,
+            );
           } catch (err) {
             log.warn(`[${sid}] Inheritance failed: ${err.message}`);
           }
@@ -1505,6 +1580,17 @@ function attachListeners(session) {
         rawSender = from;
       }
 
+      // ── Auto-map owner temp ID (no circular import needed — same file) ──
+      const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
+      if (ownerPhoneFromEnv && rawSender && !session.destroyed) {
+        const wasMapped = autoMapOwnerTempId(rawSender, ownerPhoneFromEnv);
+        if (wasMapped) {
+          log.ok(
+            `[${sid}] ✅ Mapped owner's temp ID: ${rawSender} → ${ownerPhoneFromEnv}`,
+          );
+        }
+      }
+
       const senderPhone = normalizePhone(rawSender);
       const senderJid = senderPhone
         ? `${senderPhone}@s.whatsapp.net`
@@ -1513,7 +1599,8 @@ function attachListeners(session) {
 
       if (messageText) {
         const logMessage =
-          messageText.substring(0, 60) + (messageText.length > 60 ? "…" : "");
+          messageText.substring(0, 60) +
+          (messageText.length > 60 ? "…" : "");
         log.msg(
           `[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${logMessage}`,
         );
@@ -1540,7 +1627,8 @@ function attachListeners(session) {
       }
 
       if (!session.handlersReady || !session.commandHandler) {
-        if (!messageQueues.has(session.id)) messageQueues.set(session.id, []);
+        if (!messageQueues.has(session.id))
+          messageQueues.set(session.id, []);
         const queue = messageQueues.get(session.id);
         if (queue.length >= MAX_QUEUE_SIZE) queue.shift();
         queue.push({ msg, sock });
@@ -1566,7 +1654,7 @@ function attachListeners(session) {
           await sock.sendMessage(from, {
             text: `❌ *Error*: ${cmdError.message.substring(0, 100)}`,
           });
-        } catch (sendError) {}
+        } catch (_) {}
       }
     } catch (e) {
       if (
@@ -1575,15 +1663,6 @@ function attachListeners(session) {
       ) {
         log.err(`[${sid}] Message processing error: ${e.message}`);
       }
-    }
-  });
-
-  sock.ev.on("group-participants.update", async (update) => {
-    try {
-      if (!session.connected || !session.groupHandler) return;
-      await session.groupHandler(update, sock);
-    } catch (err) {
-      log.warn(`[${sid}] Group handler error: ${err.message}`);
     }
   });
 
@@ -1609,47 +1688,6 @@ function attachListeners(session) {
 
   log.ok(`[${sid}] Listeners attached`);
 }
-
-// ============================================================
-//   USER TRACKING
-// ============================================================
-async function trackUser(session) {
-  if (!userLogCollection || !session.ownerPhone) return;
-  try {
-    await userLogCollection.updateOne(
-      { phone: session.ownerPhone },
-      {
-        $set: {
-          phone: session.ownerPhone,
-          name: session.ownerName || "Unknown",
-          sessionId: session.id,
-          botNumber: session.botNumber,
-          authMethod: session.authMethod,
-          lastSeen: new Date(),
-          updatedAt: new Date(),
-        },
-        $setOnInsert: { firstSeen: new Date(), createdAt: new Date() },
-        $inc: { totalSessions: 1 },
-      },
-      { upsert: true },
-    );
-  } catch (err) {
-    log.warn(`[${session.id.slice(0, 8)}] Track user error: ${err.message}`);
-  }
-}
-
-async function updateUserMessageCount(session) {
-  if (!userLogCollection || !session.ownerPhone) return;
-  try {
-    await userLogCollection.updateOne(
-      { phone: session.ownerPhone },
-      { $set: { lastSeen: new Date() }, $inc: { totalMessages: 1 } },
-    );
-  } catch (err) {
-    log.debug(`User message count update failed: ${err.message}`);
-  }
-}
-
 
 // ============================================================
 //   WELCOME MESSAGE
@@ -1683,7 +1721,11 @@ async function sendWelcomeMessage(session, sock) {
         ? session.ownerName
         : null;
 
-    const caption = `━━━━━━━━━━━━━━━━━━━━━━\n🤖  *AYOBOT v1*  •  Online\n━━━━━━━━━━━━━━━━━━━━━━\n\n${speedIcon} *${connectSecs}s*\n\n┌─ *Bot Info* ──────────────\n│ 📱 +${session.botNumber}\n${displayName ? `│ 👤 ${displayName}\n` : ""}│ 💾 ${usedMB}/${totalMB} MB\n│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n│ 📦 v${ENV.BOT_VERSION}\n└───────────────────────\n\n👑 *Owner:* +${session.ownerPhone}\n_Full admin access_\n\nType *${ENV.PREFIX}menu* for commands`;
+    const caption =
+      `━━━━━━━━━━━━━━━━━━━━━━\n🤖  *AYOBOT v1*  •  Online\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `${speedIcon} *${connectSecs}s*\n\n┌─ *Bot Info* ──────────────\n│ 📱 +${session.botNumber}\n` +
+      `${displayName ? `│ 👤 ${displayName}\n` : ""}│ 💾 ${usedMB}/${totalMB} MB\n│ ⚡ ${session.mode || ENV.BOT_MODE} mode\n│ 📦 v${ENV.BOT_VERSION}\n└───────────────────────\n\n` +
+      `👑 *Owner:* +${session.ownerPhone}\n_Full admin access_\n\nType *${ENV.PREFIX}menu* for commands`;
 
     try {
       await sock.sendMessage(session.ownerJid, {
@@ -1717,15 +1759,15 @@ async function clearSessionAuth(sessionId) {
     });
     log.info(`[${sessionId.slice(0, 8)}] Auth cleared from MongoDB`);
   } catch (e) {
-    log.warn(`[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`);
+    log.warn(
+      `[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`,
+    );
   }
 }
 
 // ============================================================
-//   START SESSION WITH LOCK - COMPLETE FIXED VERSION
-//   WITH OWNER TEMP ID MAPPING
+//   START SESSION WITH LOCK
 // ============================================================
-
 async function startSession(sessionId, isNew = true) {
   if (sessionCreationLocks.has(sessionId)) {
     return sessionCreationLocks.get(sessionId);
@@ -1769,6 +1811,12 @@ async function startSession(sessionId, isNew = true) {
   }
 }
 
+// ============================================================
+//   _startSocket — FIXED
+//   • setSessionOwner is now defined above this function
+//   • No circular import("../index.js") — autoMapOwnerTempId
+//     is called directly (it lives in this same file)
+// ============================================================
 async function _startSocket(session) {
   if (session.destroyed) return;
   const sid = session.id.slice(0, 8);
@@ -1803,7 +1851,11 @@ async function _startSocket(session) {
       emitOwnEvents: true,
       shouldIgnoreJid: (j) => isJidBroadcast(j),
       patchMessageBeforeSending: (msg) => {
-        if (msg.buttonsMessage || msg.templateMessage || msg.listMessage) {
+        if (
+          msg.buttonsMessage ||
+          msg.templateMessage ||
+          msg.listMessage
+        ) {
           msg = {
             viewOnceMessage: {
               message: {
@@ -1863,52 +1915,49 @@ async function _startSocket(session) {
         session.botNumber = botNumber;
         session.botName = userName || botNumber;
 
-        // ====== OWNER TEMP ID MAPPING - CRITICAL FIX ======
-        // Get owner phone from ENV
+        // ── Set owner from ENV immediately on connect ──
         const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
-
         if (ownerPhoneFromEnv) {
           const ownerClean = normalizePhone(ownerPhoneFromEnv);
           console.log(`[${sid}] 👑 Owner phone in ENV: ${ownerClean}`);
 
-          // Store owner info in session if not already set
           if (!session.ownerPhone) {
+            // setSessionOwner is now defined above — no crash
             setSessionOwner(
               session,
               `${ownerClean}@s.whatsapp.net`,
               ownerClean,
               userName || "Owner",
             );
+          } else if (userName && session.ownerName === "Owner") {
+            session.ownerName = userName;
+            sessionMetaCollection
+              ?.updateOne(
+                { sessionId: session.id },
+                { $set: { ownerName: userName } },
+              )
+              .catch(() => {});
           }
-
-          // Pre-register that the owner's real number is known
-          // This helps with temp ID detection later
           console.log(`[${sid}] 📝 Owner registered: +${ownerClean}`);
-        }
-        // ====== END OWNER TEMP ID MAPPING ======
-
-        if (!session.ownerPhone) {
-          setSessionOwner(
-            session,
-            `${botNumber}@s.whatsapp.net`,
-            botNumber,
-            userName || "Owner",
-          );
-          if (!session.authMethod) session.authMethod = "session";
-        } else if (userName && session.ownerName === "Owner") {
-          session.ownerName = userName;
-          sessionMetaCollection
-            ?.updateOne(
-              { sessionId: session.id },
-              { $set: { ownerName: userName } },
-            )
-            .catch(() => {});
+        } else {
+          // Fallback: use bot number as owner if no ENV set
+          if (!session.ownerPhone) {
+            setSessionOwner(
+              session,
+              `${botNumber}@s.whatsapp.net`,
+              botNumber,
+              userName || "Owner",
+            );
+            if (!session.authMethod) session.authMethod = "session";
+          }
         }
 
         await saveCreds();
         await loadHandlersForSession(session);
         attachListeners(session);
-        log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
+        log.ok(
+          `[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`,
+        );
         await processMessageQueue(session);
         sendWelcomeMessage(session, sock).catch((err) =>
           log.warn(`[${sid}] Welcome error: ${err.message}`),
@@ -1943,8 +1992,12 @@ async function _startSocket(session) {
         }
 
         session.reconnectAttempts++;
-        const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
-        if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+        const backoff = Math.min(
+          5000 * session.reconnectAttempts,
+          30000,
+        );
+        if (session.reconnectTimeout)
+          clearTimeout(session.reconnectTimeout);
         session.reconnectTimeout = setTimeout(
           () => _startSocket(session),
           backoff,
@@ -1953,35 +2006,12 @@ async function _startSocket(session) {
     });
 
     sock.ev.on("creds.update", saveCreds);
-
-    // ====== ADD MESSAGE LISTENER FOR TEMP ID MAPPING ======
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify" && type !== "append") return;
-      const msg = messages[0];
-      if (!msg?.message) return;
-
-      // Auto-map owner's temp ID when they send a message
-      const senderJid = msg.key?.participant || msg.key?.remoteJid;
-      const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
-
-      if (ownerPhoneFromEnv && senderJid && !session.destroyed) {
-        // Import the mapping function
-        const { autoMapOwnerTempId } = await import("../index.js");
-        const wasMapped = autoMapOwnerTempId(senderJid, ownerPhoneFromEnv);
-        if (wasMapped) {
-          log.ok(`[${sid}] ✅ Mapped owner's temp ID: ${senderJid} → ${ownerPhoneFromEnv}`);
-        }
-      }
-    });
-    // ====== END MESSAGE LISTENER ======
-
   } catch (e) {
     log.err(`[${sid}] Socket startup error: ${e.message}`);
-    if (!session.destroyed) setTimeout(() => _startSocket(session), 10000);
+    if (!session.destroyed)
+      setTimeout(() => _startSocket(session), 10000);
   }
 }
-
-
 
 // ============================================================
 //   DESTROY SESSION
@@ -1995,7 +2025,8 @@ async function destroySession(sessionId) {
   if (session.ownerPhone) sessionOwnerMap.delete(session.ownerPhone);
   if (session.pingInterval) clearInterval(session.pingInterval);
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
-  if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
+  if (session.pairingCodeTimeout)
+    clearTimeout(session.pairingCodeTimeout);
   if (session.queueTimeout) clearTimeout(session.queueTimeout);
 
   if (session.sock) {
@@ -2021,9 +2052,13 @@ async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
   if (clean.length < 10 || clean.length > 15)
     return { success: false, error: "Phone must be 10–15 digits" };
-  if (session.connected) return { success: false, error: "Already connected" };
+  if (session.connected)
+    return { success: false, error: "Already connected" };
   if (!session.sock)
-    return { success: false, error: "Bot starting up — wait a moment" };
+    return {
+      success: false,
+      error: "Bot starting up — wait a moment",
+    };
 
   if (session.pairingCode && session.pairingExpiry > Date.now()) {
     return {
@@ -2047,14 +2082,17 @@ async function requestPairingCode(session, phoneNumber) {
     session.pairingExpiry = Date.now() + 60000;
     session.authMethod = "pairing";
 
-    if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
+    if (session.pairingCodeTimeout)
+      clearTimeout(session.pairingCodeTimeout);
     session.pairingCodeTimeout = setTimeout(() => {
       session.pairingCode = null;
       session.pairingPhone = null;
       session.pairingExpiry = null;
     }, 60000);
 
-    log.ok(`[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`);
+    log.ok(
+      `[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`,
+    );
     return {
       success: true,
       code,
@@ -2063,13 +2101,15 @@ async function requestPairingCode(session, phoneNumber) {
       expiresIn: 60,
     };
   } catch (e) {
-    log.err(`[${session.id.slice(0, 8)}] Pairing code failed: ${e.message}`);
+    log.err(
+      `[${session.id.slice(0, 8)}] Pairing code failed: ${e.message}`,
+    );
     return { success: false, error: e.message };
   }
 }
 
 // ============================================================
-//   HTML TEMPLATES (COMPLETELY REDESIGNED UI/UX)
+//   HTML TEMPLATES
 // ============================================================
 
 function sharedHead(title) {
@@ -2082,309 +2122,44 @@ function sharedHead(title) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: 'Inter', sans-serif;
-      background: linear-gradient(135deg, #0a0a0f 0%, #0f0f1a 100%);
-      color: #e8e8f0;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-
-    /* Glass morphism effect */
-    .glass {
-      background: rgba(20, 20, 30, 0.7);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-    }
-
-    /* Gradient borders */
-    .gradient-border {
-      position: relative;
-      background: rgba(15, 15, 25, 0.9);
-      border-radius: 20px;
-    }
-
-    .gradient-border::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: 20px;
-      padding: 1px;
-      background: linear-gradient(135deg, #ff3366, #ff6b3d, #ffb347);
-      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      pointer-events: none;
-    }
-
-    /* Animated gradient text */
-    .gradient-text {
-      background: linear-gradient(135deg, #ff3366, #ff6b3d, #ffb347);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      background-size: 200% 200%;
-      animation: gradientShift 3s ease infinite;
-    }
-
-    @keyframes gradientShift {
-      0%, 100% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-    }
-
-    /* Glow effects */
-    .glow-red {
-      box-shadow: 0 0 20px rgba(255, 51, 102, 0.3);
-    }
-
-    .glow-gold {
-      box-shadow: 0 0 20px rgba(255, 180, 71, 0.3);
-    }
-
-    /* Cards */
-    .card {
-      background: rgba(20, 20, 30, 0.8);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 20px;
-      transition: all 0.3s ease;
-    }
-
-    .card:hover {
-      transform: translateY(-2px);
-      border-color: rgba(255, 51, 102, 0.3);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    }
-
-    /* Buttons */
-    .btn-primary {
-      background: linear-gradient(135deg, #ff3366, #ff6b3d);
-      border: none;
-      padding: 12px 28px;
-      border-radius: 12px;
-      font-weight: 600;
-      font-size: 14px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      color: white;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 20px rgba(255, 51, 102, 0.4);
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 10px 24px;
-      border-radius: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      color: #e8e8f0;
-    }
-
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 51, 102, 0.5);
-    }
-
-    .btn-danger {
-      background: linear-gradient(135deg, #dc2626, #b91c1c);
-      border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-weight: 600;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      color: white;
-    }
-
-    .btn-danger:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 5px 15px rgba(220, 38, 38, 0.4);
-    }
-
-    /* Status indicators */
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    .status-online {
-      background: rgba(34, 197, 94, 0.15);
-      color: #22c55e;
-      border: 1px solid rgba(34, 197, 94, 0.3);
-    }
-
-    .status-offline {
-      background: rgba(107, 114, 128, 0.15);
-      color: #9ca3af;
-      border: 1px solid rgba(107, 114, 128, 0.3);
-    }
-
-    /* Tables */
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    .data-table th {
-      text-align: left;
-      padding: 16px;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #9ca3af;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .data-table td {
-      padding: 16px;
-      font-size: 14px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    /* Navbar */
-    .navbar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      background: rgba(10, 10, 15, 0.95);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      z-index: 1000;
-      padding: 0 32px;
-      height: 70px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .logo {
-      font-size: 24px;
-      font-weight: 800;
-      background: linear-gradient(135deg, #ff3366, #ff6b3d);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
-
-    /* Animations */
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .animate-fade-in {
-      animation: fadeInUp 0.6s ease forwards;
-    }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 10px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255, 51, 102, 0.5);
-      border-radius: 10px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 51, 102, 0.7);
-    }
-
-    /* Loading spinner */
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(255, 51, 102, 0.2);
-      border-top-color: #ff3366;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* QR Code container */
-    .qr-container {
-      background: white;
-      padding: 20px;
-      border-radius: 20px;
-      display: inline-block;
-    }
-
-    .qr-container img {
-      width: 200px;
-      height: 200px;
-    }
-
-    /* Toast notifications */
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: rgba(0, 0, 0, 0.9);
-      backdrop-filter: blur(10px);
-      padding: 12px 20px;
-      border-radius: 12px;
-      border-left: 3px solid #ff3366;
-      z-index: 1100;
-      animation: slideIn 0.3s ease;
-    }
-
-    @keyframes slideIn {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
-    }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .navbar {
-        padding: 0 16px;
-      }
-      .data-table th, .data-table td {
-        padding: 12px 8px;
-        font-size: 12px;
-      }
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #0a0a0f 0%, #0f0f1a 100%); color: #e8e8f0; min-height: 100vh; overflow-x: hidden; }
+    .glass { background: rgba(20,20,30,0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; }
+    .gradient-border { position: relative; background: rgba(15,15,25,0.9); border-radius: 20px; }
+    .gradient-border::before { content:''; position:absolute; inset:0; border-radius:20px; padding:1px; background:linear-gradient(135deg,#ff3366,#ff6b3d,#ffb347); mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
+    .gradient-text { background: linear-gradient(135deg,#ff3366,#ff6b3d,#ffb347); -webkit-background-clip:text; background-clip:text; color:transparent; background-size:200% 200%; animation:gradientShift 3s ease infinite; }
+    @keyframes gradientShift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
+    .glow-red { box-shadow:0 0 20px rgba(255,51,102,0.3); }
+    .glow-gold { box-shadow:0 0 20px rgba(255,180,71,0.3); }
+    .card { background:rgba(20,20,30,0.8); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,0.05); border-radius:20px; transition:all 0.3s ease; }
+    .card:hover { transform:translateY(-2px); border-color:rgba(255,51,102,0.3); box-shadow:0 10px 40px rgba(0,0,0,0.3); }
+    .btn-primary { background:linear-gradient(135deg,#ff3366,#ff6b3d); border:none; padding:12px 28px; border-radius:12px; font-weight:600; font-size:14px; cursor:pointer; transition:all 0.3s ease; color:white; }
+    .btn-primary:hover { transform:translateY(-2px); box-shadow:0 5px 20px rgba(255,51,102,0.4); }
+    .btn-secondary { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); padding:10px 24px; border-radius:12px; font-weight:500; cursor:pointer; transition:all 0.3s ease; color:#e8e8f0; }
+    .btn-secondary:hover { background:rgba(255,255,255,0.1); border-color:rgba(255,51,102,0.5); }
+    .btn-danger { background:linear-gradient(135deg,#dc2626,#b91c1c); border:none; padding:8px 16px; border-radius:8px; font-weight:600; font-size:12px; cursor:pointer; transition:all 0.3s ease; color:white; }
+    .btn-danger:hover { transform:translateY(-1px); box-shadow:0 5px 15px rgba(220,38,38,0.4); }
+    .status-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:500; }
+    .status-online { background:rgba(34,197,94,0.15); color:#22c55e; border:1px solid rgba(34,197,94,0.3); }
+    .status-offline { background:rgba(107,114,128,0.15); color:#9ca3af; border:1px solid rgba(107,114,128,0.3); }
+    .data-table { width:100%; border-collapse:collapse; }
+    .data-table th { text-align:left; padding:16px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:#9ca3af; border-bottom:1px solid rgba(255,255,255,0.05); }
+    .data-table td { padding:16px; font-size:14px; border-bottom:1px solid rgba(255,255,255,0.05); }
+    .navbar { position:fixed; top:0; left:0; right:0; background:rgba(10,10,15,0.95); backdrop-filter:blur(20px); border-bottom:1px solid rgba(255,255,255,0.05); z-index:1000; padding:0 32px; height:70px; display:flex; align-items:center; justify-content:space-between; }
+    .logo { font-size:24px; font-weight:800; background:linear-gradient(135deg,#ff3366,#ff6b3d); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    @keyframes fadeInUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+    .animate-fade-in { animation:fadeInUp 0.6s ease forwards; }
+    ::-webkit-scrollbar { width:8px; height:8px; }
+    ::-webkit-scrollbar-track { background:rgba(255,255,255,0.05); border-radius:10px; }
+    ::-webkit-scrollbar-thumb { background:rgba(255,51,102,0.5); border-radius:10px; }
+    ::-webkit-scrollbar-thumb:hover { background:rgba(255,51,102,0.7); }
+    .spinner { width:40px; height:40px; border:3px solid rgba(255,51,102,0.2); border-top-color:#ff3366; border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .qr-container { background:white; padding:20px; border-radius:20px; display:inline-block; }
+    .qr-container img { width:200px; height:200px; }
+    .toast { position:fixed; bottom:20px; right:20px; background:rgba(0,0,0,0.9); backdrop-filter:blur(10px); padding:12px 20px; border-radius:12px; border-left:3px solid #ff3366; z-index:1100; animation:slideIn 0.3s ease; }
+    @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+    @media (max-width:768px) { .navbar{padding:0 16px;} .data-table th,.data-table td{padding:12px 8px;font-size:12px;} }
   </style>
 </head>`;
 }
@@ -2401,134 +2176,64 @@ function connectedHTML(session) {
     `
 <body>
   <nav class="navbar">
-    <div class="logo">AYOBOT <span style="font-size: 14px; color: #6b7280;">v${ENV.BOT_VERSION}</span></div>
-    <div style="display: flex; align-items: center; gap: 16px;">
-      <span class="status-badge status-online"><i class="fas fa-circle" style="font-size: 8px;"></i> LIVE</span>
-      <button class="btn-secondary" onclick="logout()" style="padding: 8px 16px;">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </button>
+    <div class="logo">AYOBOT <span style="font-size:14px;color:#6b7280;">v${ENV.BOT_VERSION}</span></div>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <span class="status-badge status-online"><i class="fas fa-circle" style="font-size:8px;"></i> LIVE</span>
+      <button class="btn-secondary" onclick="logout()" style="padding:8px 16px;"><i class="fas fa-sign-out-alt"></i> Logout</button>
     </div>
   </nav>
-
-  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1200px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
-    <!-- Hero Section -->
-    <div class="animate-fade-in" style="text-align: center; margin-bottom: 40px;">
-      <div style="font-size: 14px; color: #ff3366; letter-spacing: 2px; margin-bottom: 12px;">⚡ WHATSAPP AUTOMATION SUITE</div>
-      <h1 style="font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; margin-bottom: 16px;">
-        <span class="gradient-text">COMMAND CENTER</span>
-      </h1>
-      <p style="color: #9ca3af;">Manage your WhatsApp bot from anywhere</p>
+  <main style="padding-top:90px;padding-bottom:40px;max-width:1200px;margin:0 auto;padding-left:24px;padding-right:24px;">
+    <div class="animate-fade-in" style="text-align:center;margin-bottom:40px;">
+      <div style="font-size:14px;color:#ff3366;letter-spacing:2px;margin-bottom:12px;">⚡ WHATSAPP AUTOMATION SUITE</div>
+      <h1 style="font-size:clamp(2rem,5vw,3rem);font-weight:800;margin-bottom:16px;"><span class="gradient-text">COMMAND CENTER</span></h1>
+      <p style="color:#9ca3af;">Manage your WhatsApp bot from anywhere</p>
     </div>
-
-    <!-- Owner Card -->
-    <div class="card gradient-border" style="padding: 24px; margin-bottom: 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #ff3366, #ff6b3d); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-          <i class="fas fa-crown" style="font-size: 24px; color: white;"></i>
-        </div>
+    <div class="card gradient-border" style="padding:24px;margin-bottom:32px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+      <div style="display:flex;align-items:center;gap:16px;">
+        <div style="width:56px;height:56px;background:linear-gradient(135deg,#ff3366,#ff6b3d);border-radius:50%;display:flex;align-items:center;justify-content:center;"><i class="fas fa-crown" style="font-size:24px;color:white;"></i></div>
         <div>
-          <div style="font-weight: 700; font-size: 18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
-          <div style="font-size: 13px; color: #9ca3af; font-family: monospace;" id="ownerPhone">+${escapeHtml(session.ownerPhone || "—")}</div>
+          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
+          <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">+${escapeHtml(session.ownerPhone || "—")}</div>
         </div>
       </div>
-      <div class="status-badge status-online">
-        <i class="fas fa-shield-alt"></i> BOT OWNER
-      </div>
+      <div class="status-badge status-online"><i class="fas fa-shield-alt"></i> BOT OWNER</div>
     </div>
-
-    <!-- Stats Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 32px;">
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-comments" style="font-size: 28px; color: #ff3366; margin-bottom: 12px; display: block;"></i>
-        <div style="font-size: 32px; font-weight: 800;" id="statMsg">${session.messageCount}</div>
-        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Total Messages</div>
-      </div>
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-terminal" style="font-size: 28px; color: #ff6b3d; margin-bottom: 12px; display: block;"></i>
-        <div style="font-size: 32px; font-weight: 800;" id="statCmd">${session.commandCount || 0}</div>
-        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Commands Run</div>
-      </div>
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-clock" style="font-size: 28px; color: #ffb347; margin-bottom: 12px; display: block;"></i>
-        <div style="font-size: 28px; font-weight: 800;" id="statUptime">${h}h ${m}m ${s}s</div>
-        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Uptime</div>
-      </div>
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-globe" style="font-size: 28px; color: #22c55e; margin-bottom: 12px; display: block;"></i>
-        <div style="font-size: 20px; font-weight: 800;">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div>
-        <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">Bot Mode</div>
-      </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:32px;">
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-comments" style="font-size:28px;color:#ff3366;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statMsg">${session.messageCount}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Total Messages</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-terminal" style="font-size:28px;color:#ff6b3d;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statCmd">${session.commandCount || 0}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Commands Run</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-clock" style="font-size:28px;color:#ffb347;margin-bottom:12px;display:block;"></i><div style="font-size:28px;font-weight:800;" id="statUptime">${h}h ${m}m ${s}s</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Uptime</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-globe" style="font-size:28px;color:#22c55e;margin-bottom:12px;display:block;"></i><div style="font-size:20px;font-weight:800;">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Bot Mode</div></div>
     </div>
-
-    <!-- Info Panels -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 40px;">
-      <div class="card" style="padding: 24px;">
-        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-          <i class="fas fa-robot" style="color: #ff3366;"></i> Bot Information
-        </h3>
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">📱 Number</span>
-            <span style="font-family: monospace;">+${escapeHtml(session.botNumber || "—")}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">👤 Name</span>
-            <span>${escapeHtml(session.botName || "—")}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">⚡ Prefix</span>
-            <span>${escapeHtml(ENV.PREFIX)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">🔐 Auth Method</span>
-            <span>${escapeHtml(session.authMethod || "session")}</span>
-          </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:40px;">
+      <div class="card" style="padding:24px;">
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i class="fas fa-robot" style="color:#ff3366;"></i> Bot Information</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">📱 Number</span><span style="font-family:monospace;">+${escapeHtml(session.botNumber || "—")}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">👤 Name</span><span>${escapeHtml(session.botName || "—")}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">⚡ Prefix</span><span>${escapeHtml(ENV.PREFIX)}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔐 Auth Method</span><span>${escapeHtml(session.authMethod || "session")}</span></div>
         </div>
       </div>
-      <div class="card" style="padding: 24px;">
-        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
-          <i class="fas fa-chart-line" style="color: #ff6b3d;"></i> System Status
-        </h3>
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">🟢 Connection</span>
-            <span style="color: #22c55e;">STABLE</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">🔧 Handlers</span>
-            <span style="color: #22c55e;">READY</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">🛡️ Anti-Delete</span>
-            <span style="color: #22c55e;">ACTIVE</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #9ca3af;">💾 Memory</span>
-            <span>${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB</span>
-          </div>
+      <div class="card" style="padding:24px;">
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i class="fas fa-chart-line" style="color:#ff6b3d;"></i> System Status</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🟢 Connection</span><span style="color:#22c55e;">STABLE</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔧 Handlers</span><span style="color:#22c55e;">READY</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🛡️ Anti-Delete</span><span style="color:#22c55e;">ACTIVE</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">💾 Memory</span><span>${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB</span></div>
         </div>
       </div>
     </div>
-
-    <!-- Quick Actions -->
-    <div class="card" style="padding: 24px;">
-      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px;">
-        <i class="fas fa-bolt" style="color: #ffb347;"></i> Quick Actions
-      </h3>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <button class="btn-secondary" onclick="window.open('https://wa.me/${session.botNumber}', '_blank')">
-          <i class="fab fa-whatsapp"></i> Chat with Bot
-        </button>
-        <button class="btn-secondary" onclick="copyCommand('${ENV.PREFIX}menu')">
-          <i class="fas fa-copy"></i> Copy Menu Command
-        </button>
+    <div class="card" style="padding:24px;">
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;"><i class="fas fa-bolt" style="color:#ffb347;"></i> Quick Actions</h3>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button class="btn-secondary" onclick="window.open('https://wa.me/${session.botNumber}','_blank')"><i class="fab fa-whatsapp"></i> Chat with Bot</button>
+        <button class="btn-secondary" onclick="copyCommand('${ENV.PREFIX}menu')"><i class="fas fa-copy"></i> Copy Menu Command</button>
       </div>
     </div>
   </main>
-
   <script>
     const SID = '${SID}';
-
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
       toast.className = 'toast';
@@ -2536,42 +2241,26 @@ function connectedHTML(session) {
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 3000);
     }
-
-    function copyCommand(cmd) {
-      navigator.clipboard.writeText(cmd);
-      showToast('Command copied: ' + cmd, 'success');
-    }
-
+    function copyCommand(cmd) { navigator.clipboard.writeText(cmd); showToast('Command copied: ' + cmd, 'success'); }
     async function logout() {
       if (!confirm('Disconnect your WhatsApp and reset your bot?')) return;
-      try {
-        await fetch('/api/logout/' + SID, { method: 'POST', credentials: 'same-origin' });
-        window.location.href = '/';
-      } catch (e) {
-        showToast('Logout failed', 'error');
-      }
+      try { await fetch('/api/logout/' + SID, { method: 'POST', credentials: 'same-origin' }); window.location.href = '/'; }
+      catch (e) { showToast('Logout failed', 'error'); }
     }
-
     async function updateStats() {
       try {
         const res = await fetch('/api/status/' + SID, { credentials: 'same-origin' });
         const d = await res.json();
-        if (!d.exists || !d.connected) {
-          window.location.reload();
-          return;
-        }
+        if (!d.exists || !d.connected) { window.location.reload(); return; }
         document.getElementById('statMsg').textContent = d.messageCount || 0;
         document.getElementById('statCmd').textContent = d.commandCount || 0;
         const up = d.uptime || 0;
-        const h = Math.floor(up / 3600);
-        const m = Math.floor((up % 3600) / 60);
-        const s = up % 60;
+        const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = up % 60;
         document.getElementById('statUptime').textContent = h + 'h ' + m + 'm ' + s + 's';
         if (d.ownerName) document.getElementById('ownerName').textContent = d.ownerName;
         if (d.ownerPhone) document.getElementById('ownerPhone').textContent = '+' + d.ownerPhone;
       } catch (e) {}
     }
-
     updateStats();
     setInterval(updateStats, 30000);
   </script>
@@ -2586,34 +2275,27 @@ function connectHTML(sessionId, qrUrl) {
     `
 <body>
   <nav class="navbar">
-    <div class="logo">AYOBOT <span style="font-size: 14px; color: #6b7280;">v${ENV.BOT_VERSION}</span></div>
-    <div class="status-badge status-offline"><i class="fas fa-circle" style="font-size: 8px;"></i> AWAITING CONNECTION</div>
+    <div class="logo">AYOBOT <span style="font-size:14px;color:#6b7280;">v${ENV.BOT_VERSION}</span></div>
+    <div class="status-badge status-offline"><i class="fas fa-circle" style="font-size:8px;"></i> AWAITING CONNECTION</div>
   </nav>
-
-  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 600px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
-    <div class="animate-fade-in" style="text-align: center; margin-bottom: 40px;">
-      <div style="font-size: 14px; color: #ff3366; letter-spacing: 2px; margin-bottom: 12px;">CONNECT YOUR DEVICE</div>
-      <h1 style="font-size: clamp(1.8rem, 5vw, 2.5rem); font-weight: 800;">
-        <span class="gradient-text">LINK WHATSAPP</span>
-      </h1>
-      <p style="color: #9ca3af; margin-top: 12px;">Scan QR code or use pairing code to connect</p>
+  <main style="padding-top:90px;padding-bottom:40px;max-width:600px;margin:0 auto;padding-left:24px;padding-right:24px;">
+    <div class="animate-fade-in" style="text-align:center;margin-bottom:40px;">
+      <div style="font-size:14px;color:#ff3366;letter-spacing:2px;margin-bottom:12px;">CONNECT YOUR DEVICE</div>
+      <h1 style="font-size:clamp(1.8rem,5vw,2.5rem);font-weight:800;"><span class="gradient-text">LINK WHATSAPP</span></h1>
+      <p style="color:#9ca3af;margin-top:12px;">Scan QR code or use pairing code to connect</p>
     </div>
-
-    <div class="card" style="padding: 32px;">
-      <!-- Tabs -->
-      <div style="display: flex; gap: 8px; margin-bottom: 32px; background: rgba(0,0,0,0.3); border-radius: 12px; padding: 4px;">
-        <button onclick="showTab('qr')" id="tabQrBtn" style="flex: 1; padding: 12px; border: none; background: #ff3366; color: white; border-radius: 8px; font-weight: 600; cursor: pointer;">📱 QR Code</button>
-        <button onclick="showTab('pair')" id="tabPairBtn" style="flex: 1; padding: 12px; border: none; background: transparent; color: #9ca3af; border-radius: 8px; font-weight: 600; cursor: pointer;">🔑 Pairing Code</button>
+    <div class="card" style="padding:32px;">
+      <div style="display:flex;gap:8px;margin-bottom:32px;background:rgba(0,0,0,0.3);border-radius:12px;padding:4px;">
+        <button onclick="showTab('qr')" id="tabQrBtn" style="flex:1;padding:12px;border:none;background:#ff3366;color:white;border-radius:8px;font-weight:600;cursor:pointer;">📱 QR Code</button>
+        <button onclick="showTab('pair')" id="tabPairBtn" style="flex:1;padding:12px;border:none;background:transparent;color:#9ca3af;border-radius:8px;font-weight:600;cursor:pointer;">🔑 Pairing Code</button>
       </div>
-
-      <!-- QR Tab -->
-      <div id="qrTab" style="text-align: center;">
-        <div class="qr-container" style="background: white; padding: 20px; border-radius: 20px; display: inline-block; margin-bottom: 24px;">
-          ${qrUrl ? `<img src="${qrUrl}" alt="QR Code" style="width: 200px; height: 200px;">` : `<div class="spinner" style="margin: 0 auto;"></div><p style="margin-top: 16px;">Generating QR...</p>`}
+      <div id="qrTab" style="text-align:center;">
+        <div class="qr-container" style="background:white;padding:20px;border-radius:20px;display:inline-block;margin-bottom:24px;">
+          ${qrUrl ? `<img src="${qrUrl}" alt="QR Code" style="width:200px;height:200px;">` : `<div class="spinner" style="margin:0 auto;"></div><p style="margin-top:16px;">Generating QR...</p>`}
         </div>
-        <div style="text-align: left; margin-top: 24px;">
-          <h4 style="margin-bottom: 16px;">How to connect:</h4>
-          <ol style="color: #9ca3af; line-height: 2;">
+        <div style="text-align:left;margin-top:24px;">
+          <h4 style="margin-bottom:16px;">How to connect:</h4>
+          <ol style="color:#9ca3af;line-height:2;">
             <li>1. Open WhatsApp on your phone</li>
             <li>2. Tap <strong>Menu → Linked Devices</strong></li>
             <li>3. Tap <strong>Link a Device</strong></li>
@@ -2621,110 +2303,47 @@ function connectHTML(sessionId, qrUrl) {
           </ol>
         </div>
       </div>
-
-      <!-- Pairing Tab -->
-      <div id="pairTab" style="display: none;">
+      <div id="pairTab" style="display:none;">
         <div id="pairForm">
-          <label style="display: block; margin-bottom: 8px; font-size: 14px;">Phone Number (with country code)</label>
-          <input type="tel" id="phoneInput" placeholder="e.g., 2349159180375" style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; margin-bottom: 16px;">
-          <button onclick="requestPairingCode()" class="btn-primary" style="width: 100%;">Request Pairing Code</button>
+          <label style="display:block;margin-bottom:8px;font-size:14px;">Phone Number (with country code)</label>
+          <input type="tel" id="phoneInput" placeholder="e.g., 2349159180375" style="width:100%;padding:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:white;font-size:16px;margin-bottom:16px;">
+          <button onclick="requestPairingCode()" class="btn-primary" style="width:100%;">Request Pairing Code</button>
         </div>
-        <div id="codeDisplay" style="display: none; text-align: center;">
-          <div style="background: rgba(255,51,102,0.1); padding: 32px; border-radius: 20px; margin: 16px 0;">
-            <div style="font-size: 48px; font-weight: 800; letter-spacing: 8px; color: #ff3366;" id="codeDigits">——</div>
-            <div style="margin-top: 16px; color: #9ca3af;" id="codeTimer">Expires in 60s</div>
+        <div id="codeDisplay" style="display:none;text-align:center;">
+          <div style="background:rgba(255,51,102,0.1);padding:32px;border-radius:20px;margin:16px 0;">
+            <div style="font-size:48px;font-weight:800;letter-spacing:8px;color:#ff3366;" id="codeDigits">——</div>
+            <div style="margin-top:16px;color:#9ca3af;" id="codeTimer">Expires in 60s</div>
           </div>
-          <p style="color: #9ca3af;">Enter this code in WhatsApp → Linked Devices → Link a Device</p>
+          <p style="color:#9ca3af;">Enter this code in WhatsApp → Linked Devices → Link a Device</p>
         </div>
-        <div id="pairError" style="color: #ef4444; margin-top: 16px; display: none;"></div>
+        <div id="pairError" style="color:#ef4444;margin-top:16px;display:none;"></div>
       </div>
     </div>
   </main>
-
   <script>
     const SID = '${sessionId}';
-
     function showTab(tab) {
-      const qrTab = document.getElementById('qrTab');
-      const pairTab = document.getElementById('pairTab');
-      const qrBtn = document.getElementById('tabQrBtn');
-      const pairBtn = document.getElementById('tabPairBtn');
-
-      if (tab === 'qr') {
-        qrTab.style.display = 'block';
-        pairTab.style.display = 'none';
-        qrBtn.style.background = '#ff3366';
-        qrBtn.style.color = 'white';
-        pairBtn.style.background = 'transparent';
-        pairBtn.style.color = '#9ca3af';
-      } else {
-        qrTab.style.display = 'none';
-        pairTab.style.display = 'block';
-        qrBtn.style.background = 'transparent';
-        qrBtn.style.color = '#9ca3af';
-        pairBtn.style.background = '#ff3366';
-        pairBtn.style.color = 'white';
-      }
+      const qrTab = document.getElementById('qrTab'), pairTab = document.getElementById('pairTab');
+      const qrBtn = document.getElementById('tabQrBtn'), pairBtn = document.getElementById('tabPairBtn');
+      if (tab === 'qr') { qrTab.style.display='block'; pairTab.style.display='none'; qrBtn.style.background='#ff3366'; qrBtn.style.color='white'; pairBtn.style.background='transparent'; pairBtn.style.color='#9ca3af'; }
+      else { qrTab.style.display='none'; pairTab.style.display='block'; qrBtn.style.background='transparent'; qrBtn.style.color='#9ca3af'; pairBtn.style.background='#ff3366'; pairBtn.style.color='white'; }
     }
-
     async function requestPairingCode() {
       const phone = document.getElementById('phoneInput').value.trim();
-      if (!phone.match(/^\\d{10,15}$/)) {
-        document.getElementById('pairError').textContent = 'Please enter a valid phone number (10-15 digits)';
-        document.getElementById('pairError').style.display = 'block';
-        return;
-      }
-
-      document.getElementById('pairError').style.display = 'none';
-      const btn = event.target;
-      btn.disabled = true;
-      btn.textContent = 'Requesting...';
-
+      if (!phone.match(/^\\d{10,15}$/)) { document.getElementById('pairError').textContent='Please enter a valid phone number (10-15 digits)'; document.getElementById('pairError').style.display='block'; return; }
+      document.getElementById('pairError').style.display='none';
+      const btn = event.target; btn.disabled=true; btn.textContent='Requesting...';
       try {
-        const res = await fetch('/api/request-pairing/' + SID, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ phoneNumber: phone })
-        });
+        const res = await fetch('/api/request-pairing/' + SID, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({phoneNumber:phone}) });
         const data = await res.json();
-
         if (data.success) {
-          document.getElementById('pairForm').style.display = 'none';
-          document.getElementById('codeDisplay').style.display = 'block';
-          document.getElementById('codeDigits').textContent = data.code;
+          document.getElementById('pairForm').style.display='none'; document.getElementById('codeDisplay').style.display='block'; document.getElementById('codeDigits').textContent=data.code;
           let timeLeft = data.expiresIn || 60;
-          const timer = setInterval(() => {
-            timeLeft--;
-            const timerEl = document.getElementById('codeTimer');
-            if (timerEl) timerEl.textContent = 'Expires in ' + timeLeft + 's';
-            if (timeLeft <= 0) {
-              clearInterval(timer);
-              window.location.reload();
-            }
-          }, 1000);
-        } else {
-          document.getElementById('pairError').textContent = data.error;
-          document.getElementById('pairError').style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Request Pairing Code';
-        }
-      } catch (e) {
-        document.getElementById('pairError').textContent = 'Network error: ' + e.message;
-        document.getElementById('pairError').style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Request Pairing Code';
-      }
+          const timer = setInterval(() => { timeLeft--; const el=document.getElementById('codeTimer'); if(el)el.textContent='Expires in '+timeLeft+'s'; if(timeLeft<=0){clearInterval(timer);window.location.reload();} }, 1000);
+        } else { document.getElementById('pairError').textContent=data.error; document.getElementById('pairError').style.display='block'; btn.disabled=false; btn.textContent='Request Pairing Code'; }
+      } catch(e) { document.getElementById('pairError').textContent='Network error: '+e.message; document.getElementById('pairError').style.display='block'; btn.disabled=false; btn.textContent='Request Pairing Code'; }
     }
-
-    // Check connection status every 5 seconds
-    setInterval(async () => {
-      try {
-        const res = await fetch('/api/status/' + SID, { credentials: 'same-origin' });
-        const data = await res.json();
-        if (data.connected) window.location.reload();
-      } catch (e) {}
-    }, 5000);
+    setInterval(async () => { try { const res=await fetch('/api/status/'+SID,{credentials:'same-origin'}); const data=await res.json(); if(data.connected)window.location.reload(); } catch(e){} }, 5000);
   </script>
 </body>
 </html>`
@@ -2736,26 +2355,16 @@ function loadingHTML(sessionId) {
     sharedHead("AYOBOT — Starting") +
     `
 <body>
-  <nav class="navbar">
-    <div class="logo">AYOBOT</div>
-  </nav>
-  <main style="padding-top: 90px; text-align: center;">
-    <div class="spinner" style="margin: 60px auto;"></div>
-    <h2 style="margin-top: 32px;">Starting your bot...</h2>
-    <p style="color: #9ca3af; margin-top: 8px;">This will only take a moment</p>
-    <p style="color: #6b7280; margin-top: 32px; font-size: 14px;">Redirecting in <span id="countdown">3</span> seconds</p>
+  <nav class="navbar"><div class="logo">AYOBOT</div></nav>
+  <main style="padding-top:90px;text-align:center;">
+    <div class="spinner" style="margin:60px auto;"></div>
+    <h2 style="margin-top:32px;">Starting your bot...</h2>
+    <p style="color:#9ca3af;margin-top:8px;">This will only take a moment</p>
+    <p style="color:#6b7280;margin-top:32px;font-size:14px;">Redirecting in <span id="countdown">3</span> seconds</p>
   </main>
   <script>
     let count = 3;
-    const timer = setInterval(() => {
-      count--;
-      const el = document.getElementById('countdown');
-      if (el) el.textContent = count;
-      if (count <= 0) {
-        clearInterval(timer);
-        window.location.reload();
-      }
-    }, 1000);
+    const timer = setInterval(() => { count--; const el=document.getElementById('countdown'); if(el)el.textContent=count; if(count<=0){clearInterval(timer);window.location.reload();} }, 1000);
   </script>
 </body>
 </html>`
@@ -2767,10 +2376,10 @@ function maxSessionsHTML() {
     sharedHead("AYOBOT — At Capacity") +
     `
 <body>
-  <main style="padding-top: 90px; text-align: center;">
-    <i class="fas fa-exclamation-triangle" style="font-size: 64px; color: #ffb347; margin-bottom: 24px; display: block;"></i>
-    <h1 style="font-size: 32px; margin-bottom: 16px;">Server at Capacity</h1>
-    <p style="color: #9ca3af;">Maximum session limit (${ENV.MAX_SESSIONS}) reached. Please try again later.</p>
+  <main style="padding-top:90px;text-align:center;">
+    <i class="fas fa-exclamation-triangle" style="font-size:64px;color:#ffb347;margin-bottom:24px;display:block;"></i>
+    <h1 style="font-size:32px;margin-bottom:16px;">Server at Capacity</h1>
+    <p style="color:#9ca3af;">Maximum session limit (${ENV.MAX_SESSIONS}) reached. Please try again later.</p>
   </main>
 </body>
 </html>`
@@ -2783,16 +2392,14 @@ function adminLoginHTML(error = "") {
     sharedHead("AYOBOT — Admin Login") +
     `
 <body>
-  <nav class="navbar">
-    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">ADMIN</span></div>
-  </nav>
-  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 400px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
-    <div class="card" style="padding: 40px;">
-      <h2 style="text-align: center; margin-bottom: 32px;">Admin Access</h2>
-      ${safeError ? `<div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); padding: 12px; border-radius: 12px; margin-bottom: 24px; color: #ef4444;">${safeError}</div>` : ""}
+  <nav class="navbar"><div class="logo">AYOBOT <span style="font-size:12px;color:#ff3366;">ADMIN</span></div></nav>
+  <main style="padding-top:90px;padding-bottom:40px;max-width:400px;margin:0 auto;padding-left:24px;padding-right:24px;">
+    <div class="card" style="padding:40px;">
+      <h2 style="text-align:center;margin-bottom:32px;">Admin Access</h2>
+      ${safeError ? `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:12px;margin-bottom:24px;color:#ef4444;">${safeError}</div>` : ""}
       <form method="POST" action="/ayocodes-admin/login-post">
-        <input type="password" name="password" placeholder="Enter admin password" style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; margin-bottom: 20px;">
-        <button type="submit" class="btn-primary" style="width: 100%;">Login to Dashboard</button>
+        <input type="password" name="password" placeholder="Enter admin password" style="width:100%;padding:14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:white;font-size:16px;margin-bottom:20px;">
+        <button type="submit" class="btn-primary" style="width:100%;">Login to Dashboard</button>
       </form>
     </div>
   </main>
@@ -2807,143 +2414,65 @@ function adminDashboardHTML() {
     `
 <body>
   <nav class="navbar">
-    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">DEV PANEL</span></div>
-    <div style="display: flex; align-items: center; gap: 12px;">
-      <a href="/ayocodes-admin/users" style="color: #9ca3af; text-decoration: none;">
-        <i class="fas fa-users"></i> Users
-      </a>
-      <button onclick="logoutAdmin()" class="btn-secondary" style="padding: 8px 16px;">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </button>
+    <div class="logo">AYOBOT <span style="font-size:12px;color:#ff3366;">DEV PANEL</span></div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <a href="/ayocodes-admin/users" style="color:#9ca3af;text-decoration:none;"><i class="fas fa-users"></i> Users</a>
+      <button onclick="logoutAdmin()" class="btn-secondary" style="padding:8px 16px;"><i class="fas fa-sign-out-alt"></i> Logout</button>
     </div>
   </nav>
-
-  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1400px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
-    <!-- Stats -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 32px;">
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-robot" style="font-size: 28px; color: #ff3366;"></i>
-        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="totalInstances">0</div>
-        <div style="font-size: 12px; color: #9ca3af;">Total Instances</div>
-      </div>
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-circle" style="font-size: 28px; color: #22c55e;"></i>
-        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="onlineInstances">0</div>
-        <div style="font-size: 12px; color: #9ca3af;">Online</div>
-      </div>
-      <div class="card" style="padding: 24px; text-align: center;">
-        <i class="fas fa-comments" style="font-size: 28px; color: #ffb347;"></i>
-        <div style="font-size: 32px; font-weight: 800; margin-top: 8px;" id="totalMessages">0</div>
-        <div style="font-size: 12px; color: #9ca3af;">Total Messages</div>
-      </div>
+  <main style="padding-top:90px;padding-bottom:40px;max-width:1400px;margin:0 auto;padding-left:24px;padding-right:24px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:32px;">
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-robot" style="font-size:28px;color:#ff3366;"></i><div style="font-size:32px;font-weight:800;margin-top:8px;" id="totalInstances">0</div><div style="font-size:12px;color:#9ca3af;">Total Instances</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-circle" style="font-size:28px;color:#22c55e;"></i><div style="font-size:32px;font-weight:800;margin-top:8px;" id="onlineInstances">0</div><div style="font-size:12px;color:#9ca3af;">Online</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-comments" style="font-size:28px;color:#ffb347;"></i><div style="font-size:32px;font-weight:800;margin-top:8px;" id="totalMessages">0</div><div style="font-size:12px;color:#9ca3af;">Total Messages</div></div>
     </div>
-
-    <!-- Actions -->
-    <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
-      <button onclick="refreshInstances()" class="btn-secondary">
-        <i class="fas fa-sync-alt"></i> Refresh
-      </button>
-      <button onclick="deleteOffline()" class="btn-danger">
-        <i class="fas fa-trash"></i> Delete Offline
-      </button>
+    <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;">
+      <button onclick="refreshInstances()" class="btn-secondary"><i class="fas fa-sync-alt"></i> Refresh</button>
+      <button onclick="deleteOffline()" class="btn-danger"><i class="fas fa-trash"></i> Delete Offline</button>
     </div>
-
-    <!-- Instances Table -->
-    <div class="card" style="overflow-x: auto;">
+    <div class="card" style="overflow-x:auto;">
       <table class="data-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Owner</th>
-            <th>Bot Number</th>
-            <th>Uptime</th>
-            <th>Messages</th>
-            <th>Auth</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="instancesTableBody">
-          <tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="spinner" style="margin: 0 auto;"></div> Loading instances...</td></tr>
-        </tbody>
+        <thead><tr><th>Status</th><th>Owner</th><th>Bot Number</th><th>Uptime</th><th>Messages</th><th>Auth</th><th>Action</th></tr></thead>
+        <tbody id="instancesTableBody"><tr><td colspan="7" style="text-align:center;padding:40px;"><div class="spinner" style="margin:0 auto;"></div> Loading instances...</td></tr></tbody>
       </table>
     </div>
   </main>
-
   <script>
     async function refreshInstances() {
       try {
         const res = await fetch('/ayocodes-admin/api/instances', { credentials: 'same-origin' });
-        if (res.status === 401) {
-          window.location.href = '/ayocodes-admin/login';
-          return;
-        }
+        if (res.status === 401) { window.location.href = '/ayocodes-admin/login'; return; }
         const data = await res.json();
-
         document.getElementById('totalInstances').textContent = data.total;
         document.getElementById('onlineInstances').textContent = data.online;
-        document.getElementById('totalMessages').textContent = data.instances.reduce((sum, i) => sum + (i.messageCount || 0), 0).toLocaleString();
-
+        document.getElementById('totalMessages').textContent = data.instances.reduce((sum,i) => sum+(i.messageCount||0), 0).toLocaleString();
         const tbody = document.getElementById('instancesTableBody');
-        if (!data.instances.length) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #9ca3af;">No active instances</td></tr>';
-          return;
-        }
-
+        if (!data.instances.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:40px;color:#9ca3af;">No active instances</td></tr>'; return; }
         tbody.innerHTML = data.instances.map(inst => {
-          const up = inst.uptime || 0;
-          const h = Math.floor(up / 3600);
-          const m = Math.floor((up % 3600) / 60);
-          return \`
-            <tr>
-              <td><span class="status-badge \${inst.connected ? 'status-online' : 'status-offline'}"><i class="fas fa-circle" style="font-size: 8px;"></i> \${inst.connected ? 'LIVE' : 'OFFLINE'}</span></td>
-              <td><span style="font-family: monospace; color: #ffb347;">+\${inst.ownerPhone || '—'}</span></td>
-              <td><span style="font-family: monospace;">+\${inst.botNumber || '—'}</span></td>
-              <td>\${h}h \${m}m</td>
-              <td>\${(inst.messageCount || 0).toLocaleString()}</td>
-              <td><span style="font-size: 11px; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;">\${inst.authMethod || 'session'}</span></td>
-              <td><button class="btn-danger" onclick="killInstance('\${inst.instanceId}')" style="padding: 6px 12px;"><i class="fas fa-skull"></i> Kill</button></td>
-            </tr>
-          \`;
+          const up=inst.uptime||0, h=Math.floor(up/3600), m=Math.floor((up%3600)/60);
+          return \`<tr>
+            <td><span class="status-badge \${inst.connected?'status-online':'status-offline'}"><i class="fas fa-circle" style="font-size:8px;"></i> \${inst.connected?'LIVE':'OFFLINE'}</span></td>
+            <td><span style="font-family:monospace;color:#ffb347;">+\${inst.ownerPhone||'—'}</span></td>
+            <td><span style="font-family:monospace;">+\${inst.botNumber||'—'}</span></td>
+            <td>\${h}h \${m}m</td>
+            <td>\${(inst.messageCount||0).toLocaleString()}</td>
+            <td><span style="font-size:11px;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:6px;">\${inst.authMethod||'session'}</span></td>
+            <td><button class="btn-danger" onclick="killInstance('\${inst.instanceId}')" style="padding:6px 12px;"><i class="fas fa-skull"></i> Kill</button></td>
+          </tr>\`;
         }).join('');
-      } catch (e) {
-        console.error(e);
-      }
+      } catch(e) { console.error(e); }
     }
-
     async function killInstance(instanceId) {
       if (!confirm('⚠️ This will disconnect the bot and delete its session. Continue?')) return;
-      try {
-        await fetch('/ayocodes-admin/api/disconnect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ instanceId })
-        });
-        refreshInstances();
-      } catch (e) {
-        alert('Failed to kill instance: ' + e.message);
-      }
+      try { await fetch('/ayocodes-admin/api/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({instanceId})}); refreshInstances(); }
+      catch(e) { alert('Failed to kill instance: '+e.message); }
     }
-
     async function deleteOffline() {
       if (!confirm('Delete all offline sessions?')) return;
-      try {
-        const res = await fetch('/ayocodes-admin/api/delete-offline', {
-          method: 'POST',
-          credentials: 'same-origin'
-        });
-        const data = await res.json();
-        alert(\`Deleted \${data.deleted} offline sessions\`);
-        refreshInstances();
-      } catch (e) {
-        alert('Failed: ' + e.message);
-      }
+      try { const res=await fetch('/ayocodes-admin/api/delete-offline',{method:'POST',credentials:'same-origin'}); const data=await res.json(); alert(\`Deleted \${data.deleted} offline sessions\`); refreshInstances(); }
+      catch(e) { alert('Failed: '+e.message); }
     }
-
-    async function logoutAdmin() {
-      window.location.href = '/ayocodes-admin/logout';
-    }
-
+    async function logoutAdmin() { window.location.href = '/ayocodes-admin/logout'; }
     refreshInstances();
     setInterval(refreshInstances, 10000);
   </script>
@@ -2958,101 +2487,54 @@ function userTrackingHTML() {
     `
 <body>
   <nav class="navbar">
-    <div class="logo">AYOBOT <span style="font-size: 12px; color: #ff3366;">USERS</span></div>
-    <div style="display: flex; align-items: center; gap: 12px;">
-      <a href="/ayocodes-admin" style="color: #9ca3af; text-decoration: none;">
-        <i class="fas fa-arrow-left"></i> Back
-      </a>
-      <button onclick="logoutAdmin()" class="btn-secondary" style="padding: 8px 16px;">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </button>
+    <div class="logo">AYOBOT <span style="font-size:12px;color:#ff3366;">USERS</span></div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <a href="/ayocodes-admin" style="color:#9ca3af;text-decoration:none;"><i class="fas fa-arrow-left"></i> Back</a>
+      <button onclick="logoutAdmin()" class="btn-secondary" style="padding:8px 16px;"><i class="fas fa-sign-out-alt"></i> Logout</button>
     </div>
   </nav>
-
-  <main style="padding-top: 90px; padding-bottom: 40px; max-width: 1200px; margin: 0 auto; padding-left: 24px; padding-right: 24px;">
-    <div style="margin-bottom: 24px;">
-      <input type="text" id="searchInput" placeholder="Search by phone or name..." style="width: 100%; max-width: 300px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white;">
-    </div>
-
-    <div class="card" style="overflow-x: auto;">
+  <main style="padding-top:90px;padding-bottom:40px;max-width:1200px;margin:0 auto;padding-left:24px;padding-right:24px;">
+    <div style="margin-bottom:24px;"><input type="text" id="searchInput" placeholder="Search by phone or name..." style="width:100%;max-width:300px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:white;"></div>
+    <div class="card" style="overflow-x:auto;">
       <table class="data-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Phone</th>
-            <th>Name</th>
-            <th>Last Seen</th>
-            <th>Messages</th>
-            <th>Sessions</th>
-          </tr>
-        </thead>
-        <tbody id="usersTableBody">
-          <tr><td colspan="6" style="text-align: center; padding: 40px;"><div class="spinner" style="margin: 0 auto;"></div> Loading users...</td></tr>
-        </tbody>
+        <thead><tr><th>Status</th><th>Phone</th><th>Name</th><th>Last Seen</th><th>Messages</th><th>Sessions</th></tr></thead>
+        <tbody id="usersTableBody"><tr><td colspan="6" style="text-align:center;padding:40px;"><div class="spinner" style="margin:0 auto;"></div> Loading users...</td></tr></tbody>
       </table>
     </div>
-
-    <div id="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;"></div>
+    <div id="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:24px;"></div>
   </main>
-
   <script>
-    let currentPage = 1;
-    let searchTimeout;
-
-    async function loadUsers(page = 1) {
-      currentPage = page;
-      const search = document.getElementById('searchInput').value.trim();
+    let currentPage=1, searchTimeout;
+    async function loadUsers(page=1) {
+      currentPage=page;
+      const search=document.getElementById('searchInput').value.trim();
       try {
-        const url = '/ayocodes-admin/api/users?page=' + page + (search ? '&search=' + encodeURIComponent(search) : '');
-        const res = await fetch(url, { credentials: 'same-origin' });
-        if (res.status === 401) {
-          window.location.href = '/ayocodes-admin/login';
-          return;
-        }
-        const data = await res.json();
-
-        const tbody = document.getElementById('usersTableBody');
-        if (!data.users.length) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #9ca3af;">No users found</td></tr>';
-          return;
-        }
-
-        tbody.innerHTML = data.users.map(user => {
-          const lastSeen = user.lastSeen ? new Date(user.lastSeen).toLocaleString() : 'Never';
-          return \`
-            <tr>
-              <td><span class="status-badge \${user.online ? 'status-online' : 'status-offline'}"><i class="fas fa-circle" style="font-size: 8px;"></i> \${user.online ? 'ONLINE' : 'OFFLINE'}</span></td>
-              <td><span style="font-family: monospace; color: #ffb347;">+\${user.phone || '—'}</span></td>
-              <td>\${user.name || '—'}</td>
-              <td style="font-size: 12px;">\${lastSeen}</td>
-              <td>\${(user.totalMessages || 0).toLocaleString()}</td>
-              <td>\${user.totalSessions || 0}</td>
-            </tr>
-          \`;
+        const url='/ayocodes-admin/api/users?page='+page+(search?'&search='+encodeURIComponent(search):'');
+        const res=await fetch(url,{credentials:'same-origin'});
+        if(res.status===401){window.location.href='/ayocodes-admin/login';return;}
+        const data=await res.json();
+        const tbody=document.getElementById('usersTableBody');
+        if(!data.users.length){tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:#9ca3af;">No users found</td></tr>';return;}
+        tbody.innerHTML=data.users.map(user=>{
+          const lastSeen=user.lastSeen?new Date(user.lastSeen).toLocaleString():'Never';
+          return \`<tr>
+            <td><span class="status-badge \${user.online?'status-online':'status-offline'}"><i class="fas fa-circle" style="font-size:8px;"></i> \${user.online?'ONLINE':'OFFLINE'}</span></td>
+            <td><span style="font-family:monospace;color:#ffb347;">+\${user.phone||'—'}</span></td>
+            <td>\${user.name||'—'}</td>
+            <td style="font-size:12px;">\${lastSeen}</td>
+            <td>\${(user.totalMessages||0).toLocaleString()}</td>
+            <td>\${user.totalSessions||0}</td>
+          </tr>\`;
         }).join('');
-
-        // Pagination
-        let paginationHtml = '';
-        for (let i = 1; i <= Math.min(data.pages, 10); i++) {
-          paginationHtml += \`<button onclick="loadUsers(\${i})" class="btn-secondary" style="padding: 8px 12px; \${i === currentPage ? 'background: #ff3366; border-color: #ff3366;' : ''}">\${i}</button>\`;
-        }
-        document.getElementById('pagination').innerHTML = paginationHtml;
-      } catch (e) {
-        console.error(e);
-      }
+        let paginationHtml='';
+        for(let i=1;i<=Math.min(data.pages,10);i++){paginationHtml+=\`<button onclick="loadUsers(\${i})" class="btn-secondary" style="padding:8px 12px;\${i===currentPage?'background:#ff3366;border-color:#ff3366;':''}">\${i}</button>\`;}
+        document.getElementById('pagination').innerHTML=paginationHtml;
+      } catch(e){console.error(e);}
     }
-
-    document.getElementById('searchInput').addEventListener('input', () => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => loadUsers(1), 500);
-    });
-
-    async function logoutAdmin() {
-      window.location.href = '/ayocodes-admin/logout';
-    }
-
+    document.getElementById('searchInput').addEventListener('input',()=>{clearTimeout(searchTimeout);searchTimeout=setTimeout(()=>loadUsers(1),500);});
+    async function logoutAdmin(){window.location.href='/ayocodes-admin/logout';}
     loadUsers();
-    setInterval(() => loadUsers(currentPage), 30000);
+    setInterval(()=>loadUsers(currentPage),30000);
   </script>
 </body>
 </html>`
@@ -3211,7 +2693,10 @@ function setupWebDashboard() {
   app.get("/ayocodes-admin/logout", (req, res) => {
     const token = req.cookies?.ayoAdminToken;
     if (token) adminTokens.delete(token);
-    res.setHeader("Set-Cookie", "ayoAdminToken=; HttpOnly; Path=/; Max-Age=0");
+    res.setHeader(
+      "Set-Cookie",
+      "ayoAdminToken=; HttpOnly; Path=/; Max-Age=0",
+    );
     res.redirect("/ayocodes-admin/login");
   });
 
@@ -3240,15 +2725,19 @@ function setupWebDashboard() {
     });
   });
 
-  app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY)
-      return res.status(403).json({ error: "Not enabled" });
-    const { instanceId } = req.body;
-    if (!instanceId)
-      return res.status(400).json({ error: "instanceId required" });
-    await destroySession(instanceId);
-    res.json({ ok: true });
-  });
+  app.post(
+    "/ayocodes-admin/api/disconnect",
+    requireAdmin,
+    async (req, res) => {
+      if (!ENV.AYOCODES_ADMIN_KEY)
+        return res.status(403).json({ error: "Not enabled" });
+      const { instanceId } = req.body;
+      if (!instanceId)
+        return res.status(400).json({ error: "instanceId required" });
+      await destroySession(instanceId);
+      res.json({ ok: true });
+    },
+  );
 
   app.post(
     "/ayocodes-admin/api/delete-offline",
@@ -3256,7 +2745,9 @@ function setupWebDashboard() {
     async (req, res) => {
       if (!ENV.AYOCODES_ADMIN_KEY)
         return res.status(403).json({ error: "Not enabled" });
-      const offline = Array.from(sessions.values()).filter((s) => !s.connected);
+      const offline = Array.from(sessions.values()).filter(
+        (s) => !s.connected,
+      );
       let deleted = 0;
       for (const s of offline) {
         try {
@@ -3339,7 +2830,9 @@ function setupWebDashboard() {
             [
               u.phone || "",
               (u.name || "").replace(/,/g, ";"),
-              u.firstSeen ? new Date(u.firstSeen).toISOString() : "",
+              u.firstSeen
+                ? new Date(u.firstSeen).toISOString()
+                : "",
               u.lastSeen ? new Date(u.lastSeen).toISOString() : "",
               u.totalMessages || 0,
               u.totalSessions || 0,
@@ -3440,14 +2933,14 @@ async function loadAndDisplayFeatures() {
     { name: "Unit Convert", path: "./features/unitConverter.js", emoji: "📏" },
   ];
 
-  let loaded = 0,
-    failed = 0,
-    total = 0;
+  let loaded = 0, failed = 0, total = 0;
   for (const f of features) {
     try {
       const mod = await import(f.path);
       const fns = Object.keys(mod).filter((k) => typeof mod[k] === "function");
-      console.log(`✅ ${f.emoji} ${f.name.padEnd(16)} ➜ ${fns.length} exports`);
+      console.log(
+        `✅ ${f.emoji} ${f.name.padEnd(16)} ➜ ${fns.length} exports`,
+      );
       loaded++;
       total += fns.length;
     } catch (e) {
@@ -3460,9 +2953,7 @@ async function loadAndDisplayFeatures() {
 
   console.log(`\n┏${line}┓`);
   console.log(
-    `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(
-      55,
-    ) + "┃",
+    `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(55) + "┃",
   );
   console.log(`┗${line}┛\n`);
 }
@@ -3487,7 +2978,9 @@ async function restoreAllSessions() {
             log.info(`[${s.sessionId.slice(0, 8)}] Session restored`);
         }
       } catch (e) {
-        log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
+        log.warn(
+          `Could not restore session ${s.sessionId}: ${e.message}`,
+        );
       }
     }
   } catch (error) {
