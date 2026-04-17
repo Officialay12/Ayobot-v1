@@ -283,35 +283,71 @@ export function normalizeToPhone(jid) {
 }
 
 export const normalizePhone = normalizeToPhone;
+
 // ============================================================
-//   CRITICAL: ADMIN & PERMISSION HELPERS
+//   CRITICAL: ADMIN & PERMISSION HELPERS (COMPLETE)
+//   Author: AYOCODES
+//
+//   LOGIC:
+//   1. Bot owner always has full access everywhere
+//   2. If bot owner is a group admin, bot inherits admin rights
+//   3. If bot is literal admin, bot has admin rights
+//   4. Otherwise, bot has no admin rights
 // ============================================================
 
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 
+// ============================================================
+//   HELPER: Normalize phone number from JID
+// ============================================================
+function normalizePhone(jid) {
+  if (!jid) return "";
+  if (typeof jid === "object") {
+    jid = jid.id || jid.jid || jid.phone || String(jid);
+  }
+  const str = String(jid);
+  let withoutDomain = str.split("@")[0];
+  let withoutDevice = withoutDomain.split(":")[0];
+  return withoutDevice.replace(/[^0-9]/g, "");
+}
+
+// ============================================================
+//   CHECK IF USER IS BOT OWNER
+// ============================================================
 export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
-  const user = normalizeToPhone(userJid);
-  const owner = normalizeToPhone(botOwnerJid);
+  const user = normalizePhone(userJid);
+  const owner = normalizePhone(botOwnerJid);
   if (!user || !owner) return false;
   return user === owner;
 }
 
+// ============================================================
+//   CHECK IF USER IS ADMIN (Bot Owner)
+// ============================================================
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
-  const user = normalizeToPhone(userJid);
-  const owner = normalizeToPhone(ownerPhone);
+  const user = normalizePhone(userJid);
+  const owner = normalizePhone(ownerPhone);
   if (!user || !owner) return false;
   return user === owner;
 }
 
+// ============================================================
+//   CHECK IF BOT IS GROUP ADMIN (With Owner Inheritance)
+//
+//   Returns TRUE if:
+//   1. Bot is literally a group admin, OR
+//   2. Bot owner is a group admin (bot inherits rights)
+// ============================================================
 export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypassCache = false) {
   try {
     if (!sock || !groupJid) return false;
 
     const cacheKey = `bot_admin_${groupJid}`;
 
+    // Check cache first
     if (!bypassCache && adminStatusCache.has(cacheKey)) {
       const cached = adminStatusCache.get(cacheKey);
       if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
@@ -319,30 +355,37 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
+    // Get bot's phone number
     const botRaw = sock.user?.id || "";
-    const botPhone = normalizeToPhone(botRaw);
+    const botPhone = normalizePhone(botRaw);
 
     if (!botPhone) {
       log.debug(`[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`);
       return false;
     }
 
+    // Fetch group metadata
     const groupMetadata = await sock.groupMetadata(groupJid);
+    if (!groupMetadata || !groupMetadata.participants) {
+      return false;
+    }
 
-    // ── Check if bot is literally a group admin ───────────────────────────
+    // ──────────────────────────────────────────────────────────────
+    // CHECK 1: Is bot literally a group admin?
+    // ──────────────────────────────────────────────────────────────
     let botParticipant = null;
     for (const p of groupMetadata.participants) {
-      if (normalizeToPhone(p.id) === botPhone) {
+      if (normalizePhone(p.id) === botPhone) {
         botParticipant = p;
         break;
       }
     }
 
-    const botIsLiteralAdmin =
-      botParticipant &&
+    const botIsLiteralAdmin = botParticipant &&
       (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
 
     if (botIsLiteralAdmin) {
+      log.debug(`[isBotGroupAdmin] Bot is literal admin in ${groupJid}`);
       adminStatusCache.set(cacheKey, {
         isAdmin: true,
         timestamp: Date.now(),
@@ -351,17 +394,22 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       return true;
     }
 
-    // ── KEY FIX: If bot owner is a group admin, bot inherits admin rights ──
+    // ──────────────────────────────────────────────────────────────
+    // CHECK 2: Is bot owner a group admin? (Inheritance)
+    // ──────────────────────────────────────────────────────────────
     if (botOwnerJid) {
-      const ownerPhone = normalizeToPhone(botOwnerJid);
+      const ownerPhone = normalizePhone(botOwnerJid);
 
       if (ownerPhone) {
-        const ownerParticipant = groupMetadata.participants.find(
-          (p) => normalizeToPhone(p.id) === ownerPhone
-        );
+        let ownerParticipant = null;
+        for (const p of groupMetadata.participants) {
+          if (normalizePhone(p.id) === ownerPhone) {
+            ownerParticipant = p;
+            break;
+          }
+        }
 
-        const ownerIsGroupAdmin =
-          ownerParticipant &&
+        const ownerIsGroupAdmin = ownerParticipant &&
           (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
 
         if (ownerIsGroupAdmin) {
@@ -376,7 +424,9 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
-    // ── Neither bot nor owner is admin ────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────
+    // Neither bot nor owner is admin
+    // ──────────────────────────────────────────────────────────────
     adminStatusCache.set(cacheKey, {
       isAdmin: false,
       timestamp: Date.now(),
@@ -386,20 +436,24 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
     return false;
 
   } catch (error) {
-    log.debug(`Failed to check bot admin status: ${error.message}`);
+    log.debug(`[isBotGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
 
+// ============================================================
+//   CHECK IF USER IS GROUP ADMIN
+// ============================================================
 export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = null) {
   try {
     if (!sock || !groupJid || !userJid) return false;
 
-    const userPhone = normalizeToPhone(userJid);
+    const userPhone = normalizePhone(userJid);
     if (!userPhone) return false;
 
     const cacheKey = `user_admin_${groupJid}_${userPhone}`;
 
+    // Check cache
     if (adminStatusCache.has(cacheKey)) {
       const cached = adminStatusCache.get(cacheKey);
       if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
@@ -409,7 +463,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
 
     // Bot owner always has admin privileges everywhere
     if (botOwnerJid) {
-      const ownerPhone = normalizeToPhone(botOwnerJid);
+      const ownerPhone = normalizePhone(botOwnerJid);
       if (ownerPhone && userPhone === ownerPhone) {
         adminStatusCache.set(cacheKey, {
           isAdmin: true,
@@ -420,61 +474,101 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
       }
     }
 
+    // Check group membership
     const groupMetadata = await sock.groupMetadata(groupJid);
-    const participant = groupMetadata.participants.find(
-      (p) => normalizeToPhone(p.id) === userPhone
-    );
+    if (!groupMetadata || !groupMetadata.participants) {
+      return false;
+    }
 
-    const result =
-      participant &&
+    let participant = null;
+    for (const p of groupMetadata.participants) {
+      if (normalizePhone(p.id) === userPhone) {
+        participant = p;
+        break;
+      }
+    }
+
+    const isAdmin = participant &&
       (participant.admin === "admin" || participant.admin === "superadmin");
 
     adminStatusCache.set(cacheKey, {
-      isAdmin: result,
+      isAdmin,
       timestamp: Date.now(),
       reason: "group_check",
     });
 
-    return result;
+    return isAdmin;
 
   } catch (error) {
-    log.debug(`Failed to check user admin status: ${error.message}`);
+    log.debug(`[isUserGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
 
+// ============================================================
+//   CLEAR ADMIN CACHE FOR A GROUP
+// ============================================================
 export function clearAdminCache(groupJid) {
   for (const key of adminStatusCache.keys()) {
     if (key.includes(groupJid)) {
       adminStatusCache.delete(key);
     }
   }
-  log.debug(`Cleared admin cache for ${groupJid}`);
+  log.debug(`[clearAdminCache] Cleared cache for ${groupJid}`);
 }
 
+// ============================================================
+//   REFRESH ADMIN STATUS (Force clear cache and re-check)
+// ============================================================
+export async function refreshAdminStatus(sock, groupJid, botOwnerJid = null) {
+  clearAdminCache(groupJid);
+  return await isBotGroupAdmin(sock, groupJid, botOwnerJid, true);
+}
+
+// ============================================================
+//   MAIN PERMISSION CHECKER FOR GROUP COMMANDS
+//
+//   Checks:
+//   1. Command is used in a group
+//   2. User has admin privileges (bot owner OR group admin)
+//   3. Bot has admin privileges (literal OR owner inheritance)
+// ============================================================
 export async function hasGroupAdminPermission(sock, msg, session) {
   const from = msg.key.remoteJid;
   const isGroup = from?.endsWith("@g.us");
 
+  // Step 1: Check if command is used in a group
   if (!isGroup) {
-    return { allowed: false, reason: "❌ This command only works in groups!" };
+    return {
+      allowed: false,
+      reason: "❌ This command only works in groups!"
+    };
   }
 
   const senderJid = msg.key.participant || msg.key.remoteJid;
   const botOwnerJid = session?.ownerJid ||
-    (ENV.ADMIN ? `${normalizeToPhone(ENV.ADMIN)}@s.whatsapp.net` : null);
+    (ENV.ADMIN ? `${normalizePhone(ENV.ADMIN)}@s.whatsapp.net` : null);
 
-  // Check sender has admin privileges
-  const userHasAdmin = await isUserGroupAdmin(sock, from, senderJid, botOwnerJid);
+  // Step 2: Check if sender is bot owner (always allowed)
+  if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
+    log.debug(`[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`);
+    return {
+      allowed: true,
+      reason: "Bot owner"
+    };
+  }
 
-  if (!userHasAdmin) {
+  // Step 3: Check if sender is a group admin
+  const userIsAdmin = await isUserGroupAdmin(sock, from, senderJid, botOwnerJid);
+
+  if (!userIsAdmin) {
     return {
       allowed: false,
       reason: "⛔ *Group Admin Required*\n\nYou need to be a group admin to use this command!",
     };
   }
 
-  // Check bot has admin privileges (literal OR inherited from owner being admin)
+  // Step 4: Check if bot has admin rights (literal OR inherited from owner)
   const botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid);
 
   if (!botHasAdmin) {
@@ -483,24 +577,29 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     if (!retried) {
       return {
         allowed: false,
-        reason: "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* (or the bot owner must be a group admin) to perform this action!",
+        reason: "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* (or the bot owner must be a group admin) to perform this action!\n\n💡 *How to fix:*\n1. Make me a group admin, OR\n2. Make the bot owner a group admin\n3. Run .refreshadmin",
       };
     }
   }
 
-  return { allowed: true, reason: "Group admin" };
+  return {
+    allowed: true,
+    reason: "Group admin"
+  };
 }
 
-export async function refreshAdminStatus(sock, groupJid) {
-  clearAdminCache(groupJid);
-  return await isBotGroupAdmin(sock, groupJid, null, true);
-}
-
+// ============================================================
+//   DELAY HELPER
+// ============================================================
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ============================================================
+//   SEND MESSAGE HELPER
+// ============================================================
 export async function sendMsg(sock, jid, content, options = {}) {
   try {
     if (!sock || !jid) return null;
+
     let messageOptions = {};
     if (typeof content === "string") {
       messageOptions = { text: content };
@@ -515,23 +614,28 @@ export async function sendMsg(sock, jid, content, options = {}) {
     } else {
       messageOptions = content;
     }
+
     const result = await sock.sendMessage(jid, {
       ...messageOptions,
       ...options,
     });
     return result;
   } catch (error) {
-    log.debug(`sendMsg error: ${error.message}`);
+    log.debug(`[sendMsg] Error: ${error.message}`);
     return null;
   }
 }
 
+// ============================================================
+//   UTILITY HELPERS
+// ============================================================
 export const getTime = () => {
   const now = new Date();
   return now.toLocaleTimeString("en-US", { hour12: false });
 };
 
 export const formatNumber = (num) => {
+  if (!num) return "0";
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
@@ -865,68 +969,13 @@ console.error = function (...args) {
   if (m instanceof Error && m.message?.includes("Bad MAC")) return;
   originalConsoleError.apply(console, args);
 };
+
 // ============================================================
-//   AUTH STATE REPAIR FUNCTIONS
+//   MONGODB AUTH STATE
 // ============================================================
-
-async function validateAndRepairAuth(sessionId) {
-  try {
-    // Check if creds exist and are valid
-    const credsDoc = await authCollection.findOne({ _id: `${sessionId}:creds` });
-    if (!credsDoc) {
-      log.warn(`[${sessionId.slice(0,8)}] No creds found, will create fresh`);
-      return false;
-    }
-
-    // Try to parse and validate creds
-    try {
-      const creds = JSON.parse(credsDoc.data, BufferJSON.reviver);
-      if (!creds.noiseKey || !creds.signedIdentityKey || !creds.signedPreKey) {
-        log.warn(`[${sessionId.slice(0,8)}] Corrupted creds detected, deleting...`);
-        await authCollection.deleteOne({ _id: `${sessionId}:creds` });
-        return false;
-      }
-      return true;
-    } catch (parseError) {
-      log.warn(`[${sessionId.slice(0,8)}] Invalid creds JSON, deleting...`);
-      await authCollection.deleteOne({ _id: `${sessionId}:creds` });
-      return false;
-    }
-  } catch (e) {
-    log.err(`[${sessionId.slice(0,8)}] Auth validation error: ${e.message}`);
-    return false;
-  }
-}
-
-async function clearCorruptedAuth(sessionId) {
-  try {
-    const safePrefix = sessionId.replace(/[^a-f0-9]/gi, "");
-    const result = await authCollection.deleteMany({
-      _id: { $regex: `^${safePrefix}:`, $options: "" }
-    });
-    if (result.deletedCount > 0) {
-      log.ok(`[${sessionId.slice(0,8)}] Cleared ${result.deletedCount} corrupted auth records`);
-    }
-    return true;
-  } catch (e) {
-    log.err(`Failed to clear auth: ${e.message}`);
-    return false;
-  }
-}
 async function useMongoAuthState(collection, sessionId) {
-  // Validate existing auth before proceeding
-  await validateAndRepairAuth(sessionId);
-
   const writeData = async (data, id) => {
     try {
-      // Skip writing invalid creds
-      if (id === 'creds') {
-        if (!data || !data.noiseKey || !data.signedIdentityKey) {
-          log.warn(`[${sessionId.slice(0,8)}] Skipping invalid creds write`);
-          return;
-        }
-      }
-
       await collection.replaceOne(
         { _id: `${sessionId}:${id}` },
         {
@@ -938,6 +987,7 @@ async function useMongoAuthState(collection, sessionId) {
       );
     } catch (error) {
       log.err(`MongoDB write error for ${id}: ${error.message}`);
+      throw error;
     }
   };
 
@@ -945,27 +995,9 @@ async function useMongoAuthState(collection, sessionId) {
     try {
       const item = await collection.findOne({ _id: `${sessionId}:${id}` });
       if (!item) return null;
-
-      if (!item.data || typeof item.data !== 'string') {
-        return null;
-      }
-
-      const parsed = JSON.parse(item.data, BufferJSON.reviver);
-
-      // Validate creds have required fields
-      if (id === 'creds' && parsed) {
-        if (!parsed.noiseKey || !parsed.signedIdentityKey) {
-          log.warn(`[${sessionId.slice(0,8)}] Invalid creds structure, returning null`);
-          return null;
-        }
-      }
-
-      return parsed;
+      return JSON.parse(item.data, BufferJSON.reviver);
     } catch (error) {
-      if (id === 'creds') {
-        log.warn(`[${sessionId.slice(0,8)}] Corrupted creds detected, deleting`);
-        await collection.deleteOne({ _id: `${sessionId}:creds` });
-      }
+      log.err(`MongoDB read error for ${id}: ${error.message}`);
       return null;
     }
   };
@@ -978,13 +1010,7 @@ async function useMongoAuthState(collection, sessionId) {
     }
   };
 
-  // Get or create fresh creds
-  let creds = await readData("creds");
-  if (!creds || !creds.noiseKey || !creds.signedIdentityKey) {
-    log.warn(`[${sessionId.slice(0,8)}] Creating fresh credentials`);
-    creds = initAuthCreds();
-    await writeData(creds, "creds");
-  }
+  const creds = (await readData("creds")) || initAuthCreds();
 
   return {
     state: {
@@ -998,7 +1024,7 @@ async function useMongoAuthState(collection, sessionId) {
               if (type === "app-state-sync-key" && value) {
                 value = proto.Message.AppStateSyncKeyData.fromObject(value);
               }
-              if (value) data[id] = value;
+              data[id] = value;
             }),
           );
           return data;
@@ -1008,23 +1034,18 @@ async function useMongoAuthState(collection, sessionId) {
           for (const category of Object.keys(data)) {
             for (const id of Object.keys(data[category])) {
               const value = data[category][id];
-              if (value) {
-                tasks.push(writeData(value, `${category}-${id}`));
-              } else {
-                tasks.push(removeData(`${category}-${id}`));
-              }
+              tasks.push(
+                value
+                  ? writeData(value, `${category}-${id}`)
+                  : removeData(`${category}-${id}`),
+              );
             }
           }
           await Promise.all(tasks);
         },
       },
     },
-    saveCreds: () => {
-      if (creds && creds.noiseKey && creds.signedIdentityKey) {
-        return writeData(creds, "creds");
-      }
-      return Promise.resolve();
-    },
+    saveCreds: () => writeData(creds, "creds"),
   };
 }
 
