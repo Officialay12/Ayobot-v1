@@ -851,81 +851,94 @@ export async function viewOnce({ message, from, sock }) {
   }
 }
 // ════════════════════════════════════════════════════════════════════════════
-//  .ok — VIEW ONCE TO DM (GROUP + DM COMPATIBLE)
-//  Reactions: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
+//  .ok — VIEW ONCE TO DM (FIXED: Correct sender targeting + DM delivery)
+//  Reactions only: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Reliably extract the SENDER's personal JID regardless of context (group or DM)
+ * Extract the REAL personal JID of whoever sent the .ok command
+ * Works in both groups and DMs
  */
-function getSenderJid(message) {
+function getCommandSenderJid(message) {
   const remoteJid = message.key?.remoteJid ?? "";
   const isGroup = remoteJid.endsWith("@g.us");
 
   if (isGroup) {
-    // In groups, the real sender is in participant
-    return message.key?.participant || message.participant || "";
+    // In a group, the actual sender is always in participant
+    const participant = message.key?.participant || message.participant || "";
+    return participant;
   }
 
-  // In DMs, remoteJid IS the sender
+  // In DM, remoteJid is the sender
   return remoteJid;
 }
 
 /**
- * Strip any suffix and return a clean phone number
+ * Strip everything and return just the numeric phone number
  */
-function cleanPhone(jid = "") {
+function extractPhone(jid = "") {
   return jid
     .replace(/@s\.whatsapp\.net$/, "")
     .replace(/@g\.us$/, "")
-    .replace(/@.*$/, "")
-    .replace(/[^0-9]/g, "");
+    .replace(/@lid$/, "")
+    .replace(/[^0-9]/g, "")
+    .trim();
 }
 
 /**
- * Send view-once media to a user's personal DM
+ * Send view-once media directly to the command sender's personal DM
  */
-async function sendViewOnceToDMSilent(sock, rawJid, buffer, type) {
-  const phone = cleanPhone(rawJid);
+async function deliverViewOnceToDM(sock, senderJid, buffer, type) {
+  const phone = extractPhone(senderJid);
 
-  if (!phone) {
-    return { success: false, error: "Could not resolve sender phone number" };
+  if (!phone || phone.length < 7) {
+    return { success: false, error: "Could not resolve a valid phone number from sender JID" };
   }
 
+  // Always build a clean personal JID — never group JID
   const dmJid = `${phone}@s.whatsapp.net`;
 
+  // Guard: never send to a group JID
+  if (dmJid.endsWith("@g.us")) {
+    return { success: false, error: "Resolved JID is a group — aborting to prevent wrong delivery" };
+  }
+
   try {
-    // Step 1: Establish chat with a text ping (required by WhatsApp)
-    await sock.sendMessage(dmJid, { text: "📤 Sending your view-once media..." });
-    await delay(1000);
+    // Step 1: Open the chat with a ping (WhatsApp requires this for unknown chats)
+    await sock.sendMessage(dmJid, {
+      text: "📬 *Sending your view-once media...*\n_Tap to open when it arrives._"
+    });
 
-    // Step 2: Typing presence (optional but improves reliability)
+    await delay(1500);
+
+    // Step 2: Typing presence
     await sock.sendPresenceUpdate("composing", dmJid);
-    await delay(500);
+    await delay(600);
 
-    // Step 3: Build and send the view-once message
-    const messageOptions = buildViewOnceOptions(buffer, type);
-    await sock.sendMessage(dmJid, messageOptions);
+    // Step 3: Send the actual view-once
+    const payload = buildViewOncePayload(buffer, type);
+    await sock.sendMessage(dmJid, payload);
 
     return { success: true };
 
   } catch (error) {
-    console.error("[sendViewOnceToDMSilent] Error:", error.message);
+    console.error("[deliverViewOnceToDM] Primary attempt failed:", error.message);
 
     const isPrivacyError =
       error.message?.includes("not-allowed") ||
       error.message?.includes("privacy") ||
-      error.message?.includes("blocked");
+      error.message?.includes("blocked") ||
+      error.message?.includes("forbidden");
 
     if (isPrivacyError) {
-      // Fallback: send regular media first to establish trust, then view-once
+      // Fallback: send regular version first to establish trust, then view-once
       try {
-        await sock.sendMessage(dmJid, buildRegularOptions(buffer, type));
-        await delay(1200);
-        await sock.sendMessage(dmJid, buildViewOnceOptions(buffer, type));
+        await sock.sendMessage(dmJid, buildRegularPayload(buffer, type));
+        await delay(1500);
+        await sock.sendMessage(dmJid, buildViewOncePayload(buffer, type));
         return { success: true, wasRetried: true };
-      } catch (retryError) {
-        return { success: false, error: retryError.message, isPrivacy: true };
+      } catch (retryErr) {
+        return { success: false, error: retryErr.message, isPrivacy: true };
       }
     }
 
@@ -936,61 +949,56 @@ async function sendViewOnceToDMSilent(sock, rawJid, buffer, type) {
 /**
  * Build view-once message payload
  */
-function buildViewOnceOptions(buffer, type) {
-  const options = { [type]: buffer, viewOnce: true };
-
+function buildViewOncePayload(buffer, type) {
+  const payload = { [type]: buffer, viewOnce: true };
   if (type === "image") {
-    options.mimetype = "image/jpeg";
-    options.caption = "🔒 View-Once Image\n👑 AYOBOT";
+    payload.mimetype = "image/jpeg";
+    payload.caption = "🔒 View-Once Image\n👑 AYOBOT";
   } else if (type === "video") {
-    options.mimetype = "video/mp4";
-    options.caption = "🔒 View-Once Video\n👑 AYOBOT";
+    payload.mimetype = "video/mp4";
+    payload.caption = "🔒 View-Once Video\n👑 AYOBOT";
   } else if (type === "audio") {
-    options.mimetype = "audio/mp4";
-    options.ptt = true;
+    payload.mimetype = "audio/mp4";
+    payload.ptt = true;
   }
-
-  return options;
+  return payload;
 }
 
 /**
- * Build regular (non-view-once) message payload for fallback
+ * Build regular (non-view-once) payload for fallback trust establishment
  */
-function buildRegularOptions(buffer, type) {
-  const options = { [type]: buffer };
-
+function buildRegularPayload(buffer, type) {
+  const payload = { [type]: buffer };
   if (type === "image") {
-    options.mimetype = "image/jpeg";
-    options.caption = "📸 Establishing secure channel...";
+    payload.mimetype = "image/jpeg";
+    payload.caption = "📸 Establishing channel...";
   } else if (type === "video") {
-    options.mimetype = "video/mp4";
-    options.caption = "🎥 Establishing secure channel...";
+    payload.mimetype = "video/mp4";
+    payload.caption = "🎥 Establishing channel...";
   } else if (type === "audio") {
-    options.mimetype = "audio/mp4";
-    options.ptt = true;
+    payload.mimetype = "audio/mp4";
+    payload.ptt = true;
   }
-
-  return options;
+  return payload;
 }
 
 /**
- * Extract view-once media from a quoted message (works in groups + DMs)
+ * Extract view-once media from a quoted message
+ * Covers all known WhatsApp wrapper formats
  */
 function extractViewOnceMedia(quotedMsg) {
   if (!quotedMsg) return { mediaMsg: null, type: null };
 
-  // All possible wrappers WhatsApp uses for view-once
   const containers = [
     quotedMsg?.viewOnceMessageV2?.message,
     quotedMsg?.viewOnceMessageV2Extension?.message,
     quotedMsg?.viewOnceMessage?.message,
-    quotedMsg?.ephemeralMessage?.message,   // some clients wrap in ephemeral
-    quotedMsg,                               // sometimes unwrapped already
+    quotedMsg?.ephemeralMessage?.message,
+    quotedMsg,
   ];
 
   for (const container of containers) {
     if (!container) continue;
-
     if (container.imageMessage) return { mediaMsg: container.imageMessage, type: "image" };
     if (container.videoMessage) return { mediaMsg: container.videoMessage, type: "video" };
     if (container.audioMessage) return { mediaMsg: container.audioMessage, type: "audio" };
@@ -999,30 +1007,39 @@ function extractViewOnceMedia(quotedMsg) {
   return { mediaMsg: null, type: null };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
 
 /**
- * .ok COMMAND — Reply to a view-once message to receive it in your DM
- * Works in both GROUP chats and personal DMs
+ * .ok COMMAND
+ * Reply to a view-once message → it gets sent to YOUR DM only
+ * Works in groups and DMs
  */
 export async function viewOnceToDM({ message, userJid, sock }) {
   await sendReaction(sock, message, "⏳");
 
   try {
-    // ── 1. Resolve the real sender JID (critical fix for groups) ──────────
-    const senderJid = getSenderJid(message) || userJid;
+    // ── 1. Resolve WHO triggered the command (must be their personal JID) ──
+    //    userJid from the handler can sometimes be the group JID on some
+    //    bot frameworks — so we always re-derive from the raw message
+    const senderJid = getCommandSenderJid(message);
+    const resolvedJid = senderJid || userJid || "";
 
-    if (!senderJid) {
-      console.error("[.ok] Could not determine sender JID");
+    if (!resolvedJid || resolvedJid.endsWith("@g.us")) {
+      // Could not resolve a personal JID — abort
+      console.error("[.ok] Could not resolve personal sender JID:", resolvedJid);
       await sendReaction(sock, message, "🔴");
       return;
     }
 
     // ── 2. Get the quoted message ─────────────────────────────────────────
-    const contextInfo = message.message?.extendedTextMessage?.contextInfo
-                     ?? message.message?.imageMessage?.contextInfo
-                     ?? message.message?.videoMessage?.contextInfo
-                     ?? message.message?.audioMessage?.contextInfo;
+    // Check all possible paths the quoted message could be nested under
+    const contextInfo =
+      message.message?.extendedTextMessage?.contextInfo ||
+      message.message?.imageMessage?.contextInfo ||
+      message.message?.videoMessage?.contextInfo ||
+      message.message?.audioMessage?.contextInfo ||
+      message.message?.stickerMessage?.contextInfo ||
+      null;
 
     const quotedMsg = contextInfo?.quotedMessage;
 
@@ -1031,152 +1048,61 @@ export async function viewOnceToDM({ message, userJid, sock }) {
       return;
     }
 
-    // ── 3. Extract the view-once media ────────────────────────────────────
+    // ── 3. Extract view-once media from the quoted message ────────────────
     const { mediaMsg, type } = extractViewOnceMedia(quotedMsg);
 
     if (!mediaMsg || !type) {
+      // Quoted message exists but is not view-once media
       await sendReaction(sock, message, "❌");
       return;
     }
 
-    // ── 4. Download the media ─────────────────────────────────────────────
-    const stream = await downloadContentFromMessage(mediaMsg, type);
+    // ── 4. Download the media buffer ──────────────────────────────────────
     let buffer = Buffer.from([]);
-
-    for await (const chunk of stream) {
-      buffer = Buffer.concat([buffer, chunk]);
-    }
-
-    if (!buffer || buffer.length === 0) {
+    try {
+      const stream = await downloadContentFromMessage(mediaMsg, type);
+      for await (const chunk of stream) {
+        buffer = Buffer.concat([buffer, chunk]);
+      }
+    } catch (downloadErr) {
+      console.error("[.ok] Download failed:", downloadErr.message);
       await sendReaction(sock, message, "🔴");
       return;
     }
 
-    // ── 5. Deliver to DM ──────────────────────────────────────────────────
-    const result = await sendViewOnceToDMSilent(sock, senderJid, buffer, type);
+    if (!buffer || buffer.length === 0) {
+      console.error("[.ok] Empty buffer after download");
+      await sendReaction(sock, message, "🔴");
+      return;
+    }
 
-    // ── 6. React based on outcome ─────────────────────────────────────────
+    // ── 5. Deliver ONLY to the command sender's personal DM ───────────────
+    const result = await deliverViewOnceToDM(sock, resolvedJid, buffer, type);
+
+    // ── 6. React based on result ──────────────────────────────────────────
     if (result.success) {
       await sendReaction(sock, message, "✅");
     } else if (result.isPrivacy) {
-      await sendReaction(sock, message, "⚠️"); // Privacy settings blocking DM
+      await sendReaction(sock, message, "⚠️");
     } else {
+      console.error("[.ok] Delivery failed:", result.error);
       await sendReaction(sock, message, "🔴");
     }
 
   } catch (error) {
-    console.error("[.ok] Error:", error.message);
+    console.error("[.ok] Unhandled error:", error.message);
     await sendReaction(sock, message, "🔴");
   }
 }
 
 // ── Aliases ────────────────────────────────────────────────────────────────
-export const ok          = viewOnceToDM;
-export const dm          = viewOnceToDM;
-export const tome        = viewOnceToDM;
-export const senddm      = viewOnceToDM;
+export const ok           = viewOnceToDM;
+export const dm           = viewOnceToDM;
+export const tome         = viewOnceToDM;
+export const senddm       = viewOnceToDM;
 export const privatemedia = viewOnceToDM;
-export const savetodm    = viewOnceToDM;
-export const sendtome    = viewOnceToDM;
-
-// ════════════════════════════════════════════════════════════════════════════
-//  .start - Opens DM with bot (prerequisite for .ok to work)
-// ════════════════════════════════════════════════════════════════════════════
-export async function start({ from, sock, userJid, message }) {
-  const cleanPhone = normalizeJid(userJid);
-  const dmJid = `${cleanPhone}@s.whatsapp.net`;
-
-  await sendReaction(sock, message, "📤");
-
-  try {
-    // Send a message to the user's DM to establish chat
-    await sock.sendMessage(dmJid, {
-      text: `👋 *Hello!*\n\nI'm *AYOBOT* 🤖\n\nNow that you've started a chat with me, you can use *.ok* to receive view-once messages in this chat!\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
-    });
-
-    await sendReaction(sock, message, "✅");
-
-    // Also reply in group
-    await sock.sendMessage(from, {
-      text: `✅ *DM Opened!*\n\nI've sent you a welcome message in our private chat.\n\nNow you can use *.ok* on view-once messages to receive them there!`
-    });
-
-  } catch (error) {
-    await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, {
-      text: `❌ *Failed to open DM*\n\nPlease send me a message directly first: wa.me/${cleanPhone}\n\nThen try *.ok* again.`
-    });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  TAKE — Save sticker to favorites OR convert image/video → sticker
-//  • Reply to a STICKER  → forwards sticker back to current chat (saves to recent)
-//                          AND sends to user DM (adds to their sticker panel)
-//  • Reply to IMAGE/VIDEO → converts to sticker
-//  Reactions: ⏳ → ✅ / ❌
-// ════════════════════════════════════════════════════════════════════════════
-export async function take({ message, from, sock, userJid }) {
-  await sendReaction(sock, message, "⏳");
-  try {
-    const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    if (!quoted) {
-      await sendReaction(sock, message, "❌");
-      return sock.sendMessage(from, {
-        text: formatInfo(
-          "TAKE",
-          `Reply to a *sticker* to save it, or reply to an *image/video* to convert it.\n\n${ENV.PREFIX}take`,
-        ),
-      });
-    }
-
-    // ── Case 1: Quoted message is a sticker ──
-    if (quoted.stickerMessage) {
-      const stream = await downloadContentFromMessage(quoted.stickerMessage, "sticker");
-      let buffer = Buffer.from([]);
-      for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
-      // Send sticker back in current chat (adds to WhatsApp recent stickers)
-      await sock.sendMessage(from, { sticker: buffer });
-
-      // Also send to user's DM so it appears in their sticker panel
-      try {
-        const cleanPhone = normalizeJid(userJid);
-        const dmJid = `${cleanPhone}@s.whatsapp.net`;
-        await sock.sendMessage(dmJid, { sticker: buffer });
-      } catch (_) {
-        // DM send is best-effort
-      }
-
-      await sendReaction(sock, message, "✅");
-      return;
-    }
-
-    // ── Case 2: Quoted message is an image or video → convert to sticker ──
-    if (!quoted.imageMessage && !quoted.videoMessage) {
-      await sendReaction(sock, message, "❌");
-      return sock.sendMessage(from, {
-        text: formatError("UNSUPPORTED", "Reply to a sticker, image, or video to use .take"),
-      });
-    }
-
-    const mediaType = quoted.imageMessage ? "image" : "video";
-    const stream = await downloadContentFromMessage(
-      quoted.imageMessage || quoted.videoMessage,
-      mediaType,
-    );
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
-    await sock.sendMessage(from, { sticker: buffer });
-    await sendReaction(sock, message, "✅");
-  } catch (err) {
-    await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not process: ${err.message}`),
-    });
-  }
-}
+export const savetodm     = viewOnceToDM;
+export const sendtome     = viewOnceToDM;
 
 // ════════════════════════════════════════════════════════════════════════════
 //  WAITLIST
