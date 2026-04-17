@@ -1650,41 +1650,6 @@ async function updateUserMessageCount(session) {
   }
 }
 
-// ============================================================
-//   OWNER HELPERS
-// ============================================================
-function setSessionOwner(session, jid, phone, name = "Owner") {
-  const cleanPhone = normalizePhone(phone);
-  const cleanJid = `${cleanPhone}@s.whatsapp.net`;
-  const cleanName =
-    name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
-
-  session.ownerJid = cleanJid;
-  session.ownerPhone = cleanPhone;
-  session.ownerName = cleanName;
-
-  if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
-
-  sessionMetaCollection
-    ?.updateOne(
-      { sessionId: session.id },
-      {
-        $set: {
-          ownerPhone: cleanPhone,
-          ownerName: cleanName,
-          botNumber: session.botNumber,
-          updatedAt: new Date(),
-        },
-      },
-      { upsert: true },
-    )
-    .catch(() => {});
-
-  trackUser(session).catch(() => {});
-  log.ok(
-    `[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`,
-  );
-}
 
 // ============================================================
 //   WELCOME MESSAGE
@@ -2016,39 +1981,7 @@ async function _startSocket(session) {
   }
 }
 
-// ============================================================
-//   SET SESSION OWNER WITH PROPER JID FORMATTING
-// ============================================================
 
-function setSessionOwner(session, jid, phone, name = "Owner") {
-  const cleanPhone = normalizePhone(phone);
-  const cleanJid = `${cleanPhone}@s.whatsapp.net`;
-  const cleanName = name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
-
-  session.ownerJid = cleanJid;
-  session.ownerPhone = cleanPhone;
-  session.ownerName = cleanName;
-
-  if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
-
-  sessionMetaCollection
-    ?.updateOne(
-      { sessionId: session.id },
-      {
-        $set: {
-          ownerPhone: cleanPhone,
-          ownerName: cleanName,
-          botNumber: session.botNumber,
-          updatedAt: new Date(),
-        },
-      },
-      { upsert: true },
-    )
-    .catch(() => {});
-
-  trackUser(session).catch(() => {});
-  log.ok(`[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`);
-}
 
 // ============================================================
 //   DESTROY SESSION

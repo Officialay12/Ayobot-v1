@@ -7,7 +7,7 @@
 
 import axios from "axios";
 import { ENV } from "../../index.js";
-import { sendMsg } from "../../utils/channelButton.js";
+import { sendMsg } from "../../index.js";
 import { formatError, formatInfo } from "../../utils/formatters.js";
 
 // ════════════════════════════════════════════════════════════════════════════

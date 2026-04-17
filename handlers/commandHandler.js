@@ -451,19 +451,54 @@ export function registerAllCommands() {
   }
 
   // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
-  {
-    const m = MODULES.downloader;
-    if (safeRegister("youtube",   fn(m, "youtube", "yt", "ytdl"),        { category: "dl", aliases: ["yt", "ytdl", "ytmp3"] })) count++;
-    if (safeRegister("tiktok",    fn(m, "tiktok", "tt", "tiktokdl"),     { category: "dl", aliases: ["tt", "tok", "tiktokdl"] })) count++;
-    if (safeRegister("spotify",   fn(m, "spotify", "sp"),                { category: "dl", aliases: ["sp", "spotifydl"] })) count++;
-    if (safeRegister("instagram", fn(m, "instagram", "ig", "insta"),     { category: "dl", aliases: ["ig", "insta", "igdl"] })) count++;
-    if (safeRegister("facebook",  fn(m, "facebook", "fb"),               { category: "dl", aliases: ["fb", "fbdl"] })) count++;
-    if (safeRegister("twitter",   fn(m, "twitter", "x", "tweet"),        { category: "dl", aliases: ["x", "tweet", "xdl"] })) count++;
-    if (safeRegister("gif",       fn(m, "gif", "giphy", "searchGif"),    { category: "dl", aliases: ["giphy", "tenor", "gifsearch"] })) count++;
-    if (safeRegister("img",       fn(m, "image", "img", "searchImage"),  { category: "dl", aliases: ["image", "imgsearch", "pics"] })) count++;
-    if (safeRegister("pinterest", fn(m, "pinterest", "pin"),             { category: "dl", aliases: ["pin", "pinsearch"] })) count++;
-    if (safeRegister("dl",        fn(m, "download", "dl", "get"),        { category: "dl", aliases: ["download", "get"] })) count++;
+{
+  const m = MODULES.downloader;
+
+  // Check if module loaded successfully
+  if (!m || Object.keys(m).length === 0) {
+    cmdLog.warn("⚠️ Downloader module not loaded - skipping registration");
+  } else {
+    // Log available functions for debugging
+    cmdLog.debug(`Downloader exports: ${Object.keys(m).join(", ")}`);
+
+    // Register each command with proper function checking
+    const youtubeFn = fn(m, "youtube", "yt", "ytdl", "downloadYouTube", "getYouTube");
+    if (safeRegister("youtube", youtubeFn, { category: "dl", aliases: ["yt", "ytdl", "ytmp3", "ytaudio"] })) count++;
+
+    const tiktokFn = fn(m, "tiktok", "tt", "tiktokdl", "downloadTikTok", "getTikTok");
+    if (safeRegister("tiktok", tiktokFn, { category: "dl", aliases: ["tt", "tok", "tiktokdl", "tiktokvideo"] })) count++;
+
+    const spotifyFn = fn(m, "spotify", "sp", "spotifydl", "downloadSpotify", "getSpotify");
+    if (safeRegister("spotify", spotifyFn, { category: "dl", aliases: ["sp", "spotifydl", "spdl"] })) count++;
+
+    const instagramFn = fn(m, "instagram", "ig", "insta", "downloadInstagram", "getInstagram", "igdl");
+    if (safeRegister("instagram", instagramFn, { category: "dl", aliases: ["ig", "insta", "igdl", "instadl"] })) count++;
+
+    const facebookFn = fn(m, "facebook", "fb", "downloadFacebook", "getFacebook", "fbdl");
+    if (safeRegister("facebook", facebookFn, { category: "dl", aliases: ["fb", "fbdl", "fbd"] })) count++;
+
+    const twitterFn = fn(m, "twitter", "x", "tweet", "downloadTwitter", "getTwitter", "xdl");
+    if (safeRegister("twitter", twitterFn, { category: "dl", aliases: ["x", "tweet", "xdl", "twdl"] })) count++;
+
+    const gifFn = fn(m, "gif", "giphy", "searchGif", "getGif", "findGif");
+    if (safeRegister("gif", gifFn, { category: "dl", aliases: ["giphy", "tenor", "gifsearch", "animated"] })) count++;
+
+    const imgFn = fn(m, "image", "img", "searchImage", "getImage", "findImage");
+    if (safeRegister("img", imgFn, { category: "dl", aliases: ["image", "imgsearch", "pics", "photo"] })) count++;
+
+    const pinterestFn = fn(m, "pinterest", "pin", "searchPinterest", "getPinterest");
+    if (safeRegister("pinterest", pinterestFn, { category: "dl", aliases: ["pin", "pinsearch", "pins"] })) count++;
+
+    const downloadFn = fn(m, "download", "dl", "get", "universalDownload");
+    if (safeRegister("dl", downloadFn, { category: "dl", aliases: ["download", "get", "fetch"] })) count++;
+
+    // Also register play command if it exists in downloader (as fallback)
+    const playFn = fn(m, "song", "musicDownload");
+    if (playFn && !primaryCommands.has("play")) {
+      if (safeRegister("play", playFn, { category: "music", aliases: ["mp3", "song", "music"] })) count++;
+    }
   }
+}
 
   // ── MUSIC.JS ──────────────────────────────────────────────────────────────
   {
