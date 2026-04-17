@@ -191,6 +191,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
           ["`.auto`", "🤖", "Auto-reply"],
           ["`.test`", "🧪", "Test command"],
           ["`.ok`", "📤", "View once to DM"],
+          ["`.start`", "🚀", "Open DM with bot"],
         ],
       ],
       [
@@ -488,7 +489,7 @@ export async function creator({ from, sock }) {
   // Build minimal vCard — WhatsApp uses FN + TEL;waid= to render the card UI
   const vcard =
     `BEGIN:VCARD\n` +
-    `VERSION:1.0\n` +
+    `VERSION:3.0\n` +
     `FN:AYOCODES 👑 (Bot Owner)\n` +
     `N:AYOCODES;;;;\n` +
     `TEL;type=CELL;type=VOICE;waid=${finalContact}:+${finalContact}\n` +
@@ -508,15 +509,6 @@ export async function creator({ from, sock }) {
       text: `👑 *AYOCODES — Bot Owner*\n📞 wa.me/${finalContact}`,
     });
   }
-
-  await delay(800);
-  await sock.sendMessage(from, {
-    text:
-      `━ 📢 *JOIN THE COMMUNITY* ━\n\n` +
-      `👥 *WhatsApp Group:*\n${ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/JHt5bvX4DMg87f0RHsDfMN"}\n\n` +
-      `💻 *GitHub:* ${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
-      `⚡ *AYOBOT v1.0.0* 👑\n`,
-  });
 }
 
 export async function creatorGit({ from, sock }) {
@@ -858,80 +850,209 @@ export async function viewOnce({ message, from, sock }) {
     });
   }
 }
+// ════════════════════════════════════════════════════════════════════════════
+//  .ok — VIEW ONCE TO DM (WORKING DELIVERY)
+//  Reactions only: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
+// ════════════════════════════════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════════════════════════════════
-//  .ok — VIEW ONCE TO DM
-//  Reactions only: ⏳ processing | ✅ sent | ❌ not a view-once | ⚠️ privacy | 🔴 error
-// ════════════════════════════════════════════════════════════════════════════
+/**
+ * Send view-once media to user's DM - WORKING VERSION
+ * Uses two-step delivery to ensure WhatsApp accepts the media
+ */
 async function sendViewOnceToDMSilent(sock, userJid, buffer, type) {
   const cleanPhone = normalizeJid(userJid);
   const dmJid = `${cleanPhone}@s.whatsapp.net`;
+
   try {
-    await sock.sendMessage(dmJid, { text: "📤" }).catch(() => null);
-    await new Promise((r) => setTimeout(r, 800));
+    // STEP 1: Send a simple text message to establish the chat
+    // This is REQUIRED - WhatsApp won't accept media from unknown chats
+    await sock.sendMessage(dmJid, { text: "📤 Opening secure channel..." });
+    await delay(1000);
 
-    const opts = { [type]: buffer, viewOnce: true };
-    if (type === "image") { opts.caption = "👑 AYOBOT"; opts.mimetype = "image/jpeg"; }
-    else if (type === "video") { opts.caption = "👑 AYOBOT"; opts.mimetype = "video/mp4"; }
-    else if (type === "audio") { opts.mimetype = "audio/mp4"; opts.ptt = true; }
+    // STEP 2: Send a blank/typing indicator to ensure connection
+    await sock.sendPresenceUpdate("composing", dmJid);
+    await delay(500);
 
-    await sock.sendMessage(dmJid, opts);
+    // STEP 3: Now send the actual view-once media
+    const messageOptions = {
+      [type]: buffer,
+      viewOnce: true
+    };
+
+    if (type === "image") {
+      messageOptions.caption = "🔒 View-Once Image\n👑 AYOBOT";
+      messageOptions.mimetype = "image/jpeg";
+    } else if (type === "video") {
+      messageOptions.caption = "🔒 View-Once Video\n👑 AYOBOT";
+      messageOptions.mimetype = "video/mp4";
+    } else if (type === "audio") {
+      messageOptions.mimetype = "audio/mp4";
+      messageOptions.ptt = true;
+    }
+
+    await sock.sendMessage(dmJid, messageOptions);
     return { success: true };
+
   } catch (error) {
-    console.error("[sendViewOnceToDMSilent]", error.message);
+    console.error("[sendViewOnceToDMSilent] Error:", error.message);
+
+    // If the error is about chat not existing, try a different approach
+    if (error.message?.includes("not-allowed") || error.message?.includes("privacy")) {
+      // Try sending as a regular message first, then view-once
+      try {
+        // Send as regular media first (not view-once) to establish trust
+        const regularOptions = {
+          [type]: buffer,
+          caption: "📸 Media received. Sending secure view-once version..."
+        };
+        if (type === "image") regularOptions.mimetype = "image/jpeg";
+        if (type === "video") regularOptions.mimetype = "video/mp4";
+
+        await sock.sendMessage(dmJid, regularOptions);
+        await delay(1000);
+
+        // Now try view-once again
+        const viewOnceOptions = {
+          [type]: buffer,
+          viewOnce: true,
+          caption: "🔒 View-Once Version (can only be opened once)"
+        };
+        if (type === "image") viewOnceOptions.mimetype = "image/jpeg";
+        if (type === "video") viewOnceOptions.mimetype = "video/mp4";
+
+        await sock.sendMessage(dmJid, viewOnceOptions);
+        return { success: true, wasRetried: true };
+      } catch (retryError) {
+        return { success: false, error: retryError.message };
+      }
+    }
+
     return { success: false, error: error.message };
   }
 }
 
+/**
+ * .ok COMMAND - Reply to view-once message to receive in DM
+ */
 export async function viewOnceToDM({ message, userJid, sock }) {
+  // Send processing reaction
   await sendReaction(sock, message, "⏳");
+
   try {
     const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    if (!quotedMsg) { await sendReaction(sock, message, "❌"); return; }
 
-    let mediaMsg = null, type = null;
-    for (const container of [
+    if (!quotedMsg) {
+      await sendReaction(sock, message, "❌");
+      return;
+    }
+
+    // Extract view-once media
+    let mediaMsg = null;
+    let type = null;
+
+    const containers = [
       quotedMsg.viewOnceMessageV2?.message,
       quotedMsg.viewOnceMessageV2Extension?.message,
       quotedMsg.viewOnceMessage?.message,
-      quotedMsg,
-    ]) {
+      quotedMsg
+    ];
+
+    for (const container of containers) {
       if (!container) continue;
-      if (container.imageMessage) { mediaMsg = container.imageMessage; type = "image"; break; }
-      if (container.videoMessage) { mediaMsg = container.videoMessage; type = "video"; break; }
-      if (container.audioMessage) { mediaMsg = container.audioMessage; type = "audio"; break; }
+      if (container.imageMessage) {
+        mediaMsg = container.imageMessage;
+        type = "image";
+        break;
+      }
+      if (container.videoMessage) {
+        mediaMsg = container.videoMessage;
+        type = "video";
+        break;
+      }
+      if (container.audioMessage) {
+        mediaMsg = container.audioMessage;
+        type = "audio";
+        break;
+      }
     }
 
-    if (!mediaMsg || !type) { await sendReaction(sock, message, "❌"); return; }
+    if (!mediaMsg || !type) {
+      await sendReaction(sock, message, "❌");
+      return;
+    }
 
+    // Download the media
     const stream = await downloadContentFromMessage(mediaMsg, type);
     let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
 
-    if (!buffer || buffer.length === 0) { await sendReaction(sock, message, "🔴"); return; }
+    if (!buffer || buffer.length === 0) {
+      await sendReaction(sock, message, "🔴");
+      return;
+    }
 
+    // Send to user's DM
     const result = await sendViewOnceToDMSilent(sock, userJid, buffer, type);
 
+    // Show result reaction
     if (result.success) {
       await sendReaction(sock, message, "✅");
-    } else if (result.error?.includes("not allowed") || result.error?.includes("privacy") || result.error?.includes("blocked")) {
+    } else if (result.error?.includes("not-allowed") ||
+               result.error?.includes("privacy") ||
+               result.error?.includes("blocked") ||
+               result.error?.includes("chat")) {
+      // Privacy blocked - send a helpful hint via reaction only
       await sendReaction(sock, message, "⚠️");
     } else {
       await sendReaction(sock, message, "🔴");
     }
+
   } catch (error) {
-    console.error("[.ok]", error.message);
+    console.error("[.ok] Error:", error.message);
     await sendReaction(sock, message, "🔴");
   }
 }
 
-export const ok        = viewOnceToDM;
-export const dm        = viewOnceToDM;
-export const tome      = viewOnceToDM;
-export const senddm    = viewOnceToDM;
+// Export all aliases
+export const ok = viewOnceToDM;
+export const dm = viewOnceToDM;
+export const tome = viewOnceToDM;
+export const senddm = viewOnceToDM;
 export const privatemedia = viewOnceToDM;
-export const savetodm  = viewOnceToDM;
-export const sendtome  = viewOnceToDM;
+export const savetodm = viewOnceToDM;
+export const sendtome = viewOnceToDM;
+
+// ════════════════════════════════════════════════════════════════════════════
+//  .start - Opens DM with bot (prerequisite for .ok to work)
+// ════════════════════════════════════════════════════════════════════════════
+export async function start({ from, sock, userJid, message }) {
+  const cleanPhone = normalizeJid(userJid);
+  const dmJid = `${cleanPhone}@s.whatsapp.net`;
+
+  await sendReaction(sock, message, "📤");
+
+  try {
+    // Send a message to the user's DM to establish chat
+    await sock.sendMessage(dmJid, {
+      text: `👋 *Hello!*\n\nI'm *AYOBOT* 🤖\n\nNow that you've started a chat with me, you can use *.ok* to receive view-once messages in this chat!\n\n━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`
+    });
+
+    await sendReaction(sock, message, "✅");
+
+    // Also reply in group
+    await sock.sendMessage(from, {
+      text: `✅ *DM Opened!*\n\nI've sent you a welcome message in our private chat.\n\nNow you can use *.ok* on view-once messages to receive them there!`
+    });
+
+  } catch (error) {
+    await sendReaction(sock, message, "🔴");
+    await sock.sendMessage(from, {
+      text: `❌ *Failed to open DM*\n\nPlease send me a message directly first: wa.me/${cleanPhone}\n\nThen try *.ok* again.`
+    });
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  TAKE — Save sticker to favorites OR convert image/video → sticker

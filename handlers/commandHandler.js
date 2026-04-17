@@ -444,7 +444,7 @@ function getModuleFunction(module, functionName, fallbackName = null) {
   return null;
 }
 // ============================================================================
-//  COMMAND REGISTRATION — COMPLETE REWRITE
+//  COMMAND REGISTRATION — COMPLETE FIXED VERSION
 //  Only registers commands that actually exist in loaded modules
 // ============================================================================
 
@@ -470,6 +470,7 @@ export function registerAllCommands() {
       { fn: b.connectInfo, name: "connect", category: "core", aliases: ["community", "links"] },
       { fn: b.prefixinfo, name: "prefix", category: "core", aliases: ["preinfo", "getprefix"] },
       { fn: b.test, name: "test", category: "debug", aliases: ["hello", "hi", "testbot"] },
+      { fn: b.start, name: "start", category: "core", aliases: ["open", "init", "begin", "connectdm", "dmopen"] },
       { fn: b.time, name: "time", category: "info", aliases: ["worldtime", "timezone", "clock"] },
       { fn: b.weather, name: "weather", category: "info", aliases: ["w", "forecast", "temp"] },
       { fn: b.getip || b.ip, name: "ip", category: "web", aliases: ["getip", "iplookup", "ipinfo"] },
@@ -483,8 +484,8 @@ export function registerAllCommands() {
       { fn: b.inspect, name: "inspect", category: "web", aliases: ["pageinspect", "analyze"] },
       { fn: b.shorten, name: "shorten", category: "web", aliases: ["short", "tinyurl", "bitly"] },
       { fn: b.viewOnce, name: "vv", category: "media", aliases: ["viewonce", "open", "reveal"] },
-      { fn: b.viewOnceToDM || b.ok, name: "ok", category: "media", aliases: ["dm", "tome", "senddm", "push"] },
-      { fn: b.take, name: "take", category: "media", aliases: ["takesticker", "steal"] },
+      { fn: b.viewOnceToDM || b.ok, name: "ok", category: "media", aliases: ["dm", "tome", "senddm", "push", "privatemedia"] },
+      { fn: b.take, name: "take", category: "media", aliases: ["takesticker", "steal", "savesticker"] },
       { fn: b.imgbb, name: "imgbb", category: "media", aliases: ["upload", "imageupload"] },
       { fn: b.qencode, name: "qr", category: "tools", aliases: ["qrcode", "makeqr"] },
       { fn: b.pdf, name: "pdf", category: "tools", aliases: ["makepdf", "createpdf"] },
@@ -519,23 +520,24 @@ export function registerAllCommands() {
   const dl = MODULES.downloader;
   if (dl && Object.keys(dl).length > 0) {
     const dlCommands = [
-      { fn: dl.youtube, name: "youtube", aliases: ["yt", "ytdl", "ytmp3"] },
-      { fn: dl.tiktok, name: "tiktok", aliases: ["tt", "tok", "tiktokdl"] },
-      { fn: dl.spotify, name: "spotify", aliases: ["sp", "spotifydl"] },
-      { fn: dl.instagram, name: "instagram", aliases: ["ig", "insta", "igdl"] },
-      { fn: dl.facebook, name: "facebook", aliases: ["fb", "fbdl", "fbvideo"] },
-      { fn: dl.twitter, name: "twitter", aliases: ["x", "tweet", "xdl"] },
-      { fn: dl.gif, name: "gif", aliases: ["giphy", "tenor", "gifsearch"] },
-      { fn: dl.image, name: "img", aliases: ["image", "imgsearch", "pics"] },
-      { fn: dl.pinterest, name: "pinterest", aliases: ["pin", "pinsearch"] },
-      { fn: dl.download, name: "dl", aliases: ["download", "get"] },
+      { fn: dl.youtube, name: "youtube", category: "dl", aliases: ["yt", "ytdl", "ytmp3"] },
+      { fn: dl.tiktok, name: "tiktok", category: "dl", aliases: ["tt", "tok", "tiktokdl"] },
+      { fn: dl.spotify, name: "spotify", category: "dl", aliases: ["sp", "spotifydl"] },
+      { fn: dl.instagram, name: "instagram", category: "dl", aliases: ["ig", "insta", "igdl"] },
+      { fn: dl.facebook, name: "facebook", category: "dl", aliases: ["fb", "fbdl", "fbvideo"] },
+      { fn: dl.twitter, name: "twitter", category: "dl", aliases: ["x", "tweet", "xdl"] },
+      { fn: dl.gif, name: "gif", category: "dl", aliases: ["giphy", "tenor", "gifsearch"] },
+      { fn: dl.image, name: "img", category: "dl", aliases: ["image", "imgsearch", "pics"] },
+      { fn: dl.pinterest, name: "pinterest", category: "dl", aliases: ["pin", "pinsearch"] },
+      { fn: dl.download, name: "dl", category: "dl", aliases: ["download", "get"] },
+      { fn: dl.play, name: "play", category: "dl", aliases: ["mp3", "music", "song"] },
     ];
 
     let loaded = 0;
     for (const cmd of dlCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "dl",
+          category: cmd.category,
           description: `${cmd.name} downloader`,
           aliases: cmd.aliases,
         });
@@ -543,9 +545,9 @@ export function registerAllCommands() {
         registeredCount++;
       }
     }
-    cmdLog.ok(`✅ Downloader: loaded ${loaded} commands (gif, img, play, etc.)`);
+    cmdLog.ok(`✅ Downloader: loaded ${loaded} commands`);
   } else {
-    cmdLog.warn("⚠️ DOWNLOADER module not loaded - .gif, .img, .play unavailable");
+    cmdLog.warn("⚠️ DOWNLOADER module not loaded");
     failedModules.push("downloader");
   }
 
@@ -553,21 +555,21 @@ export function registerAllCommands() {
   const music = MODULES.music;
   if (music && Object.keys(music).length > 0) {
     const musicCommands = [
-      { fn: music.musicLyrics, name: "lyrics", aliases: ["lyric", "songlyrics"] },
-      { fn: music.musicTrending, name: "trending", aliases: ["chart", "topsongs"] },
-      { fn: music.musicRandom, name: "random", aliases: ["randomsong"] },
-      { fn: music.musicSearch, name: "musicsearch", aliases: ["songsearch", "findmusic"] },
-      { fn: music.musicDownload, name: "play", aliases: ["mp3", "music", "song"] },
-      { fn: music.musicArtist, name: "artist", aliases: ["artistinfo", "singer"] },
-      { fn: music.musicAlbum, name: "album", aliases: ["albuminfo"] },
-      { fn: music.music, name: "music", aliases: ["musichub"] },
+      { fn: music.musicLyrics, name: "lyrics", category: "music", aliases: ["lyric", "songlyrics"] },
+      { fn: music.musicTrending, name: "trending", category: "music", aliases: ["chart", "topsongs"] },
+      { fn: music.musicRandom, name: "random", category: "music", aliases: ["randomsong"] },
+      { fn: music.musicSearch, name: "musicsearch", category: "music", aliases: ["songsearch", "findmusic"] },
+      { fn: music.musicDownload, name: "play", category: "music", aliases: ["mp3", "music", "song"] },
+      { fn: music.musicArtist, name: "artist", category: "music", aliases: ["artistinfo", "singer"] },
+      { fn: music.musicAlbum, name: "album", category: "music", aliases: ["albuminfo"] },
+      { fn: music.music, name: "music", category: "music", aliases: ["musichub"] },
     ];
 
     let loaded = 0;
     for (const cmd of musicCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "music",
+          category: cmd.category,
           description: `${cmd.name} command`,
           aliases: cmd.aliases,
         });
@@ -577,7 +579,7 @@ export function registerAllCommands() {
     }
     cmdLog.ok(`✅ Music: loaded ${loaded} commands`);
   } else {
-    cmdLog.warn("⚠️ MUSIC module not loaded - .play, .lyrics unavailable");
+    cmdLog.warn("⚠️ MUSIC module not loaded");
     failedModules.push("music");
   }
 
@@ -585,29 +587,29 @@ export function registerAllCommands() {
   const adm = MODULES.admin;
   if (adm && Object.keys(adm).length > 0) {
     const adminCommands = [
-      { fn: adm.mode, name: "mode", aliases: ["setmode", "botmode"] },
-      { fn: adm.addUser, name: "adduser", aliases: ["auth", "authorize"] },
-      { fn: adm.removeUser, name: "removeuser", aliases: ["deauth", "unauthorize"] },
-      { fn: adm.listUsers, name: "listusers", aliases: ["users", "authlist"] },
-      { fn: adm.broadcast, name: "broadcast", aliases: ["bc", "announce"] },
-      { fn: adm.globalBroadcast, name: "globalbc", aliases: ["gbc", "globalbroadcast"] },
-      { fn: adm.stats, name: "stats", aliases: ["botstats", "usage"] },
-      { fn: adm.botStatus, name: "botstatus", aliases: ["botinfo", "fullstatus"] },
-      { fn: adm.superBan, name: "superban", aliases: ["globalban", "permban"] },
-      { fn: adm.unban, name: "superunban", aliases: ["globalunban"] },
-      { fn: adm.listBanned, name: "listglobalbanned", aliases: ["globalbannedlist"] },
-      { fn: adm.clearBans, name: "clearbans", aliases: ["resetbans"] },
-      { fn: adm.restart, name: "restart", aliases: ["reboot", "restartbot"] },
-      { fn: adm.shutdown, name: "shutdown", aliases: ["stop", "botoff"] },
-      { fn: adm.adminEval, name: "eval", aliases: ["exec", "code", "run"] },
+      { fn: adm.mode, name: "mode", category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] },
+      { fn: adm.addUser, name: "adduser", category: "admin", adminOnly: true, aliases: ["auth", "authorize"] },
+      { fn: adm.removeUser, name: "removeuser", category: "admin", adminOnly: true, aliases: ["deauth", "unauthorize"] },
+      { fn: adm.listUsers, name: "listusers", category: "admin", adminOnly: true, aliases: ["users", "authlist"] },
+      { fn: adm.broadcast, name: "broadcast", category: "admin", adminOnly: true, aliases: ["bc", "announce"] },
+      { fn: adm.globalBroadcast, name: "globalbc", category: "admin", adminOnly: true, aliases: ["gbc", "globalbroadcast"] },
+      { fn: adm.stats, name: "stats", category: "admin", adminOnly: true, aliases: ["botstats", "usage"] },
+      { fn: adm.botStatus, name: "botstatus", category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] },
+      { fn: adm.superBan, name: "superban", category: "admin", adminOnly: true, aliases: ["globalban", "permban"] },
+      { fn: adm.unban, name: "superunban", category: "admin", adminOnly: true, aliases: ["globalunban"] },
+      { fn: adm.listBanned, name: "listglobalbanned", category: "admin", adminOnly: true, aliases: ["globalbannedlist"] },
+      { fn: adm.clearBans, name: "clearbans", category: "admin", adminOnly: true, aliases: ["resetbans"] },
+      { fn: adm.restart, name: "restart", category: "admin", adminOnly: true, aliases: ["reboot", "restartbot"] },
+      { fn: adm.shutdown, name: "shutdown", category: "admin", adminOnly: true, aliases: ["stop", "botoff"] },
+      { fn: adm.adminEval, name: "eval", category: "admin", adminOnly: true, aliases: ["exec", "code", "run"] },
     ];
 
     let loaded = 0;
     for (const cmd of adminCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "admin",
-          adminOnly: true,
+          category: cmd.category,
+          adminOnly: cmd.adminOnly,
           description: `${cmd.name} command`,
           aliases: cmd.aliases,
         });
@@ -615,31 +617,33 @@ export function registerAllCommands() {
         registeredCount++;
       }
     }
-    cmdLog.ok(`✅ Admin: loaded ${loaded} commands (including .mode)`);
+    cmdLog.ok(`✅ Admin: loaded ${loaded} commands`);
   } else {
-    cmdLog.warn("⚠️ ADMIN module not loaded - .mode command unavailable");
+    cmdLog.warn("⚠️ ADMIN module not loaded");
     failedModules.push("admin");
   }
 
   // ==================== GROUP CORE.JS ====================
   const gc = MODULES.groupCore;
   if (gc && Object.keys(gc).length > 0) {
-    const groupCommands = [
-      { fn: gc.kick, name: "kick", aliases: ["remove", "kickmember"], requireGroupAdmin: true, requireBotAdmin: true },
-      { fn: gc.add, name: "add", aliases: ["invite", "addmember"], requireGroupAdmin: true, requireBotAdmin: true },
-      { fn: gc.promote, name: "promote", aliases: ["makeadmin"], requireGroupAdmin: true, requireBotAdmin: true },
-      { fn: gc.demote, name: "demote", aliases: ["unadmin"], requireGroupAdmin: true, requireBotAdmin: true },
-      { fn: gc.admins, name: "admins", aliases: ["listadmins", "adminlist"] },
-      { fn: gc.tagall, name: "tagall", aliases: ["everyone", "all", "mentionall"] },
-      { fn: gc.hidetag, name: "hidetag", aliases: ["htag", "silent", "silentping"] },
+    const groupCoreCommands = [
+      { fn: gc.kick, name: "kick", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["remove", "kickmember"] },
+      { fn: gc.add, name: "add", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["invite", "addmember"] },
+      { fn: gc.promote, name: "promote", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["makeadmin"] },
+      { fn: gc.demote, name: "demote", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["unadmin"] },
+      { fn: gc.admins, name: "admins", category: "group", groupOnly: true, aliases: ["listadmins", "adminlist"] },
+      { fn: gc.tagall, name: "tagall", category: "group", groupOnly: true, aliases: ["everyone", "all", "mentionall"] },
+      { fn: gc.hidetag, name: "hidetag", category: "group", groupOnly: true, aliases: ["htag", "silent", "silentping"] },
+      { fn: gc.testAdmin, name: "testadmin", category: "group", groupOnly: true, aliases: ["admintest", "checkadmin"] },
+      { fn: gc.refreshAdmin, name: "refreshadmin", category: "group", groupOnly: true, aliases: ["refresh", "clearcache"] },
     ];
 
     let loaded = 0;
-    for (const cmd of groupCommands) {
+    for (const cmd of groupCoreCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "group",
-          groupOnly: true,
+          category: cmd.category,
+          groupOnly: cmd.groupOnly,
           requireGroupAdmin: cmd.requireGroupAdmin || false,
           requireBotAdmin: cmd.requireBotAdmin || false,
           description: `${cmd.name} command`,
@@ -655,21 +659,21 @@ export function registerAllCommands() {
   // ==================== GROUP MODERATION.JS ====================
   const gm = MODULES.groupMod;
   if (gm && Object.keys(gm).length > 0) {
-    const modCommands = [
-      { fn: gm.warn, name: "warn", aliases: ["warning", "warnuser"], requireGroupAdmin: true },
-      { fn: gm.warnings, name: "warnings", aliases: ["warnlist", "mywarnings"] },
-      { fn: gm.clearWarns, name: "clearwarns", aliases: ["resetwarns", "clearwarnings"], requireGroupAdmin: true },
-      { fn: gm.ban, name: "ban", aliases: ["block", "banuser"], requireGroupAdmin: true },
-      { fn: gm.unban, name: "unban", aliases: ["unblock", "unbanuser"], requireGroupAdmin: true },
-      { fn: gm.listBanned, name: "listbanned", aliases: ["bannedlist"] },
+    const groupModCommands = [
+      { fn: gm.warn, name: "warn", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["warning", "warnuser"] },
+      { fn: gm.warnings, name: "warnings", category: "group", groupOnly: true, aliases: ["warnlist", "mywarnings"] },
+      { fn: gm.clearWarns, name: "clearwarns", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetwarns", "clearwarnings"] },
+      { fn: gm.ban, name: "ban", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["block", "banuser"] },
+      { fn: gm.unban, name: "unban", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unblock", "unbanuser"] },
+      { fn: gm.listBanned, name: "listbanned", category: "group", groupOnly: true, aliases: ["bannedlist"] },
     ];
 
     let loaded = 0;
-    for (const cmd of modCommands) {
+    for (const cmd of groupModCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "group",
-          groupOnly: true,
+          category: cmd.category,
+          groupOnly: cmd.groupOnly,
           requireGroupAdmin: cmd.requireGroupAdmin || false,
           description: `${cmd.name} command`,
           aliases: cmd.aliases,
@@ -678,38 +682,44 @@ export function registerAllCommands() {
         registeredCount++;
       }
     }
-    cmdLog.ok(`✅ Group Mod: loaded ${loaded} commands`);
+    cmdLog.ok(`✅ Group Moderation: loaded ${loaded} commands`);
   }
 
   // ==================== GROUP SETTINGS.JS ====================
   const gs = MODULES.groupSettings;
   if (gs && Object.keys(gs).length > 0) {
-    const settingsCommands = [
-      { fn: gs.mute || gs.muteGroup, name: "mute", aliases: ["lockgroup", "muteall"], requireGroupAdmin: true },
-      { fn: gs.unmute || gs.unmuteGroup, name: "unmute", aliases: ["unlockgroup", "unmuteall"], requireGroupAdmin: true },
-      { fn: gs.lock || gs.lockGroup, name: "lock", aliases: ["lockinfo"], requireGroupAdmin: true },
-      { fn: gs.unlock || gs.unlockGroup, name: "unlock", aliases: ["unlockinfo"], requireGroupAdmin: true },
-      { fn: gs.link || gs.getLink, name: "link", aliases: ["grouplink", "invitelink"] },
-      { fn: gs.revoke || gs.revokeLink, name: "revoke", aliases: ["revokelink", "resetlink"], requireGroupAdmin: true },
-      { fn: gs.rules || gs.getRules, name: "rules", aliases: ["grules", "grouprules"] },
-      { fn: gs.setRules || gs.setGroupRules, name: "setrules", aliases: ["setgrules"], requireGroupAdmin: true },
-      { fn: gs.groupInfo || gs.getGroupInfo, name: "groupinfo", aliases: ["ginfo", "grouppanel"] },
-      { fn: gs.settingsOverview || gs.getSettings, name: "settings", aliases: ["groupsettings"] },
-      { fn: gs.welcomeToggle || gs.toggleWelcome, name: "welcome", aliases: ["togglewelcome"], requireGroupAdmin: true },
-      { fn: gs.goodbyeToggle || gs.toggleGoodbye, name: "goodbye", aliases: ["togglegoodbye"], requireGroupAdmin: true },
-      { fn: gs.deleteMsg || gs.deleteMessage, name: "delete", aliases: ["delmsg", "deletemessage"], requireGroupAdmin: true },
-      { fn: gs.pin || gs.pinMessage, name: "pin", aliases: ["pinmsg"], requireGroupAdmin: true },
-      { fn: gs.unpin || gs.unpinMessage, name: "unpin", aliases: ["unpinmsg"], requireGroupAdmin: true },
-      { fn: gs.leave || gs.leaveGroup, name: "leave", aliases: ["botleave", "exit"], adminOnly: true },
-      { fn: gs.resetSettings || gs.resetGroupSettings, name: "resetsettings", aliases: ["resetgroupsettings"], requireGroupAdmin: true },
+    const groupSettingsCommands = [
+      { fn: gs.mute || gs.muteGroup, name: "mute", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockgroup", "muteall"] },
+      { fn: gs.unmute || gs.unmuteGroup, name: "unmute", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup", "unmuteall"] },
+      { fn: gs.lock || gs.lockGroup, name: "lock", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] },
+      { fn: gs.unlock || gs.unlockGroup, name: "unlock", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] },
+      { fn: gs.antiLink, name: "antilink", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nolink", "blocklinks"] },
+      { fn: gs.antiSpam, name: "antispam", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam", "blockspam"] },
+      { fn: gs.welcomeToggle, name: "welcome", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] },
+      { fn: gs.setWelcome, name: "setwelcome", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] },
+      { fn: gs.goodbyeToggle, name: "goodbye", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglegoodbye"] },
+      { fn: gs.setGoodbye, name: "setgoodbye", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgoodbyemsg"] },
+      { fn: gs.groupInfo, name: "groupinfo", category: "group", groupOnly: true, aliases: ["ginfo", "grouppanel"] },
+      { fn: gs.rules, name: "rules", category: "group", groupOnly: true, aliases: ["grules", "grouprules"] },
+      { fn: gs.setRules, name: "setrules", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgrules"] },
+      { fn: gs.link, name: "link", category: "group", groupOnly: true, aliases: ["grouplink", "invitelink"] },
+      { fn: gs.revoke, name: "revoke", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["revokelink", "resetlink"] },
+      { fn: gs.pin, name: "pin", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["pinmsg"] },
+      { fn: gs.unpin, name: "unpin", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unpinmsg"] },
+      { fn: gs.deleteMsg, name: "delete", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["delmsg", "deletemessage"] },
+      { fn: gs.settingsOverview, name: "settings", category: "group", groupOnly: true, aliases: ["groupsettings"] },
+      { fn: gs.resetSettings, name: "resetsettings", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetgroupsettings"] },
+      { fn: gs.leave, name: "leave", category: "group", groupOnly: true, adminOnly: true, aliases: ["botleave", "exit"] },
+      { fn: gs.debug, name: "groupdebug", category: "group", groupOnly: true, aliases: ["gdebug", "groupdbg"] },
+      { fn: gs.showParticipants, name: "participants", category: "group", groupOnly: true, aliases: ["members", "memberlist"] },
     ];
 
     let loaded = 0;
-    for (const cmd of settingsCommands) {
+    for (const cmd of groupSettingsCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "group",
-          groupOnly: true,
+          category: cmd.category,
+          groupOnly: cmd.groupOnly,
           requireGroupAdmin: cmd.requireGroupAdmin || false,
           adminOnly: cmd.adminOnly || false,
           description: `${cmd.name} command`,
@@ -726,17 +736,17 @@ export function registerAllCommands() {
   const ai = MODULES.ai;
   if (ai && Object.keys(ai).length > 0) {
     const aiCommands = [
-      { fn: ai.ai, name: "ayobot", aliases: ["chat", "bae", "aichat"] },
-      { fn: ai.aiClear, name: "aiclear", aliases: ["clearchat", "resetai"] },
-      { fn: ai.summarize, name: "summarize", aliases: ["summary", "baesum"] },
-      { fn: ai.grammar, name: "grammar", aliases: ["spellcheck", "proofread"] },
+      { fn: ai.ai, name: "ayobot", category: "ai", aliases: ["chat", "bae", "aichat", "askai"] },
+      { fn: ai.aiClear, name: "aiclear", category: "ai", aliases: ["clearchat", "resetai"] },
+      { fn: ai.summarize, name: "summarize", category: "ai", aliases: ["summary", "tldr"] },
+      { fn: ai.grammar, name: "grammar", category: "ai", aliases: ["spellcheck", "proofread"] },
     ];
 
     let loaded = 0;
     for (const cmd of aiCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "ai",
+          category: cmd.category,
           description: `${cmd.name} command`,
           aliases: cmd.aliases,
         });
@@ -751,20 +761,20 @@ export function registerAllCommands() {
   const imgTools = MODULES.imageTools;
   if (imgTools && Object.keys(imgTools).length > 0) {
     const imgCommands = [
-      { fn: imgTools.sticker, name: "sticker", aliases: ["s", "stk", "makesticker"] },
-      { fn: imgTools.toImage, name: "toimage", aliases: ["toimg", "stickertoimage"] },
-      { fn: imgTools.toVideo, name: "tovideo", aliases: ["tovid", "stickertovideo"] },
-      { fn: imgTools.toGif, name: "togif", aliases: ["makegif", "videotogif"] },
-      { fn: imgTools.toAudio, name: "toaudio", aliases: ["tomp3", "extractaudio"] },
-      { fn: imgTools.removeBg, name: "removebg", aliases: ["nobg", "rmbg", "bgremove"] },
-      { fn: imgTools.meme, name: "meme", aliases: ["makememe", "memegen"] },
+      { fn: imgTools.sticker, name: "sticker", category: "media", aliases: ["s", "stk", "makesticker"] },
+      { fn: imgTools.toImage, name: "toimage", category: "media", aliases: ["toimg", "stickertoimage"] },
+      { fn: imgTools.toVideo, name: "tovideo", category: "media", aliases: ["tovid", "stickertovideo"] },
+      { fn: imgTools.toGif, name: "togif", category: "media", aliases: ["makegif", "videotogif"] },
+      { fn: imgTools.toAudio, name: "toaudio", category: "media", aliases: ["tomp3", "extractaudio"] },
+      { fn: imgTools.removeBg, name: "removebg", category: "media", aliases: ["nobg", "rmbg", "bgremove"] },
+      { fn: imgTools.meme, name: "meme", category: "media", aliases: ["makememe", "memegen"] },
     ];
 
     let loaded = 0;
     for (const cmd of imgCommands) {
       if (cmd.fn && typeof cmd.fn === "function") {
         safeRegister(cmd.name, cmd.fn, {
-          category: "media",
+          category: cmd.category,
           description: `${cmd.name} command`,
           aliases: cmd.aliases,
         });
@@ -775,9 +785,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Image Tools: loaded ${loaded} commands`);
   }
 
-  // ==================== FUN/GAMES MODULES ====================
-
-  // Jokes
+  // ==================== JOKES.JS ====================
   const jokes = MODULES.jokes;
   if (jokes) {
     if (jokes.joke) safeRegister("joke", jokes.joke, { category: "fun", aliases: ["laugh", "funny"] });
@@ -786,7 +794,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Jokes: loaded`);
   }
 
-  // Games
+  // ==================== GAMES.JS ====================
   const games = MODULES.games;
   if (games) {
     if (games.rps) safeRegister("rps", games.rps, { category: "games", aliases: ["rockpaperscissors"] });
@@ -796,60 +804,58 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Games: loaded`);
   }
 
-  // Quotes
+  // ==================== QUOTES.JS ====================
   const quotes = MODULES.quotes;
   if (quotes?.quote) {
     safeRegister("quote", quotes.quote, { category: "fun", aliases: ["motivation", "inspire"] });
     cmdLog.ok(`✅ Quotes: loaded`);
   }
 
-  // ==================== UTILITY MODULES ====================
-
-  // TTS
+  // ==================== TTS.JS ====================
   const tts = MODULES.tts;
   if (tts?.tts) {
     safeRegister("tts", tts.tts, { category: "media", aliases: ["voice", "say", "speak"] });
     cmdLog.ok(`✅ TTS: loaded`);
   }
 
-  // Calculator
+  // ==================== CALCULATOR.JS ====================
   const calc = MODULES.calculator;
   if (calc?.calculate) {
     safeRegister("calc", calc.calculate, { category: "tools", aliases: ["math", "calculate"] });
     cmdLog.ok(`✅ Calculator: loaded`);
   }
 
-  // Dictionary
+  // ==================== DICTIONARY.JS ====================
   const dict = MODULES.dictionary;
   if (dict?.dict) {
     safeRegister("dict", dict.dict, { category: "info", aliases: ["define", "meaning", "word"] });
     cmdLog.ok(`✅ Dictionary: loaded`);
   }
 
-  // News
+  // ==================== NEWS.JS ====================
   const news = MODULES.news;
   if (news?.news) {
     safeRegister("news", news.news, { category: "info", aliases: ["headlines", "latestnews"] });
     cmdLog.ok(`✅ News: loaded`);
   }
 
-  // Movies
+  // ==================== MOVIES.JS ====================
   const movies = MODULES.movies;
-  if (movies?.movie) {
-    safeRegister("movie", movies.movie, { category: "info", aliases: ["film", "imdb"] });
+  if (movies) {
+    if (movies.movie) safeRegister("movie", movies.movie, { category: "info", aliases: ["film", "imdb"] });
     if (movies.tv) safeRegister("tv", movies.tv, { category: "info", aliases: ["series", "show"] });
     cmdLog.ok(`✅ Movies: loaded`);
   }
 
-  // Crypto
+  // ==================== CRYPTO.JS ====================
   const crypto = MODULES.crypto;
-  if (crypto?.crypto) {
-    safeRegister("crypto", crypto.crypto, { category: "info", aliases: ["coin", "btc", "eth"] });
+  if (crypto) {
+    if (crypto.crypto) safeRegister("crypto", crypto.crypto, { category: "info", aliases: ["coin", "btc", "eth"] });
     if (crypto.cryptoTop) safeRegister("cryptotop", crypto.cryptoTop, { category: "info", aliases: ["top10", "topcrypto"] });
     cmdLog.ok(`✅ Crypto: loaded`);
   }
 
-  // Encryption
+  // ==================== ENCRYPTION.JS ====================
   const enc = MODULES.encryption;
   if (enc) {
     if (enc.encrypt) safeRegister("encrypt", enc.encrypt, { category: "security", aliases: ["enc", "lock"] });
@@ -859,7 +865,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Encryption: loaded`);
   }
 
-  // Notes
+  // ==================== NOTES.JS ====================
   const notes = MODULES.notes;
   if (notes) {
     if (notes.note) safeRegister("note", notes.note, { category: "storage", aliases: ["savenote", "remember"] });
@@ -869,7 +875,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Notes: loaded`);
   }
 
-  // Reminder
+  // ==================== REMINDER.JS ====================
   const reminder = MODULES.reminder;
   if (reminder) {
     if (reminder.reminder) safeRegister("remind", reminder.reminder, { category: "storage", aliases: ["reminder", "setreminder"] });
@@ -879,7 +885,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Reminder: loaded`);
   }
 
-  // Translation
+  // ==================== TRANSLATION.JS ====================
   const trans = MODULES.translation;
   if (trans) {
     if (trans.translate) safeRegister("translate", trans.translate, { category: "tools", aliases: ["tr", "tl"] });
@@ -888,7 +894,7 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Translation: loaded`);
   }
 
-  // Unit Converter
+  // ==================== UNIT CONVERTER.JS ====================
   const uc = MODULES.unitConverter;
   if (uc) {
     if (uc.convert) safeRegister("convert", uc.convert, { category: "tools", aliases: ["conv", "cvt"] });
@@ -896,21 +902,21 @@ export function registerAllCommands() {
     cmdLog.ok(`✅ Unit Converter: loaded`);
   }
 
-  // Security
+  // ==================== SECURITY.JS ====================
   const sec = MODULES.security;
   if (sec?.scan) {
     safeRegister("scan", sec.scan, { category: "security", aliases: ["urlscan", "checksafe"] });
     cmdLog.ok(`✅ Security: loaded`);
   }
 
-  // Stocks
+  // ==================== STOCKS.JS ====================
   const stocks = MODULES.stocks;
   if (stocks?.stock) {
     safeRegister("stock", stocks.stock, { category: "info", aliases: ["stocks", "share"] });
     cmdLog.ok(`✅ Stocks: loaded`);
   }
 
-  // Automation
+  // ==================== AUTOMATION.JS ====================
   const auto = MODULES.automation;
   if (auto) {
     if (auto.autoReply) safeRegister("autoreply", auto.autoReply, { category: "automation" });
@@ -976,7 +982,11 @@ const ACTIVATION_EXEMPT = new Set([
   "help",
   "ping",
   "status",
-  // NEW: .ok command and aliases exempt from activation requirement
+   "start",
+  "init",
+  "begin",
+  "connectdm",
+  "dmopen",
   "ok",
   "dm",
   "tome",
