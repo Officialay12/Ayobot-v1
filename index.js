@@ -283,7 +283,7 @@ export function normalizeToPhone(jid) {
 }
 
 export const normalizePhone = normalizeToPhone;
-/// ============================================================
+// ============================================================
 //   CRITICAL: ADMIN & PERMISSION HELPERS
 // ============================================================
 
@@ -865,13 +865,68 @@ console.error = function (...args) {
   if (m instanceof Error && m.message?.includes("Bad MAC")) return;
   originalConsoleError.apply(console, args);
 };
+// ============================================================
+//   AUTH STATE REPAIR FUNCTIONS
+// ============================================================
 
-// ============================================================
-//   MONGODB AUTH STATE
-// ============================================================
+async function validateAndRepairAuth(sessionId) {
+  try {
+    // Check if creds exist and are valid
+    const credsDoc = await authCollection.findOne({ _id: `${sessionId}:creds` });
+    if (!credsDoc) {
+      log.warn(`[${sessionId.slice(0,8)}] No creds found, will create fresh`);
+      return false;
+    }
+
+    // Try to parse and validate creds
+    try {
+      const creds = JSON.parse(credsDoc.data, BufferJSON.reviver);
+      if (!creds.noiseKey || !creds.signedIdentityKey || !creds.signedPreKey) {
+        log.warn(`[${sessionId.slice(0,8)}] Corrupted creds detected, deleting...`);
+        await authCollection.deleteOne({ _id: `${sessionId}:creds` });
+        return false;
+      }
+      return true;
+    } catch (parseError) {
+      log.warn(`[${sessionId.slice(0,8)}] Invalid creds JSON, deleting...`);
+      await authCollection.deleteOne({ _id: `${sessionId}:creds` });
+      return false;
+    }
+  } catch (e) {
+    log.err(`[${sessionId.slice(0,8)}] Auth validation error: ${e.message}`);
+    return false;
+  }
+}
+
+async function clearCorruptedAuth(sessionId) {
+  try {
+    const safePrefix = sessionId.replace(/[^a-f0-9]/gi, "");
+    const result = await authCollection.deleteMany({
+      _id: { $regex: `^${safePrefix}:`, $options: "" }
+    });
+    if (result.deletedCount > 0) {
+      log.ok(`[${sessionId.slice(0,8)}] Cleared ${result.deletedCount} corrupted auth records`);
+    }
+    return true;
+  } catch (e) {
+    log.err(`Failed to clear auth: ${e.message}`);
+    return false;
+  }
+}
 async function useMongoAuthState(collection, sessionId) {
+  // Validate existing auth before proceeding
+  await validateAndRepairAuth(sessionId);
+
   const writeData = async (data, id) => {
     try {
+      // Skip writing invalid creds
+      if (id === 'creds') {
+        if (!data || !data.noiseKey || !data.signedIdentityKey) {
+          log.warn(`[${sessionId.slice(0,8)}] Skipping invalid creds write`);
+          return;
+        }
+      }
+
       await collection.replaceOne(
         { _id: `${sessionId}:${id}` },
         {
@@ -883,7 +938,6 @@ async function useMongoAuthState(collection, sessionId) {
       );
     } catch (error) {
       log.err(`MongoDB write error for ${id}: ${error.message}`);
-      throw error;
     }
   };
 
@@ -891,9 +945,27 @@ async function useMongoAuthState(collection, sessionId) {
     try {
       const item = await collection.findOne({ _id: `${sessionId}:${id}` });
       if (!item) return null;
-      return JSON.parse(item.data, BufferJSON.reviver);
+
+      if (!item.data || typeof item.data !== 'string') {
+        return null;
+      }
+
+      const parsed = JSON.parse(item.data, BufferJSON.reviver);
+
+      // Validate creds have required fields
+      if (id === 'creds' && parsed) {
+        if (!parsed.noiseKey || !parsed.signedIdentityKey) {
+          log.warn(`[${sessionId.slice(0,8)}] Invalid creds structure, returning null`);
+          return null;
+        }
+      }
+
+      return parsed;
     } catch (error) {
-      log.err(`MongoDB read error for ${id}: ${error.message}`);
+      if (id === 'creds') {
+        log.warn(`[${sessionId.slice(0,8)}] Corrupted creds detected, deleting`);
+        await collection.deleteOne({ _id: `${sessionId}:creds` });
+      }
       return null;
     }
   };
@@ -906,7 +978,13 @@ async function useMongoAuthState(collection, sessionId) {
     }
   };
 
-  const creds = (await readData("creds")) || initAuthCreds();
+  // Get or create fresh creds
+  let creds = await readData("creds");
+  if (!creds || !creds.noiseKey || !creds.signedIdentityKey) {
+    log.warn(`[${sessionId.slice(0,8)}] Creating fresh credentials`);
+    creds = initAuthCreds();
+    await writeData(creds, "creds");
+  }
 
   return {
     state: {
@@ -920,7 +998,7 @@ async function useMongoAuthState(collection, sessionId) {
               if (type === "app-state-sync-key" && value) {
                 value = proto.Message.AppStateSyncKeyData.fromObject(value);
               }
-              data[id] = value;
+              if (value) data[id] = value;
             }),
           );
           return data;
@@ -930,18 +1008,23 @@ async function useMongoAuthState(collection, sessionId) {
           for (const category of Object.keys(data)) {
             for (const id of Object.keys(data[category])) {
               const value = data[category][id];
-              tasks.push(
-                value
-                  ? writeData(value, `${category}-${id}`)
-                  : removeData(`${category}-${id}`),
-              );
+              if (value) {
+                tasks.push(writeData(value, `${category}-${id}`));
+              } else {
+                tasks.push(removeData(`${category}-${id}`));
+              }
             }
           }
           await Promise.all(tasks);
         },
       },
     },
-    saveCreds: () => writeData(creds, "creds"),
+    saveCreds: () => {
+      if (creds && creds.noiseKey && creds.signedIdentityKey) {
+        return writeData(creds, "creds");
+      }
+      return Promise.resolve();
+    },
   };
 }
 
