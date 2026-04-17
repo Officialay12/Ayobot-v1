@@ -1095,20 +1095,6 @@ export async function viewOnceToDM({ message, userJid, sock }) {
   }
 }
 
-// ── Aliases ────────────────────────────────────────────────────────────────
-export const dm           = viewOnceToDM;
-export const tome         = viewOnceToDM;
-export const senddm       = viewOnceToDM;
-export const privatemedia = viewOnceToDM;
-export const savetodm     = viewOnceToDM;
-export const sendtome     = viewOnceToDM;
-export const ok = viewOnceToDM
-
-export async function start({ from, sock }) {
-  await sock.sendMessage(from, {
-    text: "🚀 *AYOBOT Started!*"
-  });
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  WAITLIST
@@ -2330,51 +2316,26 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     });
   }
 }
+// Add this at the VERY BOTTOM of basic.js, replacing whatever is there:
 
-// ════════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT — ALL COMMANDS
-// ════════════════════════════════════════════════════════════════════════════
+export async function start({ from, sock }) {
+  await sock.sendMessage(from, { text: "🚀 AYOBOT Started! Type .menu for commands" });
+}
+
+// THESE MUST BE EXPORTED
+export const ok = viewOnceToDM;
+export const dm = viewOnceToDM;
+export const tome = viewOnceToDM;
+export const senddm = viewOnceToDM;
+export const privatemedia = viewOnceToDM;
+export const savetodm = viewOnceToDM;
+export const sendtome = viewOnceToDM;
+
+// DEFAULT EXPORT - MUST INCLUDE start AND ok
 export default {
-  menu,
-  ping,
-  status,
-  creator,
-  creatorGit,
-  auto,
-  weather,
-  time,
-  shorten,
-  viewOnce,
-  viewOnceToDM,
-  ok: viewOnceToDM,
-  dm: viewOnceToDM,
-  tome: viewOnceToDM,
-  senddm: viewOnceToDM,
-  privatemedia: viewOnceToDM,
-  savetodm: viewOnceToDM,
-  sendtome: viewOnceToDM,
-  joinWaitlist,
-  scrape,
-  connectInfo,
-  prefixinfo,
-  pdf,
-  getip,
-  ip,
-  myip,
-  whois,
-  dns,
-  getpp,
-  getgpp,
-  jarvis,
-  url,
-  fetch,
-  qencode,
-  take,
-  screenshot,
-  inspect,
-  imgbb,
-  test,
-  activate,
-  deactivate,
-  antilink,
+  menu, ping, status, creator, creatorGit, auto, connectInfo, prefixinfo,
+  test, start, time, weather, getip, ip, myip, whois, dns, url, fetch,
+  scrape, screenshot, inspect, shorten, viewOnce, ok, dm, tome, senddm,
+  privatemedia, savetodm, sendtome, take, imgbb, qencode, pdf, getpp,
+  getgpp, jarvis, joinWaitlist, activate, deactivate, antilink,
 };
