@@ -961,7 +961,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
       console.error("[.ok] Could not find sender JID");
       await sendReaction(sock, message, "🔴");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "❌ Could not identify your contact. Please try again."
+
       });
       return;
     }
@@ -977,7 +977,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "❌ Reply to a *view-once* image/video with `.ok`"
+
       });
       return;
     }
@@ -1010,7 +1010,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
     if (!mediaMsg || !type) {
       await sendReaction(sock, message, "❌");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "❌ The replied message is not a *view-once* media.\n\nReply to a 🔒 view-once image/video with `.ok`"
+
       });
       return;
     }
@@ -1023,7 +1023,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
       console.error("[.ok] Download failed:", downloadErr);
       await sendReaction(sock, message, "🔴");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "❌ Failed to download the media. Please try again."
+
       });
       return;
     }
@@ -1031,7 +1031,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
     if (!buffer || buffer.length === 0) {
       await sendReaction(sock, message, "🔴");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "❌ Downloaded file is empty."
+
       });
       return;
     }
@@ -1043,8 +1043,7 @@ export async function viewOnceToDM({ message, userJid, sock }) {
       // Success!
       await sendReaction(sock, message, "✅");
       await sock.sendMessage(message.key.remoteJid, {
-        text: "✅ *View-Once Media Sent!*\n\n📬 Check your *Direct Message* inbox.\n\n🔒 The media will disappear after viewing.\n\n_© AYOBOT v1 | AYOCODES_"
-      });
+
 
     } catch (sendErr) {
       console.error("[.ok] DM send failed:", sendErr);
@@ -1054,12 +1053,12 @@ export async function viewOnceToDM({ message, userJid, sock }) {
           sendErr.message?.includes("privacy")) {
         await sendReaction(sock, message, "⚠️");
         await sock.sendMessage(message.key.remoteJid, {
-          text: "⚠️ *Cannot Send DM*\n\nPlease adjust your privacy settings:\n\n1. Go to WhatsApp Settings\n2. Privacy → Personal Info\n3. Enable \"Receive messages from unknown contacts\"\n\nOr send a message to @AYOBOT first to open the chat."
+
         });
       } else {
         await sendReaction(sock, message, "🔴");
         await sock.sendMessage(message.key.remoteJid, {
-          text: "❌ Failed to send to your DM. Make sure you have messaged the bot before."
+
         });
       }
     }
