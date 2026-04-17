@@ -1,13 +1,13 @@
 // commands/group/settings.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Settings Module — FIXED
+//  Group Settings Module — FULLY FIXED with TEMP ID support
 //  Author: AYOCODES
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
   groupSettings,
-  isAdmin as isGlobalAdmin,
   saveGroupSettings,
+  ENV,
 } from "../../index.js";
 
 import {
@@ -16,7 +16,6 @@ import {
   isBotGroupAdminCached,
   isGroupAdminCached,
   normalizeNum,
-  validateGroupCommand,
   refreshBotAdminStatus,
   getBotNumber,
 } from "../../utils/validators.js";
@@ -70,22 +69,14 @@ export async function mute({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to mute the group.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to mute the group.\nPlease promote me first!"),
       });
     }
 
@@ -100,11 +91,7 @@ export async function mute({ from, userJid, sock, isAdmin }) {
     clearGroupCache(from);
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GROUP MUTED",
-        `🔇 Only admins can now send messages.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GROUP MUTED", `🔇 Only admins can now send messages.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -122,22 +109,14 @@ export async function unmute({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to unmute the group.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to unmute the group.\nPlease promote me first!"),
       });
     }
 
@@ -152,11 +131,7 @@ export async function unmute({ from, userJid, sock, isAdmin }) {
     clearGroupCache(from);
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GROUP UNMUTED",
-        `🔊 All members can now send messages.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GROUP UNMUTED", `🔊 All members can now send messages.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -174,33 +149,21 @@ export async function lock({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to lock the group.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to lock the group.\nPlease promote me first!"),
       });
     }
 
     await sock.groupSettingUpdate(from, "locked");
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GROUP LOCKED",
-        `🔒 Group info editing is now restricted to admins only.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GROUP LOCKED", `🔒 Group info editing is now restricted to admins only.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -238,33 +201,21 @@ export async function unlock({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to unlock the group.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to unlock the group.\nPlease promote me first!"),
       });
     }
 
     await sock.groupSettingUpdate(from, "unlocked");
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GROUP UNLOCKED",
-        `🔓 All members can now edit group info.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GROUP UNLOCKED", `🔓 All members can now edit group info.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -282,11 +233,7 @@ export async function antiLink({ args, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -295,13 +242,10 @@ export async function antiLink({ args, from, userJid, sock, isAdmin }) {
     if (!sub || !["on", "off"].includes(sub)) {
       const status = groupSettings.get(from)?.antilink ? "ON ✅" : "OFF ❌";
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "ANTI-LINK",
-          `Current: *${status}*\n\n.antilink on  — Enable\n.antilink off — Disable\n\n` +
-            `⚠️ Links will be auto-deleted and users warned.\n` +
-            `After 3 warnings, they will be kicked.`,
-        ),
+        text: fmt("ℹ️", "ANTI-LINK",
+          `Current: *${status}*\n\n${ENV.PREFIX}antilink on  — Enable\n${ENV.PREFIX}antilink off — Disable\n\n` +
+          `⚠️ Links will be auto-deleted and users warned.\n` +
+          `After 3 warnings, they will be kicked.`),
       });
     }
 
@@ -311,11 +255,7 @@ export async function antiLink({ args, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "ANTI-LINK",
-        `🔗 Anti-link ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "ANTI-LINK", `🔗 Anti-link ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -333,11 +273,7 @@ export async function antiSpam({ args, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -346,11 +282,7 @@ export async function antiSpam({ args, from, userJid, sock, isAdmin }) {
     if (!sub || !["on", "off"].includes(sub)) {
       const status = groupSettings.get(from)?.antispam ? "ON ✅" : "OFF ❌";
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "ANTI-SPAM",
-          `Current: *${status}*\n\n.antispam on  — Enable\n.antispam off — Disable`,
-        ),
+        text: fmt("ℹ️", "ANTI-SPAM", `Current: *${status}*\n\n${ENV.PREFIX}antispam on  — Enable\n${ENV.PREFIX}antispam off — Disable`),
       });
     }
 
@@ -360,11 +292,7 @@ export async function antiSpam({ args, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "ANTI-SPAM",
-        `🚫 Anti-spam ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "ANTI-SPAM", `🚫 Anti-spam ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -382,11 +310,7 @@ export async function welcomeToggle({ args, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -394,15 +318,10 @@ export async function welcomeToggle({ args, from, userJid, sock, isAdmin }) {
 
     if (!sub || !["on", "off"].includes(sub)) {
       const status = groupSettings.get(from)?.welcome ? "ON ✅" : "OFF ❌";
-      const welcomeMsg =
-        groupSettings.get(from)?.welcomeMessage ||
-        "Welcome @user to @group! 🎉";
+      const welcomeMsg = groupSettings.get(from)?.welcomeMessage || "Welcome @user to @group! 🎉";
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "WELCOME",
-          `Current: *${status}*\nMessage: "${welcomeMsg}"\n\n.welcome on/off\n.setwelcome <msg>\n\nVars: @user @group @count @date @time`,
-        ),
+        text: fmt("ℹ️", "WELCOME",
+          `Current: *${status}*\nMessage: "${welcomeMsg}"\n\n${ENV.PREFIX}welcome on/off\n${ENV.PREFIX}setwelcome <msg>\n\nVars: @user @group @count @date @time`),
       });
     }
 
@@ -412,11 +331,7 @@ export async function welcomeToggle({ args, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "WELCOME",
-        `👋 Welcome messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "WELCOME", `👋 Welcome messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -434,23 +349,16 @@ export async function setWelcome({ fullArgs, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     if (!fullArgs) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "SET WELCOME",
+        text: fmt("ℹ️", "SET WELCOME",
           "📌 *Usage:* .setwelcome <message>\n\n" +
-            "📋 *Variables:* @user @group @count @date @time\n\n" +
-            "📋 *Example:*\n.setwelcome Hey @user! Welcome to @group 🎉",
-        ),
+          "📋 *Variables:* @user @group @count @date @time\n\n" +
+          "📋 *Example:*\n.setwelcome Hey @user! Welcome to @group 🎉"),
       });
     }
 
@@ -461,11 +369,8 @@ export async function setWelcome({ fullArgs, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "WELCOME SET",
-        `👋 Welcome message saved & *enabled*.\n\n📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n💡 Disable anytime: .welcome off`,
-      ),
+      text: fmt("✅", "WELCOME SET",
+        `👋 Welcome message saved & *enabled*.\n\n📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n💡 Disable anytime: ${ENV.PREFIX}welcome off`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -483,11 +388,7 @@ export async function goodbyeToggle({ args, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -495,14 +396,10 @@ export async function goodbyeToggle({ args, from, userJid, sock, isAdmin }) {
 
     if (!sub || !["on", "off"].includes(sub)) {
       const status = groupSettings.get(from)?.goodbye ? "ON ✅" : "OFF ❌";
-      const goodbyeMsg =
-        groupSettings.get(from)?.goodbyeMessage || "Goodbye @user 👋";
+      const goodbyeMsg = groupSettings.get(from)?.goodbyeMessage || "Goodbye @user 👋";
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "GOODBYE",
-          `Current: *${status}*\nMessage: "${goodbyeMsg}"\n\n.goodbye on/off\n.setgoodbye <msg>\n\nVars: @user @group @date @time`,
-        ),
+        text: fmt("ℹ️", "GOODBYE",
+          `Current: *${status}*\nMessage: "${goodbyeMsg}"\n\n${ENV.PREFIX}goodbye on/off\n${ENV.PREFIX}setgoodbye <msg>\n\nVars: @user @group @date @time`),
       });
     }
 
@@ -512,11 +409,7 @@ export async function goodbyeToggle({ args, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GOODBYE",
-        `👋 Goodbye messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GOODBYE", `👋 Goodbye messages ${sub === "on" ? "*ENABLED* ✅" : "*DISABLED* ❌"}\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -534,23 +427,16 @@ export async function setGoodbye({ fullArgs, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     if (!fullArgs) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "SET GOODBYE",
+        text: fmt("ℹ️", "SET GOODBYE",
           "📌 *Usage:* .setgoodbye <message>\n\n" +
-            "📋 *Variables:* @user @group @date @time\n\n" +
-            "📋 *Example:*\n.setgoodbye Goodbye @user 👋 We'll miss you!",
-        ),
+          "📋 *Variables:* @user @group @date @time\n\n" +
+          "📋 *Example:*\n.setgoodbye Goodbye @user 👋 We'll miss you!"),
       });
     }
 
@@ -561,11 +447,8 @@ export async function setGoodbye({ fullArgs, from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GOODBYE SET",
-        `👋 Goodbye message saved & *enabled*.\n\n📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n💡 Disable anytime: .goodbye off`,
-      ),
+      text: fmt("✅", "GOODBYE SET",
+        `👋 Goodbye message saved & *enabled*.\n\n📝 Preview:\n"${fullArgs.substring(0, 150)}${fullArgs.length > 150 ? "..." : ""}"\n\n💡 Disable anytime: ${ENV.PREFIX}goodbye off`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -595,12 +478,8 @@ export async function groupInfo({ from, userJid, sock }) {
 
     const totalMembers = metadata.participants.length;
     const adminCount = metadata.participants.filter((p) => p.admin).length;
-    const superAdminCount = metadata.participants.filter(
-      (p) => p.admin === "superadmin",
-    ).length;
-    const created = metadata.creation
-      ? new Date(metadata.creation * 1000).toLocaleString()
-      : "Unknown";
+    const superAdminCount = metadata.participants.filter((p) => p.admin === "superadmin").length;
+    const created = metadata.creation ? new Date(metadata.creation * 1000).toLocaleString() : "Unknown";
     const settings = groupSettings.get(from) || {};
 
     const info =
@@ -636,9 +515,7 @@ export async function rules({ from, sock }) {
       });
     }
 
-    const groupRules =
-      (groupSettings.get(from) || {}).rules ||
-      "No rules set.\n\nAdmins: .setrules <rules>";
+    const groupRules = (groupSettings.get(from) || {}).rules || "No rules set.\n\nAdmins: .setrules <rules>";
 
     await sock.sendMessage(from, {
       text: fmt("ℹ️", "GROUP RULES", `📜\n\n${groupRules}`),
@@ -658,21 +535,13 @@ export async function setRules({ fullArgs, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     if (!fullArgs) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "SET RULES",
-          "Usage: .setrules <rules>\n\nExample:\n.setrules 1. Be respectful\n2. No spam",
-        ),
+        text: fmt("ℹ️", "SET RULES", "Usage: .setrules <rules>\n\nExample:\n.setrules 1. Be respectful\n2. No spam"),
       });
     }
 
@@ -699,11 +568,7 @@ export async function link({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -725,20 +590,12 @@ export async function link({ from, userJid, sock, isAdmin }) {
 
     if (!inviteCode) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "LINK UNAVAILABLE",
-          "Could not get the group link.\nMake sure I'm promoted to admin.",
-        ),
+        text: fmt("❌", "LINK UNAVAILABLE", "Could not get the group link.\nMake sure I'm promoted to admin."),
       });
     }
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "GROUP LINK",
-        `🔗 ${inviteCode}\n\n📣 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "GROUP LINK", `🔗 ${inviteCode}\n\n📣 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -756,22 +613,14 @@ export async function revoke({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to revoke the link.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to revoke the link.\nPlease promote me first!"),
       });
     }
 
@@ -779,11 +628,7 @@ export async function revoke({ from, userJid, sock, isAdmin }) {
     clearGroupCache(from);
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "LINK REVOKED",
-        `🔄 Invite link has been reset.\n👑 By: @${phone(userJid)}\n\n💡 Use .link to get the new link.`,
-      ),
+      text: fmt("✅", "LINK REVOKED", `🔄 Invite link has been reset.\n👑 By: @${phone(userJid)}\n\n💡 Use ${ENV.PREFIX}link to get the new link.`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -801,41 +646,27 @@ export async function pin({ message, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to pin messages.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to pin messages.\nPlease promote me first!"),
       });
     }
 
     const quoted = getReplyContext(message);
     if (!quoted?.stanzaId) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "PIN",
-          "Reply to a message with *.pin* to pin it in the group.",
-        ),
+        text: fmt("ℹ️", "PIN", "Reply to a message with *.pin* to pin it in the group."),
       });
     }
 
     const key = {
       remoteJid: from,
-      fromMe:
-        !!quoted.participant &&
-        phone(quoted.participant) === getBotNumber(sock),
+      fromMe: !!quoted.participant && phone(quoted.participant) === getBotNumber(sock),
       id: quoted.stanzaId,
     };
     if (quoted.participant) key.participant = quoted.participant;
@@ -845,21 +676,12 @@ export async function pin({ message, from, userJid, sock, isAdmin }) {
     });
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "MESSAGE PINNED",
-        `📌 Message pinned for 7 days.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "MESSAGE PINNED", `📌 Message pinned for 7 days.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
     await sock.sendMessage(from, {
-      text: fmt(
-        "❌",
-        "PIN FAILED",
-        error.message +
-          "\n\nMake sure I am a group admin and the message exists.",
-      ),
+      text: fmt("❌", "PIN FAILED", error.message + "\n\nMake sure I am a group admin and the message exists."),
     });
   }
 }
@@ -872,41 +694,27 @@ export async function unpin({ message, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const botAdmin = await isBotGroupAdminCached(from, sock, true);
     if (!botAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "❌ I need to be a *group admin* to unpin messages.\nPlease promote me first!",
-        ),
+        text: fmt("❌", "ERROR", "❌ I need to be a *group admin* to unpin messages.\nPlease promote me first!"),
       });
     }
 
     const quoted = getReplyContext(message);
     if (!quoted?.stanzaId) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "UNPIN",
-          "Reply to a pinned message with *.unpin* to remove the pin.",
-        ),
+        text: fmt("ℹ️", "UNPIN", "Reply to a pinned message with *.unpin* to remove the pin."),
       });
     }
 
     const key = {
       remoteJid: from,
-      fromMe:
-        !!quoted.participant &&
-        phone(quoted.participant) === getBotNumber(sock),
+      fromMe: !!quoted.participant && phone(quoted.participant) === getBotNumber(sock),
       id: quoted.stanzaId,
     };
     if (quoted.participant) key.participant = quoted.participant;
@@ -914,21 +722,12 @@ export async function unpin({ message, from, userJid, sock, isAdmin }) {
     await sock.sendMessage(from, { pin: { key, type: 0, time: 0 } });
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "MESSAGE UNPINNED",
-        `📌 Message unpinned.\n👑 By: @${phone(userJid)}`,
-      ),
+      text: fmt("✅", "MESSAGE UNPINNED", `📌 Message unpinned.\n👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
     await sock.sendMessage(from, {
-      text: fmt(
-        "❌",
-        "UNPIN FAILED",
-        error.message +
-          "\n\nMake sure I am a group admin and the message is pinned.",
-      ),
+      text: fmt("❌", "UNPIN FAILED", error.message + "\n\nMake sure I am a group admin and the message is pinned."),
     });
   }
 }
@@ -947,30 +746,20 @@ export async function deleteMsg({ message, from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
     const quoted = getReplyContext(message);
     if (!quoted?.stanzaId) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "ℹ️",
-          "DELETE",
-          "Reply to a message with .delete to remove it.",
-        ),
+        text: fmt("ℹ️", "DELETE", "Reply to a message with .delete to remove it."),
       });
     }
 
     const key = {
       remoteJid: from,
-      fromMe:
-        !!quoted.participant &&
-        phone(quoted.participant) === getBotNumber(sock),
+      fromMe: !!quoted.participant && phone(quoted.participant) === getBotNumber(sock),
       id: quoted.stanzaId,
       participant: quoted.participant,
     };
@@ -1009,7 +798,7 @@ export async function settingsOverview({ from, sock }) {
       `   └─ "${settings.goodbyeMessage ? settings.goodbyeMessage.substring(0, 60) + (settings.goodbyeMessage.length > 60 ? "…" : "") : "_Not set_"}"\n` +
       `📜 *Rules:*    ${settings.rules ? "✅ Set" : "❌ Not set"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
-      `💡 Use .groupinfo for full group & member details.`;
+      `💡 Use ${ENV.PREFIX}groupinfo for full group & member details.`;
 
     await sock.sendMessage(from, { text: fmt("ℹ️", "BOT SETTINGS", overview) });
   } catch (error) {
@@ -1027,11 +816,7 @@ export async function resetSettings({ from, userJid, sock, isAdmin }) {
     const isUserAdmin = await checkGroupAdmin(from, userJid, sock, isAdmin);
     if (!isUserAdmin) {
       return sock.sendMessage(from, {
-        text: fmt(
-          "❌",
-          "ERROR",
-          "⛔ Only *group admins* can use this command.",
-        ),
+        text: fmt("❌", "ERROR", "⛔ Only *group admins* can use this command."),
       });
     }
 
@@ -1039,13 +824,10 @@ export async function resetSettings({ from, userJid, sock, isAdmin }) {
     saveGroupSettings();
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "SETTINGS RESET",
+      text: fmt("✅", "SETTINGS RESET",
         `🗑️ All bot settings for this group have been cleared.\n\n` +
-          `AntiLink: ❌ OFF\nAntiSpam: ❌ OFF\nWelcome:  ❌ OFF\nGoodbye:  ❌ OFF\nRules:    cleared\n\n` +
-          `👑 By: @${phone(userJid)}`,
-      ),
+        `AntiLink: ❌ OFF\nAntiSpam: ❌ OFF\nWelcome:  ❌ OFF\nGoodbye:  ❌ OFF\nRules:    cleared\n\n` +
+        `👑 By: @${phone(userJid)}`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -1068,10 +850,7 @@ export async function leave({ from, userJid, sock, isAdmin }) {
     }
 
     await sock.sendMessage(from, {
-      text:
-        `👋 *Goodbye everyone!*\n\n` +
-        `Leaving as requested by @${phone(userJid)} 🤖\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      text: `👋 *Goodbye everyone!*\n\nLeaving as requested by @${phone(userJid)} 🤖\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
       mentions: [userJid],
     });
 
@@ -1099,9 +878,7 @@ export async function testAdmin({ from, userJid, sock, isAdmin }) {
     const globalAdmin = isAdmin;
 
     const metadata = await getGroupMetadataCached(from, sock, true);
-    const botParticipant = metadata?.participants?.find(
-      (p) => phone(p.id) === botNumber,
-    );
+    const botParticipant = metadata?.participants?.find((p) => phone(p.id) === botNumber);
 
     const info =
       `🔍 *ADMIN DIAGNOSTIC*\n\n` +
@@ -1118,7 +895,7 @@ export async function testAdmin({ from, userJid, sock, isAdmin }) {
       `├─ Members: ${metadata?.participants?.length || 0}\n` +
       `└─ Owner: @${phone(metadata?.owner) || "Unknown"}\n\n` +
       `💡 If bot shows ❌ NO after being promoted:\n` +
-      `1. Use .refreshadmin to clear cache\n` +
+      `1. Use ${ENV.PREFIX}refreshadmin to clear cache\n` +
       `2. Wait 10 seconds and try again\n` +
       `3. Demote and promote the bot again`;
 
@@ -1148,13 +925,10 @@ export async function refreshAdmin({ from, userJid, sock, isAdmin }) {
     const botAdmin = await refreshBotAdminStatus(from, sock);
 
     await sock.sendMessage(from, {
-      text: fmt(
-        "✅",
-        "CACHE REFRESHED",
+      text: fmt("✅", "CACHE REFRESHED",
         `🔄 Admin cache cleared for this group.\n` +
-          `Bot admin status: ${botAdmin ? "✅ YES" : "❌ NO"}\n\n` +
-          `If still ❌ NO, please demote and promote the bot again.`,
-      ),
+        `Bot admin status: ${botAdmin ? "✅ YES" : "❌ NO"}\n\n` +
+        `If still ❌ NO, please demote and promote the bot again.`),
       mentions: [userJid],
     });
   } catch (error) {
@@ -1165,9 +939,9 @@ export async function refreshAdmin({ from, userJid, sock, isAdmin }) {
 }
 
 // ============================================================================
-//  DEBUG
+//  DEBUG - FIXED to show temp ID mapping
 // ============================================================================
-export async function debug({ from, userJid, sock, isAdmin }) {
+export async function debug({ from, userJid, sock, isAdmin, session }) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -1179,12 +953,16 @@ export async function debug({ from, userJid, sock, isAdmin }) {
     const botNumber = getBotNumber(sock);
     const userNumber = phone(userJid);
 
-    const botParticipant = metadata?.participants?.find(
-      (p) => phone(p.id) === botNumber,
-    );
-    const userParticipant = metadata?.participants?.find(
-      (p) => phone(p.id) === userNumber,
-    );
+    // Get real phone from session or ENV
+    const ownerPhone = session?.ownerPhone || ENV.ADMIN || ENV.OWNER_PHONE || "";
+    const ownerNumber = phone(ownerPhone);
+
+    // Check if user is the owner (using real number comparison)
+    const isOwner = userNumber === ownerNumber;
+
+    const botParticipant = metadata?.participants?.find((p) => phone(p.id) === botNumber);
+    const userParticipant = metadata?.participants?.find((p) => phone(p.id) === userNumber);
+    const ownerParticipant = metadata?.participants?.find((p) => phone(p.id) === ownerNumber);
 
     const settings = groupSettings.get(from) || {};
 
@@ -1199,7 +977,13 @@ export async function debug({ from, userJid, sock, isAdmin }) {
       `👤 *YOU (+${userNumber})*\n` +
       `├─ Group Admin:  ${userParticipant?.admin ? "✅ Yes" : "❌ No"}\n` +
       `├─ Global owner: ${isAdmin ? "✅ Yes" : "❌ No"}\n` +
+      `├─ Bot Owner:    ${isOwner ? "✅ Yes" : "❌ No"}\n` +
       `└─ Raw JID:      ${userJid}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👑 *OWNER (+${ownerNumber})*\n` +
+      `├─ In Group:     ${ownerParticipant ? "✅ Yes" : "❌ No"}\n` +
+      `├─ Group Admin:  ${ownerParticipant?.admin ? "✅ Yes" : "❌ No"}\n` +
+      `└─ Inheritance:  ${ownerParticipant?.admin && !botParticipant?.admin ? "✅ Active" : botParticipant?.admin ? "✅ Bot is admin" : "❌ Not active"}\n` +
       `━━━━━━━━━━━━━━━━━━━━━\n` +
       `⚙️ *Bot Settings*\n` +
       `├─ 🔗 AntiLink: ${settings.antilink ? "✅" : "❌"}\n` +
@@ -1217,7 +1001,6 @@ export async function debug({ from, userJid, sock, isAdmin }) {
 
 // ============================================================================
 //  DEFAULT EXPORT
-//  FIX: showParticipants was missing from the default export object
 // ============================================================================
 export default {
   mute,

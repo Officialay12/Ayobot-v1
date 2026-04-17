@@ -851,250 +851,227 @@ export async function viewOnce({ message, from, sock }) {
   }
 }
 // ════════════════════════════════════════════════════════════════════════════
-//  .ok — VIEW ONCE TO DM (FIXED: Correct sender targeting + DM delivery)
-//  Reactions only: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
+//  .ok — VIEW ONCE TO DM (FIXED)
+//  Reactions: ⏳ processing | ✅ sent | ❌ not view-once | 🔴 error
+//  Credit: AYOCODES — github.com/Officialay12
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Extract the REAL personal JID of whoever sent the .ok command
- * Works in both groups and DMs
+ * Get the sender's personal JID (not group)
  */
-function getCommandSenderJid(message) {
-  const remoteJid = message.key?.remoteJid ?? "";
-  const isGroup = remoteJid.endsWith("@g.us");
+function getSenderPersonalJid(message, userJid) {
+  // First priority: userJid from handler (usually correct)
+  if (userJid && !userJid.includes("@g.us")) {
+    return userJid;
+  }
 
-  if (isGroup) {
-    // In a group, the actual sender is always in participant
-    const participant = message.key?.participant || message.participant || "";
+  // Second: extract from message key
+  const remoteJid = message.key?.remoteJid || "";
+  const participant = message.key?.participant || message.participant || "";
+
+  // If in group, participant is the real sender
+  if (remoteJid.includes("@g.us") && participant) {
     return participant;
   }
 
-  // In DM, remoteJid is the sender
-  return remoteJid;
+  // If in DM, remoteJid is the sender
+  if (!remoteJid.includes("@g.us")) {
+    return remoteJid;
+  }
+
+  return null;
 }
 
 /**
- * Strip everything and return just the numeric phone number
+ * Download media from message
  */
-function extractPhone(jid = "") {
-  return jid
-    .replace(/@s\.whatsapp\.net$/, "")
-    .replace(/@g\.us$/, "")
-    .replace(/@lid$/, "")
-    .replace(/[^0-9]/g, "")
-    .trim();
+async function downloadMedia(mediaMsg, type) {
+  const stream = await downloadContentFromMessage(mediaMsg, type);
+  let buffer = Buffer.from([]);
+  for await (const chunk of stream) {
+    buffer = Buffer.concat([buffer, chunk]);
+  }
+  return buffer;
 }
 
 /**
- * Send view-once media directly to the command sender's personal DM
+ * Check if user has DM privacy enabled
  */
-async function deliverViewOnceToDM(sock, senderJid, buffer, type) {
-  const phone = extractPhone(senderJid);
-
-  if (!phone || phone.length < 7) {
-    return { success: false, error: "Could not resolve a valid phone number from sender JID" };
-  }
-
-  // Always build a clean personal JID — never group JID
-  const dmJid = `${phone}@s.whatsapp.net`;
-
-  // Guard: never send to a group JID
-  if (dmJid.endsWith("@g.us")) {
-    return { success: false, error: "Resolved JID is a group — aborting to prevent wrong delivery" };
-  }
-
+async function canSendDM(sock, jid) {
   try {
-    // Step 1: Open the chat with a ping (WhatsApp requires this for unknown chats)
-    await sock.sendMessage(dmJid, {
-      text: "📬 *Sending your view-once media...*\n_Tap to open when it arrives._"
-    });
-
-    await delay(1500);
-
-    // Step 2: Typing presence
-    await sock.sendPresenceUpdate("composing", dmJid);
-    await delay(600);
-
-    // Step 3: Send the actual view-once
-    const payload = buildViewOncePayload(buffer, type);
-    await sock.sendMessage(dmJid, payload);
-
-    return { success: true };
-
+    // Try to send a simple presence update to test
+    await sock.sendPresenceUpdate("available", jid);
+    return true;
   } catch (error) {
-    console.error("[deliverViewOnceToDM] Primary attempt failed:", error.message);
-
-    const isPrivacyError =
-      error.message?.includes("not-allowed") ||
-      error.message?.includes("privacy") ||
-      error.message?.includes("blocked") ||
-      error.message?.includes("forbidden");
-
-    if (isPrivacyError) {
-      // Fallback: send regular version first to establish trust, then view-once
-      try {
-        await sock.sendMessage(dmJid, buildRegularPayload(buffer, type));
-        await delay(1500);
-        await sock.sendMessage(dmJid, buildViewOncePayload(buffer, type));
-        return { success: true, wasRetried: true };
-      } catch (retryErr) {
-        return { success: false, error: retryErr.message, isPrivacy: true };
-      }
-    }
-
-    return { success: false, error: error.message };
+    return false;
   }
 }
 
 /**
- * Build view-once message payload
+ * Send view-once media to DM
  */
-function buildViewOncePayload(buffer, type) {
-  const payload = { [type]: buffer, viewOnce: true };
+async function sendViewOnceToDM(sock, senderJid, buffer, type) {
+  // Clean the JID
+  let dmJid = senderJid;
+  if (!dmJid.includes("@s.whatsapp.net") && !dmJid.includes("@g.us")) {
+    dmJid = `${dmJid}@s.whatsapp.net`;
+  }
+
+  // Never send to group
+  if (dmJid.includes("@g.us")) {
+    throw new Error("Cannot send to group JID");
+  }
+
+  // Prepare payload based on media type
+  let payload;
   if (type === "image") {
-    payload.mimetype = "image/jpeg";
-    payload.caption = "🔒 View-Once Image\n👑 AYOBOT";
+    payload = {
+      image: buffer,
+      mimetype: "image/jpeg",
+      viewOnce: true,
+      caption: "🔒 *AYOBOT View-Once*\n_Tap and hold to view_"
+    };
   } else if (type === "video") {
-    payload.mimetype = "video/mp4";
-    payload.caption = "🔒 View-Once Video\n👑 AYOBOT";
-  } else if (type === "audio") {
-    payload.mimetype = "audio/mp4";
-    payload.ptt = true;
-  }
-  return payload;
-}
-
-/**
- * Build regular (non-view-once) payload for fallback trust establishment
- */
-function buildRegularPayload(buffer, type) {
-  const payload = { [type]: buffer };
-  if (type === "image") {
-    payload.mimetype = "image/jpeg";
-    payload.caption = "📸 Establishing channel...";
-  } else if (type === "video") {
-    payload.mimetype = "video/mp4";
-    payload.caption = "🎥 Establishing channel...";
-  } else if (type === "audio") {
-    payload.mimetype = "audio/mp4";
-    payload.ptt = true;
-  }
-  return payload;
-}
-
-/**
- * Extract view-once media from a quoted message
- * Covers all known WhatsApp wrapper formats
- */
-function extractViewOnceMedia(quotedMsg) {
-  if (!quotedMsg) return { mediaMsg: null, type: null };
-
-  const containers = [
-    quotedMsg?.viewOnceMessageV2?.message,
-    quotedMsg?.viewOnceMessageV2Extension?.message,
-    quotedMsg?.viewOnceMessage?.message,
-    quotedMsg?.ephemeralMessage?.message,
-    quotedMsg,
-  ];
-
-  for (const container of containers) {
-    if (!container) continue;
-    if (container.imageMessage) return { mediaMsg: container.imageMessage, type: "image" };
-    if (container.videoMessage) return { mediaMsg: container.videoMessage, type: "video" };
-    if (container.audioMessage) return { mediaMsg: container.audioMessage, type: "audio" };
+    payload = {
+      video: buffer,
+      mimetype: "video/mp4",
+      viewOnce: true,
+      caption: "🔒 *AYOBOT View-Once*\n_Tap and hold to view_"
+    };
+  } else {
+    throw new Error("Unsupported media type");
   }
 
-  return { mediaMsg: null, type: null };
+  // Send directly to DM
+  await sock.sendMessage(dmJid, payload);
+  return true;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * .ok COMMAND
- * Reply to a view-once message → it gets sent to YOUR DM only
- * Works in groups and DMs
- */
 export async function viewOnceToDM({ message, userJid, sock }) {
+  // Show processing reaction
   await sendReaction(sock, message, "⏳");
 
   try {
-    // ── 1. Resolve WHO triggered the command (must be their personal JID) ──
-    //    userJid from the handler can sometimes be the group JID on some
-    //    bot frameworks — so we always re-derive from the raw message
-    const senderJid = getCommandSenderJid(message);
-    const resolvedJid = senderJid || userJid || "";
+    // ── 1. Get the actual sender ──────────────────────────────────────────
+    const senderJid = getSenderPersonalJid(message, userJid);
 
-    if (!resolvedJid || resolvedJid.endsWith("@g.us")) {
-      // Could not resolve a personal JID — abort
-      console.error("[.ok] Could not resolve personal sender JID:", resolvedJid);
+    if (!senderJid) {
+      console.error("[.ok] Could not find sender JID");
       await sendReaction(sock, message, "🔴");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "❌ Could not identify your contact. Please try again."
+      });
       return;
     }
 
-    // ── 2. Get the quoted message ─────────────────────────────────────────
-    // Check all possible paths the quoted message could be nested under
-    const contextInfo =
-      message.message?.extendedTextMessage?.contextInfo ||
-      message.message?.imageMessage?.contextInfo ||
-      message.message?.videoMessage?.contextInfo ||
-      message.message?.audioMessage?.contextInfo ||
-      message.message?.stickerMessage?.contextInfo ||
-      null;
+    // ── 2. Get quoted message ─────────────────────────────────────────────
+    const contextInfo = message.message?.extendedTextMessage?.contextInfo ||
+                       message.message?.imageMessage?.contextInfo ||
+                       message.message?.videoMessage?.contextInfo ||
+                       null;
 
     const quotedMsg = contextInfo?.quotedMessage;
 
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "❌ Reply to a *view-once* image/video with `.ok`"
+      });
       return;
     }
 
-    // ── 3. Extract view-once media from the quoted message ────────────────
-    const { mediaMsg, type } = extractViewOnceMedia(quotedMsg);
+    // ── 3. Check if it's a view-once message ──────────────────────────────
+    let mediaMsg = null;
+    let type = null;
+
+    // Check for view-once in various formats
+    if (quotedMsg.viewOnceMessageV2?.message?.imageMessage) {
+      mediaMsg = quotedMsg.viewOnceMessageV2.message.imageMessage;
+      type = "image";
+    } else if (quotedMsg.viewOnceMessageV2?.message?.videoMessage) {
+      mediaMsg = quotedMsg.viewOnceMessageV2.message.videoMessage;
+      type = "video";
+    } else if (quotedMsg.viewOnceMessage?.message?.imageMessage) {
+      mediaMsg = quotedMsg.viewOnceMessage.message.imageMessage;
+      type = "image";
+    } else if (quotedMsg.viewOnceMessage?.message?.videoMessage) {
+      mediaMsg = quotedMsg.viewOnceMessage.message.videoMessage;
+      type = "video";
+    } else if (quotedMsg.imageMessage?.viewOnce === true) {
+      mediaMsg = quotedMsg.imageMessage;
+      type = "image";
+    } else if (quotedMsg.videoMessage?.viewOnce === true) {
+      mediaMsg = quotedMsg.videoMessage;
+      type = "video";
+    }
 
     if (!mediaMsg || !type) {
-      // Quoted message exists but is not view-once media
       await sendReaction(sock, message, "❌");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "❌ The replied message is not a *view-once* media.\n\nReply to a 🔒 view-once image/video with `.ok`"
+      });
       return;
     }
 
-    // ── 4. Download the media buffer ──────────────────────────────────────
-    let buffer = Buffer.from([]);
+    // ── 4. Download the media ─────────────────────────────────────────────
+    let buffer;
     try {
-      const stream = await downloadContentFromMessage(mediaMsg, type);
-      for await (const chunk of stream) {
-        buffer = Buffer.concat([buffer, chunk]);
-      }
+      buffer = await downloadMedia(mediaMsg, type);
     } catch (downloadErr) {
-      console.error("[.ok] Download failed:", downloadErr.message);
+      console.error("[.ok] Download failed:", downloadErr);
       await sendReaction(sock, message, "🔴");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "❌ Failed to download the media. Please try again."
+      });
       return;
     }
 
     if (!buffer || buffer.length === 0) {
-      console.error("[.ok] Empty buffer after download");
       await sendReaction(sock, message, "🔴");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "❌ Downloaded file is empty."
+      });
       return;
     }
 
-    // ── 5. Deliver ONLY to the command sender's personal DM ───────────────
-    const result = await deliverViewOnceToDM(sock, resolvedJid, buffer, type);
+    // ── 5. Send to DM ─────────────────────────────────────────────────────
+    try {
+      await sendViewOnceToDM(sock, senderJid, buffer, type);
 
-    // ── 6. React based on result ──────────────────────────────────────────
-    if (result.success) {
+      // Success!
       await sendReaction(sock, message, "✅");
-    } else if (result.isPrivacy) {
-      await sendReaction(sock, message, "⚠️");
-    } else {
-      console.error("[.ok] Delivery failed:", result.error);
-      await sendReaction(sock, message, "🔴");
+      await sock.sendMessage(message.key.remoteJid, {
+        text: "✅ *View-Once Media Sent!*\n\n📬 Check your *Direct Message* inbox.\n\n🔒 The media will disappear after viewing.\n\n_© AYOBOT v1 | AYOCODES_"
+      });
+
+    } catch (sendErr) {
+      console.error("[.ok] DM send failed:", sendErr);
+
+      // Check if it's a privacy error
+      if (sendErr.message?.includes("not-allowed") ||
+          sendErr.message?.includes("privacy")) {
+        await sendReaction(sock, message, "⚠️");
+        await sock.sendMessage(message.key.remoteJid, {
+          text: "⚠️ *Cannot Send DM*\n\nPlease adjust your privacy settings:\n\n1. Go to WhatsApp Settings\n2. Privacy → Personal Info\n3. Enable \"Receive messages from unknown contacts\"\n\nOr send a message to @AYOBOT first to open the chat."
+        });
+      } else {
+        await sendReaction(sock, message, "🔴");
+        await sock.sendMessage(message.key.remoteJid, {
+          text: "❌ Failed to send to your DM. Make sure you have messaged the bot before."
+        });
+      }
     }
 
   } catch (error) {
-    console.error("[.ok] Unhandled error:", error.message);
+    console.error("[.ok] Fatal error:", error);
     await sendReaction(sock, message, "🔴");
+    await sock.sendMessage(message.key.remoteJid, {
+      text: "❌ An error occurred. Please try again later."
+    });
   }
 }
-
 
 // ════════════════════════════════════════════════════════════════════════════
 //  WAITLIST
@@ -2153,61 +2130,109 @@ export async function inspect({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IMGBB UPLOAD  — reactions: ⏳ → ✅ / ❌
+//  IMAGE UPLOAD — AYOBOT v1
+//  reactions: ⏳ → ✅ / ❌
+//  Credit: AYOCODES — github.com/Officialay12
 // ════════════════════════════════════════════════════════════════════════════
 export async function imgbb({ message, from, sock }) {
   const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!quoted || !quoted.imageMessage) {
     return sock.sendMessage(from, {
-      text: formatInfo("IMGBB UPLOAD", `Reply to an image with ${ENV.PREFIX}imgbb`),
+      text: formatInfo("AYOBOT IMAGE UPLOAD", `Reply to an image with ${ENV.PREFIX}imgbb`),
     });
   }
 
   await sendReaction(sock, message, "⏳");
 
   try {
+    // Download the image
     const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-    const base64Image = buffer.toString("base64");
 
-    let result = null;
-    if (ENV.IMGBB_KEY) {
-      try {
-        const params = new URLSearchParams();
-        params.append("image", base64Image);
-        const res = await axios.post(`https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`, params, { timeout: 15_000 });
-        if (res.data?.data?.url) result = { url: res.data.data.url, service: "ImgBB" };
-      } catch (_) {}
+    let imageUrl = null;
+
+    // PRIMARY: Catbox.moe
+    try {
+      const formData = new FormData();
+      formData.append("reqtype", "fileupload");
+      formData.append("fileToUpload", new Blob([buffer]), "image.jpg");
+
+      const res = await axios.post("https://catbox.moe/user/api.php", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 20_000,
+      });
+
+      if (res.data && res.data.startsWith("https://")) {
+        imageUrl = res.data;
+      }
+    } catch (err) {
+      console.log("Primary upload failed:", err.message);
     }
 
-    if (!result) {
+    // FALLBACK 1: ImgBB
+    if (!imageUrl && ENV.IMGBB_KEY) {
       try {
+        const base64Image = buffer.toString("base64");
+        const params = new URLSearchParams();
+        params.append("image", base64Image);
+
+        const res = await axios.post(
+          `https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`,
+          params,
+          { timeout: 15_000 }
+        );
+
+        if (res.data?.data?.url) {
+          imageUrl = res.data.data.url;
+        }
+      } catch (err) {
+        console.log("Fallback 1 failed:", err.message);
+      }
+    }
+
+    // FALLBACK 2: FreeImage.host
+    if (!imageUrl) {
+      try {
+        const base64Image = buffer.toString("base64");
         const params = new URLSearchParams();
         params.append("source", base64Image);
         params.append("type", "base64");
+
         const res = await axios.post(
           "https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
-          params, { timeout: 15_000 },
+          params,
+          { timeout: 15_000 }
         );
-        if (res.data?.image?.url) result = { url: res.data.image.url, service: "FreeImage.host" };
-      } catch (_) {}
+
+        if (res.data?.image?.url) {
+          imageUrl = res.data.image.url;
+        }
+      } catch (err) {
+        console.log("Fallback 2 failed:", err.message);
+      }
     }
 
-    if (result) {
+    // Send result
+    if (imageUrl) {
       await sendReaction(sock, message, "✅");
       await sock.sendMessage(from, {
-        text: `📤 *Image Uploaded*\n\n🔗 *URL:* ${result.url}\n🛠️ *Service:* ${result.service}`,
+        text: `📤 *AYOBOT IMAGE UPLOAD*\n\n` +
+              `✅ *Success!*\n\n` +
+              `🔗 *URL:* ${imageUrl}\n\n` +
+              `_© AYOBOT v1 | AYOCODES_`,
       });
     } else {
       await sendReaction(sock, message, "❌");
       await sock.sendMessage(from, {
-        text: formatError("ERROR", "Upload failed. Set IMGBB_KEY in environment variables."),
+        text: formatError("AYOBOT UPLOAD", "Failed to upload image. Please try again later."),
       });
     }
   } catch (err) {
     await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, { text: formatError("ERROR", `Could not upload image: ${err.message}`) });
+    await sock.sendMessage(from, {
+      text: formatError("AYOBOT ERROR", `Could not process image: ${err.message}`)
+    });
   }
 }
 

@@ -28,6 +28,7 @@ import makeWASocket, {
   proto,
 } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys/lib/Utils/generics.js";
+import { autoMapOwnerTempId, registerTempIdMapping, getRealPhoneFromJid } from "../index.js";
 import bodyParser from "body-parser";
 import compression from "compression";
 import cookieParser from "cookie-parser";
@@ -257,6 +258,18 @@ function checkEnvVars() {
 
 // ============================================================
 //   HELPER FUNCTIONS - COMPLETE FIXED VERSION
+//   WITH TEMP ID MAPPING FOR PERMANENT OWNER RECOGNITION
+// ============================================================
+
+// ============================================================
+//   TEMP ID TO REAL NUMBER MAPPING STORAGE
+// ============================================================
+
+const tempIdMapping = new Map(); // temp ID → real phone number
+const reverseMapping = new Map(); // real phone → temp ID (for reference)
+
+// ============================================================
+//   CORE NORMALIZATION FUNCTIONS
 // ============================================================
 
 function normalizeJidForComparison(jid = "") {
@@ -267,6 +280,108 @@ function normalizeJidForComparison(jid = "") {
   return normalized;
 }
 
+/**
+ * Register a mapping from temp ID to real phone number
+ * Call this when you detect the owner using a temp ID
+ */
+export function registerTempIdMapping(tempId, realPhone) {
+  const cleanTemp = normalizeToPhone(tempId);
+  const cleanReal = normalizeToPhone(realPhone);
+
+  if (cleanTemp && cleanReal && cleanTemp !== cleanReal) {
+    // Don't map if it's already a real number
+    if (cleanTemp.length >= 10 && cleanTemp.length <= 13 && !cleanTemp.startsWith("2231")) {
+      console.log(`[TempMapping] ${cleanTemp} looks like a real number, not mapping`);
+      return false;
+    }
+
+    tempIdMapping.set(cleanTemp, cleanReal);
+    reverseMapping.set(cleanReal, cleanTemp);
+    console.log(`✅ [TempMapping] Mapped: ${cleanTemp} → ${cleanReal}`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Get real phone number from any JID (handles temp IDs automatically)
+ * This is the MAIN function to use for all owner checks
+ */
+export function getRealPhoneFromJid(jid) {
+  const cleanJid = normalizeToPhone(jid);
+
+  // Check if this JID is a temp ID that we have mapped
+  if (tempIdMapping.has(cleanJid)) {
+    const realNumber = tempIdMapping.get(cleanJid);
+    console.log(`[getRealPhone] Mapped: ${cleanJid} → ${realNumber}`);
+    return realNumber;
+  }
+
+  // Check if any mapped temp ID is contained in this JID
+  for (const [tempId, realNum] of tempIdMapping.entries()) {
+    if (cleanJid.includes(tempId) || tempId.includes(cleanJid)) {
+      console.log(`[getRealPhone] Partial match: ${cleanJid} → ${realNum}`);
+      return realNum;
+    }
+  }
+
+  return cleanJid;
+}
+
+/**
+ * Auto-detect and map temp ID when owner sends a message
+ * Call this in your message handler for EVERY message
+ */
+export function autoMapOwnerTempId(senderJid, ownerPhone) {
+  if (!senderJid || !ownerPhone) return false;
+
+  const senderClean = normalizeToPhone(senderJid);
+  const ownerClean = normalizeToPhone(ownerPhone);
+
+  // If sender already matches owner, no mapping needed
+  if (senderClean === ownerClean) {
+    return false;
+  }
+
+  // Check if this is a temp ID (starts with 2231 or is very long)
+  const isTempId = senderClean.startsWith("2231") || senderClean.length > 13 || senderClean.length < 10;
+
+  if (isTempId) {
+    // Check if we already have this mapping
+    if (!tempIdMapping.has(senderClean)) {
+      console.log(`📝 [AutoMap] Detected temp ID: ${senderClean} → mapping to owner: ${ownerClean}`);
+      registerTempIdMapping(senderClean, ownerClean);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Clear all temp ID mappings (useful for debugging/reset)
+ */
+export function clearTempIdMappings() {
+  tempIdMapping.clear();
+  reverseMapping.clear();
+  console.log(`🗑️ [TempMapping] Cleared all mappings`);
+}
+
+/**
+ * Get all current mappings (for debugging)
+ */
+export function getTempIdMappings() {
+  return Array.from(tempIdMapping.entries()).map(([temp, real]) => ({
+    tempId: temp,
+    realNumber: real,
+    isActive: true
+  }));
+}
+
+// ============================================================
+//   MAIN NORMALIZATION FUNCTION (ENHANCED WITH MAPPING)
+// ============================================================
+
 export function normalizeToPhone(jid) {
   if (!jid) return "";
   if (typeof jid === "object") {
@@ -275,6 +390,15 @@ export function normalizeToPhone(jid) {
 
   const str = String(jid);
 
+  // FIRST: Check if we have a mapping for the clean version
+  const cleanForLookup = str.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+  if (tempIdMapping.has(cleanForLookup)) {
+    if (ENV.DEBUG) {
+      console.log(`[normalizeToPhone] Using mapped: ${cleanForLookup} → ${tempIdMapping.get(cleanForLookup)}`);
+    }
+    return tempIdMapping.get(cleanForLookup);
+  }
+
   // Method 1: Standard extraction
   let withoutDomain = str.split("@")[0];
   let withoutDevice = withoutDomain.split(":")[0];
@@ -282,21 +406,27 @@ export function normalizeToPhone(jid) {
 
   // Method 2: If result is invalid (temp ID like 223175560437838)
   if (phoneNumber.length > 13 || phoneNumber.length < 9 || phoneNumber.startsWith("0") || phoneNumber.startsWith("2231")) {
-    // Look for valid phone number pattern (10-13 digits, starts with country code)
-    const matches = str.match(/\d{9,13}/g);
-    if (matches && matches.length > 0) {
-      for (const match of matches) {
-        // Valid phone: 10-13 digits, doesn't start with 0 or 2231 (temp ID pattern)
-        if (match.length >= 10 && match.length <= 13 && !match.startsWith("0") && !match.startsWith("2231")) {
-          phoneNumber = match;
-          break;
+    // Look for Nigerian number pattern first
+    const nigerianMatch = str.match(/234[0-9]{10}/);
+    if (nigerianMatch) {
+      phoneNumber = nigerianMatch[0];
+    } else {
+      // Look for valid phone number pattern (10-13 digits)
+      const matches = str.match(/\d{9,13}/g);
+      if (matches && matches.length > 0) {
+        for (const match of matches) {
+          // Valid phone: 10-13 digits, doesn't start with 0 or 2231 (temp ID pattern)
+          if (match.length >= 10 && match.length <= 13 && !match.startsWith("0") && !match.startsWith("2231")) {
+            phoneNumber = match;
+            break;
+          }
         }
       }
     }
   }
 
   // Method 3: Check for phone before colon (format: 2349159180375:58@...)
-  if (phoneNumber.length > 13 && str.includes(":")) {
+  if ((phoneNumber.length > 13 || phoneNumber.startsWith("2231")) && str.includes(":")) {
     const beforeColon = str.split(":")[0].replace(/[^0-9]/g, "");
     if (beforeColon.length >= 10 && beforeColon.length <= 13 && !beforeColon.startsWith("2231")) {
       phoneNumber = beforeColon;
@@ -304,7 +434,7 @@ export function normalizeToPhone(jid) {
   }
 
   // Method 4: Look for Nigerian/International phone pattern
-  if (phoneNumber.length > 13 || phoneNumber.length < 10) {
+  if (phoneNumber.length > 13 || phoneNumber.length < 10 || phoneNumber.startsWith("2231")) {
     const patterns = [
       /234[0-9]{10}/,           // Nigerian: 234XXXXXXXXXX
       /[0-9]{13}/,              // 13 digit numbers
@@ -324,11 +454,10 @@ export function normalizeToPhone(jid) {
 
   // Final fallback: if we still have a temp ID, try to extract from the original string differently
   if (phoneNumber.startsWith("2231") || phoneNumber.length > 13) {
-    // Look for any 10-13 digit sequence that doesn't start with 2231
     const allNumbers = str.match(/\d+/g);
     if (allNumbers) {
       for (const num of allNumbers) {
-        if (num.length >= 10 && num.length <= 13 && !num.startsWith("2231")) {
+        if (num.length >= 10 && num.length <= 13 && !num.startsWith("2231") && !num.startsWith("0")) {
           phoneNumber = num;
           break;
         }
@@ -365,36 +494,49 @@ export function getGlobalBotNumber() {
 }
 
 // ============================================================
-//   CHECK IF USER IS BOT OWNER
+//   CHECK IF USER IS BOT OWNER (WITH TEMP ID MAPPING)
 // ============================================================
 export function isBotOwner(userJid, botOwnerJid) {
   if (!userJid || !botOwnerJid) return false;
-  const user = normalizePhone(userJid);
+
+  // Use getRealPhoneFromJid to resolve temp IDs
+  const user = getRealPhoneFromJid(userJid);
   const owner = normalizePhone(botOwnerJid);
+
   if (!user || !owner) return false;
+
+  if (ENV.DEBUG) {
+    console.log(`[isBotOwner] User: ${userJid} → ${user} | Owner: ${owner}`);
+  }
+
   return user === owner;
 }
 
 // ============================================================
-//   CHECK IF USER IS ADMIN (Bot Owner) - COMPLETELY FIXED
+//   CHECK IF USER IS ADMIN (Bot Owner) - WITH TEMP ID MAPPING
 // ============================================================
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
 
-  const user = normalizePhone(userJid);
+  // Use getRealPhoneFromJid to resolve temp IDs
+  const user = getRealPhoneFromJid(userJid);
   const owner = normalizePhone(ownerPhone);
 
   // Debug logging
   if (ENV.DEBUG) {
-    console.log(`[isAdmin] User raw: ${userJid} → normalized: ${user}`);
+    console.log(`[isAdmin] User raw: ${userJid} → resolved: ${user}`);
     console.log(`[isAdmin] Owner raw: ${ownerPhone} → normalized: ${owner}`);
   }
 
   // Direct match
-  if (user === owner) return true;
+  if (user === owner) {
+    console.log(`[isAdmin] ✅ Direct match! User is owner`);
+    return true;
+  }
 
   // Check if user normalized contains owner normalized
   if (user && owner && (user.includes(owner) || owner.includes(user))) {
+    console.log(`[isAdmin] ✅ Partial match! User is owner`);
     return true;
   }
 
@@ -402,6 +544,7 @@ export function isAdmin(userJid, ownerPhone) {
   const userStr = String(userJid);
   const ownerStr = String(ownerPhone);
   if (userStr.includes(owner) || ownerStr.includes(user) || userStr.includes(ownerStr) || ownerStr.includes(userStr)) {
+    console.log(`[isAdmin] ✅ String match! User is owner`);
     return true;
   }
 
@@ -409,13 +552,16 @@ export function isAdmin(userJid, ownerPhone) {
   if (globalBotNumber) {
     const botNorm = normalizePhone(globalBotNumber);
     if (user === botNorm && botNorm === owner) {
+      console.log(`[isAdmin] ✅ Bot number match!`);
       return true;
     }
     if (userStr.includes(globalBotNumber) || globalBotNumber.includes(userStr)) {
+      console.log(`[isAdmin] ✅ Bot number string match!`);
       return true;
     }
   }
 
+  console.log(`[isAdmin] ❌ No match found`);
   return false;
 }
 
@@ -480,7 +626,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
 
     // CHECK 2: Is bot owner a group admin? (Inheritance)
     if (botOwnerJid) {
-      const ownerPhone = normalizePhone(botOwnerJid);
+      const ownerPhone = getRealPhoneFromJid(botOwnerJid); // Use mapped phone
 
       if (ownerPhone) {
         let ownerParticipant = null;
@@ -529,7 +675,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
   try {
     if (!sock || !groupJid || !userJid) return false;
 
-    const userPhone = normalizePhone(userJid);
+    const userPhone = getRealPhoneFromJid(userJid); // Use mapped phone
     if (!userPhone) return false;
 
     const cacheKey = `user_admin_${groupJid}_${userPhone}`;
@@ -544,7 +690,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
 
     // Bot owner always has admin privileges everywhere
     if (botOwnerJid) {
-      const ownerPhone = normalizePhone(botOwnerJid);
+      const ownerPhone = getRealPhoneFromJid(botOwnerJid);
       if (ownerPhone && (userPhone === ownerPhone || userPhone.includes(ownerPhone) || ownerPhone.includes(userPhone))) {
         adminStatusCache.set(cacheKey, {
           isAdmin: true,
@@ -588,7 +734,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
 }
 
 // ============================================================
-//   CLEAR ADMIN CACHE FOR A GROUP
+//   CLEAR ADMIN CACHE
 // ============================================================
 export function clearAdminCache(groupJid) {
   for (const key of adminStatusCache.keys()) {
@@ -1612,8 +1758,10 @@ async function clearSessionAuth(sessionId) {
 }
 
 // ============================================================
-//   START SESSION WITH LOCK
+//   START SESSION WITH LOCK - COMPLETE FIXED VERSION
+//   WITH OWNER TEMP ID MAPPING
 // ============================================================
+
 async function startSession(sessionId, isNew = true) {
   if (sessionCreationLocks.has(sessionId)) {
     return sessionCreationLocks.get(sessionId);
@@ -1751,6 +1899,30 @@ async function _startSocket(session) {
         session.botNumber = botNumber;
         session.botName = userName || botNumber;
 
+        // ====== OWNER TEMP ID MAPPING - CRITICAL FIX ======
+        // Get owner phone from ENV
+        const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
+
+        if (ownerPhoneFromEnv) {
+          const ownerClean = normalizePhone(ownerPhoneFromEnv);
+          console.log(`[${sid}] 👑 Owner phone in ENV: ${ownerClean}`);
+
+          // Store owner info in session if not already set
+          if (!session.ownerPhone) {
+            setSessionOwner(
+              session,
+              `${ownerClean}@s.whatsapp.net`,
+              ownerClean,
+              userName || "Owner",
+            );
+          }
+
+          // Pre-register that the owner's real number is known
+          // This helps with temp ID detection later
+          console.log(`[${sid}] 📝 Owner registered: +${ownerClean}`);
+        }
+        // ====== END OWNER TEMP ID MAPPING ======
+
         if (!session.ownerPhone) {
           setSessionOwner(
             session,
@@ -1817,10 +1989,66 @@ async function _startSocket(session) {
     });
 
     sock.ev.on("creds.update", saveCreds);
+
+    // ====== ADD MESSAGE LISTENER FOR TEMP ID MAPPING ======
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify" && type !== "append") return;
+      const msg = messages[0];
+      if (!msg?.message) return;
+
+      // Auto-map owner's temp ID when they send a message
+      const senderJid = msg.key?.participant || msg.key?.remoteJid;
+      const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
+
+      if (ownerPhoneFromEnv && senderJid && !session.destroyed) {
+        // Import the mapping function
+        const { autoMapOwnerTempId } = await import("../index.js");
+        const wasMapped = autoMapOwnerTempId(senderJid, ownerPhoneFromEnv);
+        if (wasMapped) {
+          log.ok(`[${sid}] ✅ Mapped owner's temp ID: ${senderJid} → ${ownerPhoneFromEnv}`);
+        }
+      }
+    });
+    // ====== END MESSAGE LISTENER ======
+
   } catch (e) {
     log.err(`[${sid}] Socket startup error: ${e.message}`);
     if (!session.destroyed) setTimeout(() => _startSocket(session), 10000);
   }
+}
+
+// ============================================================
+//   SET SESSION OWNER WITH PROPER JID FORMATTING
+// ============================================================
+
+function setSessionOwner(session, jid, phone, name = "Owner") {
+  const cleanPhone = normalizePhone(phone);
+  const cleanJid = `${cleanPhone}@s.whatsapp.net`;
+  const cleanName = name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
+
+  session.ownerJid = cleanJid;
+  session.ownerPhone = cleanPhone;
+  session.ownerName = cleanName;
+
+  if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
+
+  sessionMetaCollection
+    ?.updateOne(
+      { sessionId: session.id },
+      {
+        $set: {
+          ownerPhone: cleanPhone,
+          ownerName: cleanName,
+          botNumber: session.botNumber,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    )
+    .catch(() => {});
+
+  trackUser(session).catch(() => {});
+  log.ok(`[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`);
 }
 
 // ============================================================

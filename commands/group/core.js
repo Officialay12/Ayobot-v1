@@ -1,20 +1,14 @@
 // commands/group/core.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Group Core Commands — FIXED
+//  Group Core Commands — FULLY FIXED with TEMP ID support
 //  Author: AYOCODES
-//
-//  ROOT CAUSE FIX:
-//  Previous version imported isBotGroupAdminCached from validators.js but
-//  validators.js itself imported ADMIN_CACHE_TTL from index.js which was
-//  never exported — chain failure killing this module too.
-//  With validators.js now fixed (ADMIN_CACHE_TTL defined locally), this
-//  file loads correctly. Unused import removed for cleanliness.
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
   getGroupMetadataCached,
   normalizeNum,
   isBotGroupAdminCached,
+  isGroupAdminCached,
 } from "../../utils/validators.js";
 
 import {
@@ -22,6 +16,8 @@ import {
   formatInfo,
   formatSuccess,
 } from "../../utils/formatters.js";
+
+import { ENV } from "../../index.js";
 
 // ============================================================================
 //  HELPERS
@@ -35,23 +31,11 @@ function phone(jid) {
     .replace(/[^0-9]/g, "");
 }
 
-// If isAdminFlag = true → bot owner → return true immediately
-// Otherwise check participant list with proper normalization
 async function isUserAdmin(sock, groupJid, userJid, isAdminFlag = false) {
   if (isAdminFlag === true) return true;
 
   try {
-    const metadata = await getGroupMetadataCached(groupJid, sock);
-    if (!metadata?.participants) return false;
-
-    const userNum = normalizeNum(userJid);
-    const participant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === userNum,
-    );
-
-    return (
-      participant?.admin === "admin" || participant?.admin === "superadmin"
-    );
+    return await isGroupAdminCached(groupJid, userJid, sock);
   } catch (error) {
     console.error(`[core.js] Error checking admin:`, error.message);
     return false;
@@ -95,34 +79,25 @@ export async function kick({ args, message, from, userJid, sock, isAdmin }) {
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "You need to be a group admin or bot owner to use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "You need to be a group admin or bot owner to use this command."),
       });
     }
 
     const botIsAdmin = await isBotAdmin(sock, from);
     if (!botIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "BOT NOT ADMIN",
-          "I need to be a *group admin* to kick members.\n\n" +
-            "1. Open Group Info → Participants\n" +
-            "2. Find the bot and tap 'Make Group Admin'\n" +
-            "3. Run .refreshadmin",
-        ),
+        text: formatError("BOT NOT ADMIN",
+        "I need to be a *group admin* to kick members.\n\n" +
+        "1. Open Group Info → Participants\n" +
+        "2. Find the bot and tap 'Make Group Admin'\n" +
+        `3. Run ${ENV.PREFIX}refreshadmin`),
       });
     }
 
     const targetJid = getTargetJid(message, args);
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "KICK",
-          "📌 *Usage:* .kick @user\n" +
-            "📌 Or reply to a user's message with .kick",
-        ),
+        text: formatInfo("KICK", "📌 *Usage:* .kick @user\n📌 Or reply to a user's message with .kick"),
       });
     }
 
@@ -140,10 +115,7 @@ export async function kick({ args, message, from, userJid, sock, isAdmin }) {
     await sock.groupParticipantsUpdate(from, [targetJid], "remove");
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "✅ MEMBER KICKED",
-        `👤 *User:* @${targetNum}\n👑 *By:* @${userNum}`,
-      ),
+      text: formatSuccess("✅ MEMBER KICKED", `👤 *User:* @${targetNum}\n👑 *By:* @${userNum}`),
       mentions: [targetJid, userJid],
     });
   } catch (error) {
@@ -168,19 +140,13 @@ export async function add({ args, from, userJid, sock, isAdmin }) {
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "Only group admins or bot owner can use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "Only group admins or bot owner can use this command."),
       });
     }
 
     if (!args.length) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "ADD",
-          "📌 *Usage:* .add <phone>\nExample: .add 2348123456789",
-        ),
+        text: formatInfo("ADD", "📌 *Usage:* .add <phone>\nExample: .add 2348123456789"),
       });
     }
 
@@ -195,10 +161,7 @@ export async function add({ args, from, userJid, sock, isAdmin }) {
     await sock.groupParticipantsUpdate(from, [targetJid], "add");
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "✅ MEMBER ADDED",
-        `👤 *User:* @${targetPhone}\n👑 *By:* @${phone(userJid)}`,
-      ),
+      text: formatSuccess("✅ MEMBER ADDED", `👤 *User:* @${targetPhone}\n👑 *By:* @${phone(userJid)}`),
       mentions: [targetJid, userJid],
     });
   } catch (error) {
@@ -223,31 +186,21 @@ export async function promote({ args, message, from, userJid, sock, isAdmin }) {
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "Only group admins or bot owner can use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "Only group admins or bot owner can use this command."),
       });
     }
 
     const botIsAdmin = await isBotAdmin(sock, from);
     if (!botIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "BOT NOT ADMIN",
-          "I need to be a *group admin* to promote members.",
-        ),
+        text: formatError("BOT NOT ADMIN", "I need to be a *group admin* to promote members."),
       });
     }
 
     const targetJid = getTargetJid(message, args);
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "PROMOTE",
-          "📌 *Usage:* .promote @user\n" +
-            "📌 Or reply to a user's message with .promote",
-        ),
+        text: formatInfo("PROMOTE", "📌 *Usage:* .promote @user\n📌 Or reply to a user's message with .promote"),
       });
     }
 
@@ -261,10 +214,7 @@ export async function promote({ args, message, from, userJid, sock, isAdmin }) {
     await sock.groupParticipantsUpdate(from, [targetJid], "promote");
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "⭐ USER PROMOTED",
-        `👤 *User:* @${targetNum}\n👑 *By:* @${phone(userJid)}\n🎉 *New admin!*`,
-      ),
+      text: formatSuccess("⭐ USER PROMOTED", `👤 *User:* @${targetNum}\n👑 *By:* @${phone(userJid)}\n🎉 *New admin!*`),
       mentions: [targetJid, userJid],
     });
   } catch (error) {
@@ -289,31 +239,21 @@ export async function demote({ args, message, from, userJid, sock, isAdmin }) {
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "Only group admins or bot owner can use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "Only group admins or bot owner can use this command."),
       });
     }
 
     const botIsAdmin = await isBotAdmin(sock, from);
     if (!botIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "BOT NOT ADMIN",
-          "I need to be a *group admin* to demote members.",
-        ),
+        text: formatError("BOT NOT ADMIN", "I need to be a *group admin* to demote members."),
       });
     }
 
     const targetJid = getTargetJid(message, args);
     if (!targetJid) {
       return sock.sendMessage(from, {
-        text: formatInfo(
-          "DEMOTE",
-          "📌 *Usage:* .demote @user\n" +
-            "📌 Or reply to a user's message with .demote",
-        ),
+        text: formatInfo("DEMOTE", "📌 *Usage:* .demote @user\n📌 Or reply to a user's message with .demote"),
       });
     }
 
@@ -331,10 +271,7 @@ export async function demote({ args, message, from, userJid, sock, isAdmin }) {
     await sock.groupParticipantsUpdate(from, [targetJid], "demote");
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "⬇️ USER DEMOTED",
-        `👤 *User:* @${targetNum}\n👑 *By:* @${userNum}`,
-      ),
+      text: formatSuccess("⬇️ USER DEMOTED", `👤 *User:* @${targetNum}\n👑 *By:* @${userNum}`),
       mentions: [targetJid, userJid],
     });
   } catch (error) {
@@ -361,9 +298,7 @@ export async function admins({ from, sock }) {
       return sock.sendMessage(from, { text: "❌ Could not fetch group info." });
     }
 
-    const adminList = metadata.participants.filter(
-      (p) => p.admin === "admin" || p.admin === "superadmin",
-    );
+    const adminList = metadata.participants.filter((p) => p.admin === "admin" || p.admin === "superadmin");
 
     if (adminList.length === 0) {
       return sock.sendMessage(from, { text: "👑 *No admins found*" });
@@ -397,15 +332,7 @@ export async function admins({ from, sock }) {
 // ============================================================================
 //  TAG ALL
 // ============================================================================
-export async function tagall({
-  args,
-  fullArgs,
-  message,
-  from,
-  userJid,
-  sock,
-  isAdmin,
-}) {
+export async function tagall({ args, fullArgs, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -416,10 +343,7 @@ export async function tagall({
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "Only group admins or bot owner can use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "Only group admins or bot owner can use this command."),
       });
     }
 
@@ -489,14 +413,7 @@ export async function tagall({
 // ============================================================================
 //  HIDE TAG
 // ============================================================================
-export async function hidetag({
-  fullArgs,
-  message,
-  from,
-  userJid,
-  sock,
-  isAdmin,
-}) {
+export async function hidetag({ fullArgs, message, from, userJid, sock, isAdmin }) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -507,10 +424,7 @@ export async function hidetag({
     const userIsAdmin = await isUserAdmin(sock, from, userJid, isAdmin);
     if (!userIsAdmin) {
       return sock.sendMessage(from, {
-        text: formatError(
-          "PERMISSION DENIED",
-          "Only group admins or bot owner can use this command.",
-        ),
+        text: formatError("PERMISSION DENIED", "Only group admins or bot owner can use this command."),
       });
     }
 
@@ -595,7 +509,7 @@ export async function testAdmin({ from, sock, userJid, isAdmin, isGroup }) {
         `1. Open group info → Participants\n` +
         `2. Find +${botNum}\n` +
         `3. Tap "Make Group Admin"\n` +
-        `4. Run .refreshadmin\n`;
+        `4. Run ${ENV.PREFIX}refreshadmin\n`;
     }
 
     text += `\n━━━━━━━━━━━━━━━━━━━━━\n⚡ AYOBOT v1 | 👑 AYOCODES`;
@@ -620,17 +534,14 @@ export async function refreshAdmin({ from, sock, isGroup }) {
       });
     }
 
-    // Force fresh metadata fetch
     await getGroupMetadataCached(from, sock, true);
 
     await sock.sendMessage(from, {
-      text: formatSuccess(
-        "✅ ADMIN CACHE REFRESHED",
+      text: formatSuccess("✅ ADMIN CACHE REFRESHED",
         "Admin status cache has been cleared.\n\n" +
-          "If you recently made the bot a group admin,\n" +
-          "the new status should now be detected.\n\n" +
-          "Run .testadmin to verify.",
-      ),
+        "If you recently made the bot a group admin,\n" +
+        "the new status should now be detected.\n\n" +
+        `Run ${ENV.PREFIX}testadmin to verify.`),
     });
   } catch (error) {
     console.error("RefreshAdmin error:", error);
