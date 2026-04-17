@@ -28,7 +28,6 @@ import makeWASocket, {
   proto,
 } from "@whiskeysockets/baileys";
 import { BufferJSON } from "@whiskeysockets/baileys/lib/Utils/generics.js";
-import { autoMapOwnerTempId, registerTempIdMapping, getRealPhoneFromJid } from "../index.js";
 import bodyParser from "body-parser";
 import compression from "compression";
 import cookieParser from "cookie-parser";
