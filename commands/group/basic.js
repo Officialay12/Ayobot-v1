@@ -2316,7 +2316,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     });
   }
 }
-// Add this at the VERY BOTTOM of basic.js, replacing whatever is there:
+
 
 export async function start({ from, sock }) {
   await sock.sendMessage(from, { text: "🚀 AYOBOT Started! Type .menu for commands" });
@@ -2336,6 +2336,6 @@ export default {
   menu, ping, status, creator, creatorGit, auto, connectInfo, prefixinfo,
   test, start, time, weather, getip, ip, myip, whois, dns, url, fetch,
   scrape, screenshot, inspect, shorten, viewOnce, ok, dm, tome, senddm,
-  privatemedia, savetodm, sendtome, take, imgbb, qencode, pdf, getpp,
+  privatemedia, savetodm, sendtome, imgbb, qencode, pdf, getpp,
   getgpp, jarvis, joinWaitlist, activate, deactivate, antilink,
 };

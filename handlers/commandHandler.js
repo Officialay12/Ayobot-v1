@@ -5,13 +5,10 @@
 //
 //  ROOT CAUSES FIXED:
 //  1. ✅ safeImport now uses relative specifiers (not file:// URLs) → named exports work
-//  2. ✅ ENV.PREFIX syntax error fixed (was: "." "!" " " "," — multiple strings)
-//  3. ✅ .take command now has a real stub so basic.js default export doesn't crash
-//  4. ✅ jokes/quotes/notes/admin/automation/downloader all use guarded accessors
-//  5. ✅ Bot-owner = group admin: enforced via hasGroupAdminPermission + isBotGroupAdmin
-//  6. ✅ No duplicate .antilink registration (basic.js vs settings.js conflict resolved)
-//  7. ✅ ACTIVATION_EXEMPT covers all .ok aliases
-//  8. ✅ All safeRegister calls check function existence before registering
+//  2. ✅ ENV.PREFIX syntax error fixed
+//  3. ✅ Bot-owner = group admin: enforced via hasGroupAdminPermission + isBotGroupAdmin
+//  4. ✅ All .ok aliases registered properly
+//  5. ✅ All safeRegister calls check function existence before registering
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -64,7 +61,7 @@ const cmdLog = {
 // ============================================================================
 if (!ENV.PREFIX) {
   cmdLog.warn("PREFIX not set, using default: .");
-  ENV.PREFIX = ".";  // ✅ FIXED: was `"." "!" " " ","` — syntax error
+  ENV.PREFIX = ".";
 }
 
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
@@ -200,33 +197,19 @@ function sanitizeInput(input) {
 }
 
 // ============================================================================
-//  MODULE LOADER
-//
-//  ROOT FIX: Use relative specifiers that Node.js ESM can resolve via
-//  package.json "type": "module". We import by relative path from THIS file
-//  (handlers/commandHandler.js → ../commands/group/basic.js etc.)
-//  This preserves named exports correctly, unlike `file://` absolute URLs
-//  which can bypass the module cache and break re-exported bindings.
+//  MODULE LOADER — USING RELATIVE PATHS THAT WORK ON RENDER
 // ============================================================================
 
 const MODULES = {};
 
-/**
- * Safe dynamic import that:
- * 1. Uses the specifier directly (relative path string)
- * 2. Merges named exports + default export for easy fn lookup
- * 3. Never throws — always returns {} on failure
- */
 async function safeImport(moduleName, specifier) {
   try {
     const mod = await import(specifier);
 
-    // Collect all named exports that are functions
     const namedFns = Object.fromEntries(
       Object.entries(mod).filter(([, v]) => typeof v === "function")
     );
 
-    // Collect default-exported functions
     const defaultFns =
       mod.default && typeof mod.default === "object"
         ? Object.fromEntries(
@@ -242,7 +225,6 @@ async function safeImport(moduleName, specifier) {
       cmdLog.ok(`${moduleName.padEnd(16)} ➜ ${total} functions`);
     }
 
-    // Named exports take priority over default exports (for re-exports like `export const ok = viewOnceToDM`)
     return { ...defaultFns, ...namedFns, __raw: mod };
   } catch (error) {
     cmdLog.err(`❌ ${moduleName.padEnd(16)} ➜ FAILED: ${error.message}`);
@@ -254,7 +236,6 @@ async function loadAllModules() {
   cmdLog.title("📦 LOADING COMMAND MODULES");
   cmdLog.div();
 
-  // All paths are relative to THIS file (handlers/commandHandler.js)
   const moduleMap = {
     basic:        "../commands/group/basic.js",
     admin:        "../commands/group/admin.js",
@@ -344,7 +325,6 @@ export function registerCommand(primaryName, handler, options = {}) {
   return true;
 }
 
-/** Register only if handler is a valid function — silent skip otherwise */
 export function safeRegister(primaryName, handler, options = {}) {
   if (typeof handler !== "function") return false;
   try {
@@ -355,7 +335,6 @@ export function safeRegister(primaryName, handler, options = {}) {
   }
 }
 
-/** Convenience: get fn from module by trying multiple key names */
 function fn(mod, ...keys) {
   for (const key of keys) {
     if (mod && typeof mod[key] === "function") return mod[key];
@@ -375,7 +354,6 @@ export function registerAllCommands() {
   // ── BASIC.JS ──────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
-  // Helper: register from basic and count
   const rb = (name, key, opts) => {
     const f = fn(b, key, name);
     if (safeRegister(name, f, opts)) count++;
@@ -413,11 +391,9 @@ export function registerAllCommands() {
   rb("imgbb",      "imgbb",       { category: "media",  aliases: ["upload", "imageupload"] });
   rb("activate",   "activate",    { category: "group",  groupOnly: true, adminOnly: true });
   rb("deactivate", "deactivate",  { category: "group",  groupOnly: true, adminOnly: true });
-  // ✅ antilink from basic.js — later, settings.js antiLink (if present) will overwrite; that's fine
   rb("antilink",   "antilink",    { category: "group",  groupOnly: true, aliases: ["nolink", "blocklinks"] });
 
-  // ✅ CRITICAL FIX: .ok command — basic.js exports `ok` as a named export AND in default
-  //    We try every known name it could be exported under
+  // ✅ .ok command with all aliases
   {
     const okFn = fn(b, "ok", "viewOnceToDM", "dm", "tome", "senddm", "privatemedia", "savetodm", "sendtome");
     if (okFn) {
@@ -426,24 +402,11 @@ export function registerAllCommands() {
         aliases: ["dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome"],
       });
       count++;
-      cmdLog.success("✅ .ok command registered");
+      cmdLog.success("✅ .ok command registered with aliases: dm, tome, senddm, push, privatemedia, savetodm, sendtome");
     } else {
       cmdLog.err("❌ CRITICAL: .ok not found in basic.js — check export");
     }
   }
-
-  // ✅ .take command — may not exist in current basic.js; graceful skip
-  {
-    const takeFn = fn(b, "take", "takesticker", "steal");
-    if (takeFn) {
-      safeRegister("take", takeFn, { category: "media", aliases: ["takesticker", "steal", "savesticker"] });
-      count++;
-    } else {
-      cmdLog.warn("⚠️  .take not found in basic.js — skipping (add export async function take(){} if needed)");
-    }
-  }
-
-  cmdLog.ok(`Basic: ${count} commands so far`);
 
   // ── TTS.JS ────────────────────────────────────────────────────────────────
   {
@@ -464,7 +427,6 @@ export function registerAllCommands() {
   // ── JOKES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.jokes;
-    // ✅ jokes.js may export: joke, roast, pickupLine OR pickupline OR pickup
     if (safeRegister("joke",   fn(m, "joke", "getJoke", "randomJoke"),      { category: "fun", aliases: ["laugh", "funny"] })) count++;
     if (safeRegister("roast",  fn(m, "roast", "burnUser"),                   { category: "fun", aliases: ["burn", "insult"] })) count++;
     if (safeRegister("pickup", fn(m, "pickupLine", "pickupline", "pickup"), { category: "fun", aliases: ["flirt", "pickupline"] })) count++;
@@ -473,7 +435,6 @@ export function registerAllCommands() {
   // ── QUOTES.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.quotes;
-    // ✅ quotes.js may export: quote, getQuote, randomQuote, motivation
     if (safeRegister("quote", fn(m, "quote", "getQuote", "randomQuote", "motivation"), { category: "fun", aliases: ["motivation", "inspire"] })) count++;
   }
 
@@ -492,7 +453,6 @@ export function registerAllCommands() {
   // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.downloader;
-    // ✅ downloader.js may export functions under many names — try all variants
     if (safeRegister("youtube",   fn(m, "youtube", "yt", "ytdl"),        { category: "dl", aliases: ["yt", "ytdl", "ytmp3"] })) count++;
     if (safeRegister("tiktok",    fn(m, "tiktok", "tt", "tiktokdl"),     { category: "dl", aliases: ["tt", "tok", "tiktokdl"] })) count++;
     if (safeRegister("spotify",   fn(m, "spotify", "sp"),                { category: "dl", aliases: ["sp", "spotifydl"] })) count++;
@@ -508,7 +468,6 @@ export function registerAllCommands() {
   // ── MUSIC.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.music;
-    // ✅ play comes ONLY from music.js
     if (safeRegister("play",        fn(m, "musicDownload", "play", "playMusic", "download"), { category: "music", aliases: ["mp3", "music", "song"] })) count++;
     if (safeRegister("lyrics",      fn(m, "musicLyrics", "lyrics", "getLyrics"),             { category: "music", aliases: ["lyric", "songlyrics"] })) count++;
     if (safeRegister("trending",    fn(m, "musicTrending", "trending", "charts"),            { category: "music", aliases: ["chart", "topsongs"] })) count++;
@@ -539,7 +498,6 @@ export function registerAllCommands() {
   // ── ADMIN.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.admin;
-    // ✅ admin.js may export under many names — try all variants
     if (safeRegister("mode",            fn(m, "mode", "setMode", "botMode"),                    { category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] })) count++;
     if (safeRegister("adduser",         fn(m, "addUser", "adduser", "authorize"),               { category: "admin", adminOnly: true, aliases: ["auth", "authorize"] })) count++;
     if (safeRegister("removeuser",      fn(m, "removeUser", "removeuser", "deauthorize"),       { category: "admin", adminOnly: true, aliases: ["deauth"] })) count++;
@@ -549,7 +507,7 @@ export function registerAllCommands() {
     if (safeRegister("stats",           fn(m, "stats", "botStats", "botstats"),                 { category: "admin", adminOnly: true, aliases: ["botstats", "usage"] })) count++;
     if (safeRegister("botstatus",       fn(m, "botStatus", "botstatus", "fullStatus"),          { category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] })) count++;
     if (safeRegister("superban",        fn(m, "superBan", "superban", "globalBan"),             { category: "admin", adminOnly: true, aliases: ["globalban", "permban"] })) count++;
-    if (safeRegister("superunban",      fn(m, "unban", "superUnban", "globalUnban"),            { category: "admin", adminOnly: true, aliases: ["globalunban"] })) count++;
+    if (safeRegister("superunban",      fn(m, "unban", "superUnBan", "globalUnban"),            { category: "admin", adminOnly: true, aliases: ["globalunban"] })) count++;
     if (safeRegister("listglobalbanned",fn(m, "listBanned", "listbanned"),                      { category: "admin", adminOnly: true, aliases: ["globalbannedlist"] })) count++;
     if (safeRegister("clearbans",       fn(m, "clearBans", "clearbans"),                        { category: "admin", adminOnly: true, aliases: ["resetbans"] })) count++;
     if (safeRegister("restart",         fn(m, "restart", "reboot"),                             { category: "admin", adminOnly: true, aliases: ["reboot"] })) count++;
@@ -589,14 +547,6 @@ export function registerAllCommands() {
     if (safeRegister("unmute",       fn(m, "unmute"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup"] })) count++;
     if (safeRegister("lock",         fn(m, "lock"),                      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] })) count++;
     if (safeRegister("unlock",       fn(m, "unlock"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] })) count++;
-    // antilink from settings.js overrides basic.js version (settings version is more feature-complete)
-    {
-      const alFn = fn(m, "antiLink", "antilink", "antiLink");
-      if (alFn) {
-        registerCommand("antilink", alFn, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nolink", "blocklinks"] });
-        count++;
-      }
-    }
     if (safeRegister("antispam",     fn(m, "antiSpam", "antispam"),      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam"] })) count++;
     if (safeRegister("welcome",      fn(m, "welcomeToggle", "welcome"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] })) count++;
     if (safeRegister("setwelcome",   fn(m, "setWelcome", "setwelcome"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] })) count++;
@@ -629,7 +579,6 @@ export function registerAllCommands() {
   // ── NOTES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.notes;
-    // ✅ notes.js may export: note, getnote, notes, deleteKey, delnote, removeNote
     if (safeRegister("note",    fn(m, "note", "saveNote"),                          { category: "storage", aliases: ["savenote", "remember"] })) count++;
     if (safeRegister("getnote", fn(m, "getnote", "getNote", "recall"),              { category: "storage", aliases: ["recall", "readnote"] })) count++;
     if (safeRegister("notes",   fn(m, "notes", "listNotes", "mynotes"),             { category: "storage", aliases: ["mynotes", "listnotes"] })) count++;
@@ -682,7 +631,6 @@ export function registerAllCommands() {
   // ── MOVIES.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.movies;
-    // movie may already be registered from news, safeRegister silently skips dups
     if (safeRegister("movie",  fn(m, "movie", "movies"), { category: "info", aliases: ["film"] })) count++;
     if (safeRegister("series", fn(m, "series", "tvshow"),{ category: "info", aliases: ["tvshow"] })) count++;
   }
@@ -720,33 +668,15 @@ registerAllCommands();
 
 // ============================================================================
 //  BOT-OWNER IS GROUP ADMIN — ENFORCEMENT
-//
-//  When a group command requires bot admin rights, we check:
-//    1. Is the bot literally a group admin?   → OK
-//    2. Is the bot owner a group admin?        → Treat as OK (inherited)
-//    3. Neither                                → Deny with helpful message
-//
-//  This is already implemented in index.js isBotGroupAdmin().
-//  Here we add a runtime guard that automatically promotes owner-inherited
-//  admin rights so no command ever wrongly denies the bot owner.
 // ============================================================================
 
-/**
- * Resolves whether the bot effectively has admin rights in a group,
- * factoring in bot-owner membership as admin (inherited authority).
- *
- * Uses index.js isBotGroupAdmin() which already implements the
- * "owner is group admin → bot inherits rights" logic.
- */
 async function resolveEffectiveBotAdmin(sock, groupJid, ownerPhone) {
   const ownerJid = ownerPhone ? `${normalizePhone(ownerPhone)}@s.whatsapp.net` : null;
 
-  // First try with cache
   let isAdmin = await isBotGroupAdmin(sock, groupJid, ownerJid);
 
-  // If denied, force-refresh cache and retry once
   if (!isAdmin) {
-    isAdmin = await isBotGroupAdmin(sock, groupJid, ownerJid, true /* bypassCache */);
+    isAdmin = await isBotGroupAdmin(sock, groupJid, ownerJid, true);
   }
 
   return isAdmin;
@@ -754,7 +684,6 @@ async function resolveEffectiveBotAdmin(sock, groupJid, ownerPhone) {
 
 // ============================================================================
 //  ACTIVATION EXEMPT COMMANDS
-//  (these work even in groups that haven't run .activate)
 // ============================================================================
 const ACTIVATION_EXEMPT = new Set([
   "activate", "deactivate",
@@ -918,7 +847,6 @@ export async function handleCommand(message, sock) {
     }
 
     if (commandMeta.requireBotAdmin && isGroup) {
-      // ✅ KEY FIX: uses resolveEffectiveBotAdmin which factors in owner-inherited rights
       const botIsAdmin = await resolveEffectiveBotAdmin(sock, from, ownerPhone);
       if (!botIsAdmin) {
         return sock.sendMessage(from, {
