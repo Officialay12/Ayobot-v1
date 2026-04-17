@@ -443,9 +443,9 @@ function getModuleFunction(module, functionName, fallbackName = null) {
   }
   return null;
 }
-// ============================================================================
+/// ============================================================================
 //  COMMAND REGISTRATION — COMPLETE FIXED VERSION
-//  Only registers commands that actually exist in loaded modules
+//  No fallback chains — uses exact export names only
 // ============================================================================
 
 export function registerAllCommands() {
@@ -473,7 +473,7 @@ export function registerAllCommands() {
       { fn: b.start, name: "start", category: "core", aliases: ["open", "init", "begin", "connectdm", "dmopen"] },
       { fn: b.time, name: "time", category: "info", aliases: ["worldtime", "timezone", "clock"] },
       { fn: b.weather, name: "weather", category: "info", aliases: ["w", "forecast", "temp"] },
-      { fn: b.getip || b.ip, name: "ip", category: "web", aliases: ["getip", "iplookup", "ipinfo"] },
+      { fn: b.ip || b.getip, name: "ip", category: "web", aliases: ["getip", "iplookup", "ipinfo"] },
       { fn: b.myip, name: "myip", category: "web", aliases: ["myipaddr", "publicip", "whatismyip"] },
       { fn: b.whois, name: "whois", category: "web", aliases: ["domain", "domaininfo"] },
       { fn: b.dns, name: "dns", category: "web", aliases: ["dnslookup", "nslookup", "dig"] },
@@ -484,7 +484,8 @@ export function registerAllCommands() {
       { fn: b.inspect, name: "inspect", category: "web", aliases: ["pageinspect", "analyze"] },
       { fn: b.shorten, name: "shorten", category: "web", aliases: ["short", "tinyurl", "bitly"] },
       { fn: b.viewOnce, name: "vv", category: "media", aliases: ["viewonce", "open", "reveal"] },
-      { fn: b.viewOnceToDM || b.ok, name: "ok", category: "media", aliases: ["dm", "tome", "senddm", "push", "privatemedia"] },
+      // ✅ FIXED: Use b.ok directly (exported from basic.js)
+      { fn: b.ok, name: "ok", category: "media", aliases: ["dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome"] },
       { fn: b.take, name: "take", category: "media", aliases: ["takesticker", "steal", "savesticker"] },
       { fn: b.imgbb, name: "imgbb", category: "media", aliases: ["upload", "imageupload"] },
       { fn: b.qencode, name: "qr", category: "tools", aliases: ["qrcode", "makeqr"] },
@@ -508,428 +509,708 @@ export function registerAllCommands() {
           adminOnly: cmd.adminOnly || false,
         });
         registeredCount++;
+      } else if (cmd.name === "ok") {
+        cmdLog.err(`❌ CRITICAL: .ok command not found in basic.js!`);
+        cmdLog.err(`   Make sure basic.js exports: export const ok = viewOnceToDM;`);
       }
     }
-    cmdLog.ok(`✅ Basic: loaded ${basicCommands.filter(c => c.fn).length} commands`);
+    cmdLog.ok(`✅ Basic: loaded ${basicCommands.filter(c => c.fn && typeof c.fn === "function").length} commands`);
   } else {
     cmdLog.err("❌ BASIC module failed to load - critical!");
     failedModules.push("basic");
   }
 
-  // ==================== DOWNLOADER.JS ====================
-  const dl = MODULES.downloader;
-  if (dl && Object.keys(dl).length > 0) {
-    const dlCommands = [
-      { fn: dl.youtube, name: "youtube", category: "dl", aliases: ["yt", "ytdl", "ytmp3"] },
-      { fn: dl.tiktok, name: "tiktok", category: "dl", aliases: ["tt", "tok", "tiktokdl"] },
-      { fn: dl.spotify, name: "spotify", category: "dl", aliases: ["sp", "spotifydl"] },
-      { fn: dl.instagram, name: "instagram", category: "dl", aliases: ["ig", "insta", "igdl"] },
-      { fn: dl.facebook, name: "facebook", category: "dl", aliases: ["fb", "fbdl", "fbvideo"] },
-      { fn: dl.twitter, name: "twitter", category: "dl", aliases: ["x", "tweet", "xdl"] },
-      { fn: dl.gif, name: "gif", category: "dl", aliases: ["giphy", "tenor", "gifsearch"] },
-      { fn: dl.image, name: "img", category: "dl", aliases: ["image", "imgsearch", "pics"] },
-      { fn: dl.pinterest, name: "pinterest", category: "dl", aliases: ["pin", "pinsearch"] },
-      { fn: dl.download, name: "dl", category: "dl", aliases: ["download", "get"] },
-      { fn: dl.play, name: "play", category: "dl", aliases: ["mp3", "music", "song"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of dlCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          description: `${cmd.name} downloader`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Downloader: loaded ${loaded} commands`);
+  // ==================== TTS.JS ====================
+  const tts = MODULES.tts;
+  if (tts?.tts && typeof tts.tts === "function") {
+    safeRegister("tts", tts.tts, {
+      category: "media",
+      description: "Text to speech",
+      aliases: ["voice", "say", "speak"]
+    });
+    registeredCount++;
+    cmdLog.ok("✅ TTS: loaded");
   } else {
-    cmdLog.warn("⚠️ DOWNLOADER module not loaded");
-    failedModules.push("downloader");
-  }
-
-  // ==================== MUSIC.JS ====================
-  const music = MODULES.music;
-  if (music && Object.keys(music).length > 0) {
-    const musicCommands = [
-      { fn: music.musicLyrics, name: "lyrics", category: "music", aliases: ["lyric", "songlyrics"] },
-      { fn: music.musicTrending, name: "trending", category: "music", aliases: ["chart", "topsongs"] },
-      { fn: music.musicRandom, name: "random", category: "music", aliases: ["randomsong"] },
-      { fn: music.musicSearch, name: "musicsearch", category: "music", aliases: ["songsearch", "findmusic"] },
-      { fn: music.musicDownload, name: "play", category: "music", aliases: ["mp3", "music", "song"] },
-      { fn: music.musicArtist, name: "artist", category: "music", aliases: ["artistinfo", "singer"] },
-      { fn: music.musicAlbum, name: "album", category: "music", aliases: ["albuminfo"] },
-      { fn: music.music, name: "music", category: "music", aliases: ["musichub"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of musicCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Music: loaded ${loaded} commands`);
-  } else {
-    cmdLog.warn("⚠️ MUSIC module not loaded");
-    failedModules.push("music");
-  }
-
-  // ==================== ADMIN.JS ====================
-  const adm = MODULES.admin;
-  if (adm && Object.keys(adm).length > 0) {
-    const adminCommands = [
-      { fn: adm.mode, name: "mode", category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] },
-      { fn: adm.addUser, name: "adduser", category: "admin", adminOnly: true, aliases: ["auth", "authorize"] },
-      { fn: adm.removeUser, name: "removeuser", category: "admin", adminOnly: true, aliases: ["deauth", "unauthorize"] },
-      { fn: adm.listUsers, name: "listusers", category: "admin", adminOnly: true, aliases: ["users", "authlist"] },
-      { fn: adm.broadcast, name: "broadcast", category: "admin", adminOnly: true, aliases: ["bc", "announce"] },
-      { fn: adm.globalBroadcast, name: "globalbc", category: "admin", adminOnly: true, aliases: ["gbc", "globalbroadcast"] },
-      { fn: adm.stats, name: "stats", category: "admin", adminOnly: true, aliases: ["botstats", "usage"] },
-      { fn: adm.botStatus, name: "botstatus", category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] },
-      { fn: adm.superBan, name: "superban", category: "admin", adminOnly: true, aliases: ["globalban", "permban"] },
-      { fn: adm.unban, name: "superunban", category: "admin", adminOnly: true, aliases: ["globalunban"] },
-      { fn: adm.listBanned, name: "listglobalbanned", category: "admin", adminOnly: true, aliases: ["globalbannedlist"] },
-      { fn: adm.clearBans, name: "clearbans", category: "admin", adminOnly: true, aliases: ["resetbans"] },
-      { fn: adm.restart, name: "restart", category: "admin", adminOnly: true, aliases: ["reboot", "restartbot"] },
-      { fn: adm.shutdown, name: "shutdown", category: "admin", adminOnly: true, aliases: ["stop", "botoff"] },
-      { fn: adm.adminEval, name: "eval", category: "admin", adminOnly: true, aliases: ["exec", "code", "run"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of adminCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          adminOnly: cmd.adminOnly,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Admin: loaded ${loaded} commands`);
-  } else {
-    cmdLog.warn("⚠️ ADMIN module not loaded");
-    failedModules.push("admin");
-  }
-
-  // ==================== GROUP CORE.JS ====================
-  const gc = MODULES.groupCore;
-  if (gc && Object.keys(gc).length > 0) {
-    const groupCoreCommands = [
-      { fn: gc.kick, name: "kick", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["remove", "kickmember"] },
-      { fn: gc.add, name: "add", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["invite", "addmember"] },
-      { fn: gc.promote, name: "promote", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["makeadmin"] },
-      { fn: gc.demote, name: "demote", category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["unadmin"] },
-      { fn: gc.admins, name: "admins", category: "group", groupOnly: true, aliases: ["listadmins", "adminlist"] },
-      { fn: gc.tagall, name: "tagall", category: "group", groupOnly: true, aliases: ["everyone", "all", "mentionall"] },
-      { fn: gc.hidetag, name: "hidetag", category: "group", groupOnly: true, aliases: ["htag", "silent", "silentping"] },
-      { fn: gc.testAdmin, name: "testadmin", category: "group", groupOnly: true, aliases: ["admintest", "checkadmin"] },
-      { fn: gc.refreshAdmin, name: "refreshadmin", category: "group", groupOnly: true, aliases: ["refresh", "clearcache"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of groupCoreCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          groupOnly: cmd.groupOnly,
-          requireGroupAdmin: cmd.requireGroupAdmin || false,
-          requireBotAdmin: cmd.requireBotAdmin || false,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Group Core: loaded ${loaded} commands`);
-  }
-
-  // ==================== GROUP MODERATION.JS ====================
-  const gm = MODULES.groupMod;
-  if (gm && Object.keys(gm).length > 0) {
-    const groupModCommands = [
-      { fn: gm.warn, name: "warn", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["warning", "warnuser"] },
-      { fn: gm.warnings, name: "warnings", category: "group", groupOnly: true, aliases: ["warnlist", "mywarnings"] },
-      { fn: gm.clearWarns, name: "clearwarns", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetwarns", "clearwarnings"] },
-      { fn: gm.ban, name: "ban", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["block", "banuser"] },
-      { fn: gm.unban, name: "unban", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unblock", "unbanuser"] },
-      { fn: gm.listBanned, name: "listbanned", category: "group", groupOnly: true, aliases: ["bannedlist"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of groupModCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          groupOnly: cmd.groupOnly,
-          requireGroupAdmin: cmd.requireGroupAdmin || false,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Group Moderation: loaded ${loaded} commands`);
-  }
-
-  // ==================== GROUP SETTINGS.JS ====================
-  const gs = MODULES.groupSettings;
-  if (gs && Object.keys(gs).length > 0) {
-    const groupSettingsCommands = [
-      { fn: gs.mute || gs.muteGroup, name: "mute", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockgroup", "muteall"] },
-      { fn: gs.unmute || gs.unmuteGroup, name: "unmute", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup", "unmuteall"] },
-      { fn: gs.lock || gs.lockGroup, name: "lock", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] },
-      { fn: gs.unlock || gs.unlockGroup, name: "unlock", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] },
-      { fn: gs.antiLink, name: "antilink", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nolink", "blocklinks"] },
-      { fn: gs.antiSpam, name: "antispam", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam", "blockspam"] },
-      { fn: gs.welcomeToggle, name: "welcome", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] },
-      { fn: gs.setWelcome, name: "setwelcome", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] },
-      { fn: gs.goodbyeToggle, name: "goodbye", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglegoodbye"] },
-      { fn: gs.setGoodbye, name: "setgoodbye", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgoodbyemsg"] },
-      { fn: gs.groupInfo, name: "groupinfo", category: "group", groupOnly: true, aliases: ["ginfo", "grouppanel"] },
-      { fn: gs.rules, name: "rules", category: "group", groupOnly: true, aliases: ["grules", "grouprules"] },
-      { fn: gs.setRules, name: "setrules", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgrules"] },
-      { fn: gs.link, name: "link", category: "group", groupOnly: true, aliases: ["grouplink", "invitelink"] },
-      { fn: gs.revoke, name: "revoke", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["revokelink", "resetlink"] },
-      { fn: gs.pin, name: "pin", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["pinmsg"] },
-      { fn: gs.unpin, name: "unpin", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unpinmsg"] },
-      { fn: gs.deleteMsg, name: "delete", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["delmsg", "deletemessage"] },
-      { fn: gs.settingsOverview, name: "settings", category: "group", groupOnly: true, aliases: ["groupsettings"] },
-      { fn: gs.resetSettings, name: "resetsettings", category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetgroupsettings"] },
-      { fn: gs.leave, name: "leave", category: "group", groupOnly: true, adminOnly: true, aliases: ["botleave", "exit"] },
-      { fn: gs.debug, name: "groupdebug", category: "group", groupOnly: true, aliases: ["gdebug", "groupdbg"] },
-      { fn: gs.showParticipants, name: "participants", category: "group", groupOnly: true, aliases: ["members", "memberlist"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of groupSettingsCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          groupOnly: cmd.groupOnly,
-          requireGroupAdmin: cmd.requireGroupAdmin || false,
-          adminOnly: cmd.adminOnly || false,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Group Settings: loaded ${loaded} commands`);
-  }
-
-  // ==================== AI.JS ====================
-  const ai = MODULES.ai;
-  if (ai && Object.keys(ai).length > 0) {
-    const aiCommands = [
-      { fn: ai.ai, name: "ayobot", category: "ai", aliases: ["chat", "bae", "aichat", "askai"] },
-      { fn: ai.aiClear, name: "aiclear", category: "ai", aliases: ["clearchat", "resetai"] },
-      { fn: ai.summarize, name: "summarize", category: "ai", aliases: ["summary", "tldr"] },
-      { fn: ai.grammar, name: "grammar", category: "ai", aliases: ["spellcheck", "proofread"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of aiCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ AI: loaded ${loaded} commands`);
-  }
-
-  // ==================== IMAGE TOOLS.JS ====================
-  const imgTools = MODULES.imageTools;
-  if (imgTools && Object.keys(imgTools).length > 0) {
-    const imgCommands = [
-      { fn: imgTools.sticker, name: "sticker", category: "media", aliases: ["s", "stk", "makesticker"] },
-      { fn: imgTools.toImage, name: "toimage", category: "media", aliases: ["toimg", "stickertoimage"] },
-      { fn: imgTools.toVideo, name: "tovideo", category: "media", aliases: ["tovid", "stickertovideo"] },
-      { fn: imgTools.toGif, name: "togif", category: "media", aliases: ["makegif", "videotogif"] },
-      { fn: imgTools.toAudio, name: "toaudio", category: "media", aliases: ["tomp3", "extractaudio"] },
-      { fn: imgTools.removeBg, name: "removebg", category: "media", aliases: ["nobg", "rmbg", "bgremove"] },
-      { fn: imgTools.meme, name: "meme", category: "media", aliases: ["makememe", "memegen"] },
-    ];
-
-    let loaded = 0;
-    for (const cmd of imgCommands) {
-      if (cmd.fn && typeof cmd.fn === "function") {
-        safeRegister(cmd.name, cmd.fn, {
-          category: cmd.category,
-          description: `${cmd.name} command`,
-          aliases: cmd.aliases,
-        });
-        loaded++;
-        registeredCount++;
-      }
-    }
-    cmdLog.ok(`✅ Image Tools: loaded ${loaded} commands`);
-  }
-
-  // ==================== JOKES.JS ====================
-  const jokes = MODULES.jokes;
-  if (jokes) {
-    if (jokes.joke) safeRegister("joke", jokes.joke, { category: "fun", aliases: ["laugh", "funny"] });
-    if (jokes.roast) safeRegister("roast", jokes.roast, { category: "fun", aliases: ["burn", "insult"] });
-    if (jokes.pickupLine) safeRegister("pickup", jokes.pickupLine, { category: "fun", aliases: ["flirt", "pickupline"] });
-    cmdLog.ok(`✅ Jokes: loaded`);
+    cmdLog.warn("⚠️ TTS module not loaded");
   }
 
   // ==================== GAMES.JS ====================
   const games = MODULES.games;
   if (games) {
-    if (games.rps) safeRegister("rps", games.rps, { category: "games", aliases: ["rockpaperscissors"] });
-    if (games.dice) safeRegister("dice", games.dice, { category: "games", aliases: ["roll", "rolldice"] });
-    if (games.coinFlip) safeRegister("flip", games.coinFlip, { category: "games", aliases: ["coin", "coinflip"] });
-    if (games.trivia) safeRegister("trivia", games.trivia, { category: "games", aliases: ["quiz"] });
-    cmdLog.ok(`✅ Games: loaded`);
+    let gamesLoaded = 0;
+    if (games.rps && typeof games.rps === "function") {
+      safeRegister("rps", games.rps, { category: "games", aliases: ["rockpaperscissors"] });
+      gamesLoaded++;
+    }
+    if (games.dice && typeof games.dice === "function") {
+      safeRegister("dice", games.dice, { category: "games", aliases: ["roll", "rolldice"] });
+      gamesLoaded++;
+    }
+    if (games.coinFlip && typeof games.coinFlip === "function") {
+      safeRegister("flip", games.coinFlip, { category: "games", aliases: ["coin", "coinflip"] });
+      gamesLoaded++;
+    }
+    if (games.trivia && typeof games.trivia === "function") {
+      safeRegister("trivia", games.trivia, { category: "games", aliases: ["quiz"] });
+      gamesLoaded++;
+    }
+    if (gamesLoaded > 0) {
+      registeredCount += gamesLoaded;
+      cmdLog.ok(`✅ Games: loaded ${gamesLoaded} commands`);
+    }
   }
 
   // ==================== QUOTES.JS ====================
   const quotes = MODULES.quotes;
-  if (quotes?.quote) {
+  if (quotes?.quote && typeof quotes.quote === "function") {
     safeRegister("quote", quotes.quote, { category: "fun", aliases: ["motivation", "inspire"] });
-    cmdLog.ok(`✅ Quotes: loaded`);
+    registeredCount++;
+    cmdLog.ok("✅ Quotes: loaded");
   }
 
-  // ==================== TTS.JS ====================
-  const tts = MODULES.tts;
-  if (tts?.tts) {
-    safeRegister("tts", tts.tts, { category: "media", aliases: ["voice", "say", "speak"] });
-    cmdLog.ok(`✅ TTS: loaded`);
+  // ==================== JOKES.JS ====================
+  const jokes = MODULES.jokes;
+  if (jokes) {
+    let jokesLoaded = 0;
+    if (jokes.joke && typeof jokes.joke === "function") {
+      safeRegister("joke", jokes.joke, { category: "fun", aliases: ["laugh", "funny"] });
+      jokesLoaded++;
+    }
+    if (jokes.roast && typeof jokes.roast === "function") {
+      safeRegister("roast", jokes.roast, { category: "fun", aliases: ["burn", "insult"] });
+      jokesLoaded++;
+    }
+    if (jokes.pickupLine && typeof jokes.pickupLine === "function") {
+      safeRegister("pickup", jokes.pickupLine, { category: "fun", aliases: ["flirt", "pickupline"] });
+      jokesLoaded++;
+    }
+    if (jokesLoaded > 0) {
+      registeredCount += jokesLoaded;
+      cmdLog.ok(`✅ Jokes: loaded ${jokesLoaded} commands`);
+    }
   }
 
   // ==================== CALCULATOR.JS ====================
   const calc = MODULES.calculator;
-  if (calc?.calculate) {
+  if (calc?.calculate && typeof calc.calculate === "function") {
     safeRegister("calc", calc.calculate, { category: "tools", aliases: ["math", "calculate"] });
-    cmdLog.ok(`✅ Calculator: loaded`);
+    registeredCount++;
+    cmdLog.ok("✅ Calculator: loaded");
   }
 
   // ==================== DICTIONARY.JS ====================
   const dict = MODULES.dictionary;
-  if (dict?.dict) {
+  if (dict?.dict && typeof dict.dict === "function") {
     safeRegister("dict", dict.dict, { category: "info", aliases: ["define", "meaning", "word"] });
-    cmdLog.ok(`✅ Dictionary: loaded`);
-  }
-
-  // ==================== NEWS.JS ====================
-  const news = MODULES.news;
-  if (news?.news) {
-    safeRegister("news", news.news, { category: "info", aliases: ["headlines", "latestnews"] });
-    cmdLog.ok(`✅ News: loaded`);
-  }
-
-  // ==================== MOVIES.JS ====================
-  const movies = MODULES.movies;
-  if (movies) {
-    if (movies.movie) safeRegister("movie", movies.movie, { category: "info", aliases: ["film", "imdb"] });
-    if (movies.tv) safeRegister("tv", movies.tv, { category: "info", aliases: ["series", "show"] });
-    cmdLog.ok(`✅ Movies: loaded`);
-  }
-
-  // ==================== CRYPTO.JS ====================
-  const crypto = MODULES.crypto;
-  if (crypto) {
-    if (crypto.crypto) safeRegister("crypto", crypto.crypto, { category: "info", aliases: ["coin", "btc", "eth"] });
-    if (crypto.cryptoTop) safeRegister("cryptotop", crypto.cryptoTop, { category: "info", aliases: ["top10", "topcrypto"] });
-    cmdLog.ok(`✅ Crypto: loaded`);
-  }
-
-  // ==================== ENCRYPTION.JS ====================
-  const enc = MODULES.encryption;
-  if (enc) {
-    if (enc.encrypt) safeRegister("encrypt", enc.encrypt, { category: "security", aliases: ["enc", "lock"] });
-    if (enc.decrypt) safeRegister("decrypt", enc.decrypt, { category: "security", aliases: ["dec", "unlock"] });
-    if (enc.hash) safeRegister("hash", enc.hash, { category: "security", aliases: ["md5", "sha256"] });
-    if (enc.password) safeRegister("password", enc.password, { category: "security", aliases: ["genpass", "passgen"] });
-    cmdLog.ok(`✅ Encryption: loaded`);
-  }
-
-  // ==================== NOTES.JS ====================
-  const notes = MODULES.notes;
-  if (notes) {
-    if (notes.note) safeRegister("note", notes.note, { category: "storage", aliases: ["savenote", "remember"] });
-    if (notes.getnote) safeRegister("getnote", notes.getnote, { category: "storage", aliases: ["recall", "readnote"] });
-    if (notes.notes) safeRegister("notes", notes.notes, { category: "storage", aliases: ["mynotes", "listnotes"] });
-    if (notes.deleteKey) safeRegister("delnote", notes.deleteKey, { category: "storage", aliases: ["forget", "deletenote"] });
-    cmdLog.ok(`✅ Notes: loaded`);
-  }
-
-  // ==================== REMINDER.JS ====================
-  const reminder = MODULES.reminder;
-  if (reminder) {
-    if (reminder.reminder) safeRegister("remind", reminder.reminder, { category: "storage", aliases: ["reminder", "setreminder"] });
-    if (reminder.listReminders) safeRegister("reminders", reminder.listReminders, { category: "storage", aliases: ["myreminders"] });
-    if (reminder.cancelReminder) safeRegister("cancelreminder", reminder.cancelReminder, { category: "storage", aliases: ["delreminder"] });
-    if (reminder.snooze) safeRegister("snooze", reminder.snooze, { category: "storage", aliases: ["snoozereminder"] });
-    cmdLog.ok(`✅ Reminder: loaded`);
+    registeredCount++;
+    cmdLog.ok("✅ Dictionary: loaded");
   }
 
   // ==================== TRANSLATION.JS ====================
   const trans = MODULES.translation;
   if (trans) {
-    if (trans.translate) safeRegister("translate", trans.translate, { category: "tools", aliases: ["tr", "tl"] });
-    if (trans.detect) safeRegister("detect", trans.detect, { category: "tools", aliases: ["langdetect"] });
-    if (trans.languages) safeRegister("languages", trans.languages, { category: "tools", aliases: ["langs"] });
-    cmdLog.ok(`✅ Translation: loaded`);
+    let transLoaded = 0;
+    if (trans.translate && typeof trans.translate === "function") {
+      safeRegister("translate", trans.translate, { category: "tools", aliases: ["tr", "tl"] });
+      transLoaded++;
+    }
+    if (trans.detect && typeof trans.detect === "function") {
+      safeRegister("detect", trans.detect, { category: "tools", aliases: ["langdetect"] });
+      transLoaded++;
+    }
+    if (trans.languages && typeof trans.languages === "function") {
+      safeRegister("languages", trans.languages, { category: "tools", aliases: ["langs"] });
+      transLoaded++;
+    }
+    if (transLoaded > 0) {
+      registeredCount += transLoaded;
+      cmdLog.ok(`✅ Translation: loaded ${transLoaded} commands`);
+    }
+  }
+
+  // ==================== NEWS.JS ====================
+  const news = MODULES.news;
+  if (news?.news && typeof news.news === "function") {
+    safeRegister("news", news.news, { category: "info", aliases: ["headlines", "latestnews"] });
+    registeredCount++;
+    cmdLog.ok("✅ News: loaded");
+  }
+
+  // ==================== CRYPTO.JS ====================
+  const crypto = MODULES.crypto;
+  if (crypto) {
+    let cryptoLoaded = 0;
+    if (crypto.crypto && typeof crypto.crypto === "function") {
+      safeRegister("crypto", crypto.crypto, { category: "info", aliases: ["coin", "btc", "eth"] });
+      cryptoLoaded++;
+    }
+    if (crypto.cryptoTop && typeof crypto.cryptoTop === "function") {
+      safeRegister("cryptotop", crypto.cryptoTop, { category: "info", aliases: ["top10", "topcrypto"] });
+      cryptoLoaded++;
+    }
+    if (cryptoLoaded > 0) {
+      registeredCount += cryptoLoaded;
+      cmdLog.ok(`✅ Crypto: loaded ${cryptoLoaded} commands`);
+    }
+  }
+
+  // ==================== MOVIES.JS ====================
+  const movies = MODULES.movies;
+  if (movies) {
+    let moviesLoaded = 0;
+    if (movies.movie && typeof movies.movie === "function") {
+      safeRegister("movie", movies.movie, { category: "info", aliases: ["film", "imdb"] });
+      moviesLoaded++;
+    }
+    if (movies.tv && typeof movies.tv === "function") {
+      safeRegister("tv", movies.tv, { category: "info", aliases: ["series", "show"] });
+      moviesLoaded++;
+    }
+    if (moviesLoaded > 0) {
+      registeredCount += moviesLoaded;
+      cmdLog.ok(`✅ Movies: loaded ${moviesLoaded} commands`);
+    }
+  }
+
+  // ==================== MUSIC.JS ====================
+  const music = MODULES.music;
+  if (music) {
+    let musicLoaded = 0;
+    if (music.musicLyrics && typeof music.musicLyrics === "function") {
+      safeRegister("lyrics", music.musicLyrics, { category: "music", aliases: ["lyric", "songlyrics"] });
+      musicLoaded++;
+    }
+    if (music.musicTrending && typeof music.musicTrending === "function") {
+      safeRegister("trending", music.musicTrending, { category: "music", aliases: ["chart", "topsongs"] });
+      musicLoaded++;
+    }
+    if (music.musicSearch && typeof music.musicSearch === "function") {
+      safeRegister("musicsearch", music.musicSearch, { category: "music", aliases: ["songsearch", "findmusic"] });
+      musicLoaded++;
+    }
+    if (music.musicDownload && typeof music.musicDownload === "function") {
+      safeRegister("play", music.musicDownload, { category: "music", aliases: ["mp3", "music", "song"] });
+      musicLoaded++;
+    }
+    if (musicLoaded > 0) {
+      registeredCount += musicLoaded;
+      cmdLog.ok(`✅ Music: loaded ${musicLoaded} commands`);
+    }
+  }
+
+  // ==================== DOWNLOADER.JS ====================
+  const dl = MODULES.downloader;
+  if (dl) {
+    let dlLoaded = 0;
+    if (dl.youtube && typeof dl.youtube === "function") {
+      safeRegister("youtube", dl.youtube, { category: "dl", aliases: ["yt", "ytdl", "ytmp3"] });
+      dlLoaded++;
+    }
+    if (dl.tiktok && typeof dl.tiktok === "function") {
+      safeRegister("tiktok", dl.tiktok, { category: "dl", aliases: ["tt", "tok", "tiktokdl"] });
+      dlLoaded++;
+    }
+    if (dl.spotify && typeof dl.spotify === "function") {
+      safeRegister("spotify", dl.spotify, { category: "dl", aliases: ["sp", "spotifydl"] });
+      dlLoaded++;
+    }
+    if (dl.instagram && typeof dl.instagram === "function") {
+      safeRegister("instagram", dl.instagram, { category: "dl", aliases: ["ig", "insta", "igdl"] });
+      dlLoaded++;
+    }
+    if (dl.facebook && typeof dl.facebook === "function") {
+      safeRegister("facebook", dl.facebook, { category: "dl", aliases: ["fb", "fbdl", "fbvideo"] });
+      dlLoaded++;
+    }
+    if (dl.twitter && typeof dl.twitter === "function") {
+      safeRegister("twitter", dl.twitter, { category: "dl", aliases: ["x", "tweet", "xdl"] });
+      dlLoaded++;
+    }
+    if (dl.gif && typeof dl.gif === "function") {
+      safeRegister("gif", dl.gif, { category: "dl", aliases: ["giphy", "tenor", "gifsearch"] });
+      dlLoaded++;
+    }
+    if (dl.image && typeof dl.image === "function") {
+      safeRegister("img", dl.image, { category: "dl", aliases: ["image", "imgsearch", "pics"] });
+      dlLoaded++;
+    }
+    if (dl.pinterest && typeof dl.pinterest === "function") {
+      safeRegister("pinterest", dl.pinterest, { category: "dl", aliases: ["pin", "pinsearch"] });
+      dlLoaded++;
+    }
+    if (dl.download && typeof dl.download === "function") {
+      safeRegister("dl", dl.download, { category: "dl", aliases: ["download", "get"] });
+      dlLoaded++;
+    }
+    if (dl.play && typeof dl.play === "function") {
+      safeRegister("play", dl.play, { category: "dl", aliases: ["mp3", "music", "song"] });
+      dlLoaded++;
+    }
+    if (dlLoaded > 0) {
+      registeredCount += dlLoaded;
+      cmdLog.ok(`✅ Downloader: loaded ${dlLoaded} commands`);
+    }
+  }
+
+  // ==================== IMAGE TOOLS.JS ====================
+  const imgTools = MODULES.imageTools;
+  if (imgTools) {
+    let imgLoaded = 0;
+    if (imgTools.sticker && typeof imgTools.sticker === "function") {
+      safeRegister("sticker", imgTools.sticker, { category: "media", aliases: ["s", "stk", "makesticker"] });
+      imgLoaded++;
+    }
+    if (imgTools.toImage && typeof imgTools.toImage === "function") {
+      safeRegister("toimage", imgTools.toImage, { category: "media", aliases: ["toimg", "stickertoimage"] });
+      imgLoaded++;
+    }
+    if (imgTools.toVideo && typeof imgTools.toVideo === "function") {
+      safeRegister("tovideo", imgTools.toVideo, { category: "media", aliases: ["tovid", "stickertovideo"] });
+      imgLoaded++;
+    }
+    if (imgTools.toGif && typeof imgTools.toGif === "function") {
+      safeRegister("togif", imgTools.toGif, { category: "media", aliases: ["makegif", "videotogif"] });
+      imgLoaded++;
+    }
+    if (imgTools.toAudio && typeof imgTools.toAudio === "function") {
+      safeRegister("toaudio", imgTools.toAudio, { category: "media", aliases: ["tomp3", "extractaudio"] });
+      imgLoaded++;
+    }
+    if (imgTools.removeBg && typeof imgTools.removeBg === "function") {
+      safeRegister("removebg", imgTools.removeBg, { category: "media", aliases: ["nobg", "rmbg", "bgremove"] });
+      imgLoaded++;
+    }
+    if (imgTools.meme && typeof imgTools.meme === "function") {
+      safeRegister("meme", imgTools.meme, { category: "media", aliases: ["makememe", "memegen"] });
+      imgLoaded++;
+    }
+    if (imgLoaded > 0) {
+      registeredCount += imgLoaded;
+      cmdLog.ok(`✅ Image Tools: loaded ${imgLoaded} commands`);
+    }
+  }
+
+  // ==================== AI.JS ====================
+  const ai = MODULES.ai;
+  if (ai) {
+    let aiLoaded = 0;
+    if (ai.ai && typeof ai.ai === "function") {
+      safeRegister("ayobot", ai.ai, { category: "ai", aliases: ["chat", "bae", "aichat", "askai"] });
+      aiLoaded++;
+    }
+    if (ai.aiClear && typeof ai.aiClear === "function") {
+      safeRegister("aiclear", ai.aiClear, { category: "ai", aliases: ["clearchat", "resetai"] });
+      aiLoaded++;
+    }
+    if (ai.summarize && typeof ai.summarize === "function") {
+      safeRegister("summarize", ai.summarize, { category: "ai", aliases: ["summary", "tldr"] });
+      aiLoaded++;
+    }
+    if (ai.grammar && typeof ai.grammar === "function") {
+      safeRegister("grammar", ai.grammar, { category: "ai", aliases: ["spellcheck", "proofread"] });
+      aiLoaded++;
+    }
+    if (aiLoaded > 0) {
+      registeredCount += aiLoaded;
+      cmdLog.ok(`✅ AI: loaded ${aiLoaded} commands`);
+    }
+  }
+
+  // ==================== ADMIN.JS ====================
+  const adm = MODULES.admin;
+  if (adm) {
+    let adminLoaded = 0;
+    if (adm.mode && typeof adm.mode === "function") {
+      safeRegister("mode", adm.mode, { category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] });
+      adminLoaded++;
+    }
+    if (adm.addUser && typeof adm.addUser === "function") {
+      safeRegister("adduser", adm.addUser, { category: "admin", adminOnly: true, aliases: ["auth", "authorize"] });
+      adminLoaded++;
+    }
+    if (adm.removeUser && typeof adm.removeUser === "function") {
+      safeRegister("removeuser", adm.removeUser, { category: "admin", adminOnly: true, aliases: ["deauth", "unauthorize"] });
+      adminLoaded++;
+    }
+    if (adm.listUsers && typeof adm.listUsers === "function") {
+      safeRegister("listusers", adm.listUsers, { category: "admin", adminOnly: true, aliases: ["users", "authlist"] });
+      adminLoaded++;
+    }
+    if (adm.broadcast && typeof adm.broadcast === "function") {
+      safeRegister("broadcast", adm.broadcast, { category: "admin", adminOnly: true, aliases: ["bc", "announce"] });
+      adminLoaded++;
+    }
+    if (adm.globalBroadcast && typeof adm.globalBroadcast === "function") {
+      safeRegister("globalbc", adm.globalBroadcast, { category: "admin", adminOnly: true, aliases: ["gbc", "globalbroadcast"] });
+      adminLoaded++;
+    }
+    if (adm.stats && typeof adm.stats === "function") {
+      safeRegister("stats", adm.stats, { category: "admin", adminOnly: true, aliases: ["botstats", "usage"] });
+      adminLoaded++;
+    }
+    if (adm.botStatus && typeof adm.botStatus === "function") {
+      safeRegister("botstatus", adm.botStatus, { category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] });
+      adminLoaded++;
+    }
+    if (adm.superBan && typeof adm.superBan === "function") {
+      safeRegister("superban", adm.superBan, { category: "admin", adminOnly: true, aliases: ["globalban", "permban"] });
+      adminLoaded++;
+    }
+    if (adm.unban && typeof adm.unban === "function") {
+      safeRegister("superunban", adm.unban, { category: "admin", adminOnly: true, aliases: ["globalunban"] });
+      adminLoaded++;
+    }
+    if (adm.clearBans && typeof adm.clearBans === "function") {
+      safeRegister("clearbans", adm.clearBans, { category: "admin", adminOnly: true, aliases: ["resetbans"] });
+      adminLoaded++;
+    }
+    if (adm.restart && typeof adm.restart === "function") {
+      safeRegister("restart", adm.restart, { category: "admin", adminOnly: true, aliases: ["reboot", "restartbot"] });
+      adminLoaded++;
+    }
+    if (adm.shutdown && typeof adm.shutdown === "function") {
+      safeRegister("shutdown", adm.shutdown, { category: "admin", adminOnly: true, aliases: ["stop", "botoff"] });
+      adminLoaded++;
+    }
+    if (adm.adminEval && typeof adm.adminEval === "function") {
+      safeRegister("eval", adm.adminEval, { category: "admin", adminOnly: true, aliases: ["exec", "code", "run"] });
+      adminLoaded++;
+    }
+    if (adminLoaded > 0) {
+      registeredCount += adminLoaded;
+      cmdLog.ok(`✅ Admin: loaded ${adminLoaded} commands`);
+    }
+  }
+
+  // ==================== GROUP CORE.JS ====================
+  const gc = MODULES.groupCore;
+  if (gc) {
+    let gcLoaded = 0;
+    if (gc.kick && typeof gc.kick === "function") {
+      safeRegister("kick", gc.kick, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["remove", "kickmember"] });
+      gcLoaded++;
+    }
+    if (gc.add && typeof gc.add === "function") {
+      safeRegister("add", gc.add, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["invite", "addmember"] });
+      gcLoaded++;
+    }
+    if (gc.promote && typeof gc.promote === "function") {
+      safeRegister("promote", gc.promote, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["makeadmin"] });
+      gcLoaded++;
+    }
+    if (gc.demote && typeof gc.demote === "function") {
+      safeRegister("demote", gc.demote, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unadmin"] });
+      gcLoaded++;
+    }
+    if (gc.admins && typeof gc.admins === "function") {
+      safeRegister("admins", gc.admins, { category: "group", groupOnly: true, aliases: ["listadmins", "adminlist"] });
+      gcLoaded++;
+    }
+    if (gc.tagall && typeof gc.tagall === "function") {
+      safeRegister("tagall", gc.tagall, { category: "group", groupOnly: true, aliases: ["everyone", "all", "mentionall"] });
+      gcLoaded++;
+    }
+    if (gc.hidetag && typeof gc.hidetag === "function") {
+      safeRegister("hidetag", gc.hidetag, { category: "group", groupOnly: true, aliases: ["htag", "silent", "silentping"] });
+      gcLoaded++;
+    }
+    if (gc.testAdmin && typeof gc.testAdmin === "function") {
+      safeRegister("testadmin", gc.testAdmin, { category: "group", groupOnly: true, aliases: ["admintest", "checkadmin"] });
+      gcLoaded++;
+    }
+    if (gc.refreshAdmin && typeof gc.refreshAdmin === "function") {
+      safeRegister("refreshadmin", gc.refreshAdmin, { category: "group", groupOnly: true, aliases: ["refresh", "clearcache"] });
+      gcLoaded++;
+    }
+    if (gcLoaded > 0) {
+      registeredCount += gcLoaded;
+      cmdLog.ok(`✅ Group Core: loaded ${gcLoaded} commands`);
+    }
+  }
+
+  // ==================== GROUP MODERATION.JS ====================
+  const gm = MODULES.groupMod;
+  if (gm) {
+    let gmLoaded = 0;
+    if (gm.warn && typeof gm.warn === "function") {
+      safeRegister("warn", gm.warn, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["warning", "warnuser"] });
+      gmLoaded++;
+    }
+    if (gm.warnings && typeof gm.warnings === "function") {
+      safeRegister("warnings", gm.warnings, { category: "group", groupOnly: true, aliases: ["warnlist", "mywarnings"] });
+      gmLoaded++;
+    }
+    if (gm.clearWarns && typeof gm.clearWarns === "function") {
+      safeRegister("clearwarns", gm.clearWarns, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetwarns", "clearwarnings"] });
+      gmLoaded++;
+    }
+    if (gm.ban && typeof gm.ban === "function") {
+      safeRegister("ban", gm.ban, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["block", "banuser"] });
+      gmLoaded++;
+    }
+    if (gm.unban && typeof gm.unban === "function") {
+      safeRegister("unban", gm.unban, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unblock", "unbanuser"] });
+      gmLoaded++;
+    }
+    if (gm.listBanned && typeof gm.listBanned === "function") {
+      safeRegister("listbanned", gm.listBanned, { category: "group", groupOnly: true, aliases: ["bannedlist"] });
+      gmLoaded++;
+    }
+    if (gmLoaded > 0) {
+      registeredCount += gmLoaded;
+      cmdLog.ok(`✅ Group Moderation: loaded ${gmLoaded} commands`);
+    }
+  }
+
+  // ==================== GROUP SETTINGS.JS ====================
+  const gs = MODULES.groupSettings;
+  if (gs) {
+    let gsLoaded = 0;
+    // Use exact export names from settings.js
+    if (gs.muteGroup && typeof gs.muteGroup === "function") {
+      safeRegister("mute", gs.muteGroup, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockgroup", "muteall"] });
+      gsLoaded++;
+    }
+    if (gs.unmuteGroup && typeof gs.unmuteGroup === "function") {
+      safeRegister("unmute", gs.unmuteGroup, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup", "unmuteall"] });
+      gsLoaded++;
+    }
+    if (gs.lockGroup && typeof gs.lockGroup === "function") {
+      safeRegister("lock", gs.lockGroup, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] });
+      gsLoaded++;
+    }
+    if (gs.unlockGroup && typeof gs.unlockGroup === "function") {
+      safeRegister("unlock", gs.unlockGroup, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] });
+      gsLoaded++;
+    }
+    if (gs.antiLink && typeof gs.antiLink === "function") {
+      safeRegister("antilink", gs.antiLink, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nolink", "blocklinks"] });
+      gsLoaded++;
+    }
+    if (gs.antiSpam && typeof gs.antiSpam === "function") {
+      safeRegister("antispam", gs.antiSpam, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam", "blockspam"] });
+      gsLoaded++;
+    }
+    if (gs.welcomeToggle && typeof gs.welcomeToggle === "function") {
+      safeRegister("welcome", gs.welcomeToggle, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] });
+      gsLoaded++;
+    }
+    if (gs.setWelcome && typeof gs.setWelcome === "function") {
+      safeRegister("setwelcome", gs.setWelcome, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] });
+      gsLoaded++;
+    }
+    if (gs.goodbyeToggle && typeof gs.goodbyeToggle === "function") {
+      safeRegister("goodbye", gs.goodbyeToggle, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglegoodbye"] });
+      gsLoaded++;
+    }
+    if (gs.setGoodbye && typeof gs.setGoodbye === "function") {
+      safeRegister("setgoodbye", gs.setGoodbye, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgoodbyemsg"] });
+      gsLoaded++;
+    }
+    if (gs.groupInfo && typeof gs.groupInfo === "function") {
+      safeRegister("groupinfo", gs.groupInfo, { category: "group", groupOnly: true, aliases: ["ginfo", "grouppanel"] });
+      gsLoaded++;
+    }
+    if (gs.rules && typeof gs.rules === "function") {
+      safeRegister("rules", gs.rules, { category: "group", groupOnly: true, aliases: ["grules", "grouprules"] });
+      gsLoaded++;
+    }
+    if (gs.setRules && typeof gs.setRules === "function") {
+      safeRegister("setrules", gs.setRules, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgrules"] });
+      gsLoaded++;
+    }
+    if (gs.link && typeof gs.link === "function") {
+      safeRegister("link", gs.link, { category: "group", groupOnly: true, aliases: ["grouplink", "invitelink"] });
+      gsLoaded++;
+    }
+    if (gs.revoke && typeof gs.revoke === "function") {
+      safeRegister("revoke", gs.revoke, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["revokelink", "resetlink"] });
+      gsLoaded++;
+    }
+    if (gs.pin && typeof gs.pin === "function") {
+      safeRegister("pin", gs.pin, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["pinmsg"] });
+      gsLoaded++;
+    }
+    if (gs.unpin && typeof gs.unpin === "function") {
+      safeRegister("unpin", gs.unpin, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unpinmsg"] });
+      gsLoaded++;
+    }
+    if (gs.deleteMsg && typeof gs.deleteMsg === "function") {
+      safeRegister("delete", gs.deleteMsg, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["delmsg", "deletemessage"] });
+      gsLoaded++;
+    }
+    if (gs.settingsOverview && typeof gs.settingsOverview === "function") {
+      safeRegister("settings", gs.settingsOverview, { category: "group", groupOnly: true, aliases: ["groupsettings"] });
+      gsLoaded++;
+    }
+    if (gs.resetSettings && typeof gs.resetSettings === "function") {
+      safeRegister("resetsettings", gs.resetSettings, { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetgroupsettings"] });
+      gsLoaded++;
+    }
+    if (gs.leave && typeof gs.leave === "function") {
+      safeRegister("leave", gs.leave, { category: "group", groupOnly: true, adminOnly: true, aliases: ["botleave", "exit"] });
+      gsLoaded++;
+    }
+    if (gs.debug && typeof gs.debug === "function") {
+      safeRegister("groupdebug", gs.debug, { category: "group", groupOnly: true, aliases: ["gdebug", "groupdbg"] });
+      gsLoaded++;
+    }
+    if (gs.showParticipants && typeof gs.showParticipants === "function") {
+      safeRegister("participants", gs.showParticipants, { category: "group", groupOnly: true, aliases: ["members", "memberlist"] });
+      gsLoaded++;
+    }
+    if (gsLoaded > 0) {
+      registeredCount += gsLoaded;
+      cmdLog.ok(`✅ Group Settings: loaded ${gsLoaded} commands`);
+    }
+  }
+
+  // ==================== ENCRYPTION.JS ====================
+  const enc = MODULES.encryption;
+  if (enc) {
+    let encLoaded = 0;
+    if (enc.encrypt && typeof enc.encrypt === "function") {
+      safeRegister("encrypt", enc.encrypt, { category: "security", aliases: ["enc", "lock"] });
+      encLoaded++;
+    }
+    if (enc.decrypt && typeof enc.decrypt === "function") {
+      safeRegister("decrypt", enc.decrypt, { category: "security", aliases: ["dec", "unlock"] });
+      encLoaded++;
+    }
+    if (enc.hash && typeof enc.hash === "function") {
+      safeRegister("hash", enc.hash, { category: "security", aliases: ["md5", "sha256"] });
+      encLoaded++;
+    }
+    if (enc.password && typeof enc.password === "function") {
+      safeRegister("password", enc.password, { category: "security", aliases: ["genpass", "passgen"] });
+      encLoaded++;
+    }
+    if (encLoaded > 0) {
+      registeredCount += encLoaded;
+      cmdLog.ok(`✅ Encryption: loaded ${encLoaded} commands`);
+    }
+  }
+
+  // ==================== NOTES.JS ====================
+  const notes = MODULES.notes;
+  if (notes) {
+    let notesLoaded = 0;
+    if (notes.note && typeof notes.note === "function") {
+      safeRegister("note", notes.note, { category: "storage", aliases: ["savenote", "remember"] });
+      notesLoaded++;
+    }
+    if (notes.getnote && typeof notes.getnote === "function") {
+      safeRegister("getnote", notes.getnote, { category: "storage", aliases: ["recall", "readnote"] });
+      notesLoaded++;
+    }
+    if (notes.notes && typeof notes.notes === "function") {
+      safeRegister("notes", notes.notes, { category: "storage", aliases: ["mynotes", "listnotes"] });
+      notesLoaded++;
+    }
+    if (notes.deleteKey && typeof notes.deleteKey === "function") {
+      safeRegister("delnote", notes.deleteKey, { category: "storage", aliases: ["forget", "deletenote"] });
+      notesLoaded++;
+    }
+    if (notesLoaded > 0) {
+      registeredCount += notesLoaded;
+      cmdLog.ok(`✅ Notes: loaded ${notesLoaded} commands`);
+    }
+  }
+
+  // ==================== REMINDER.JS ====================
+  const reminder = MODULES.reminder;
+  if (reminder) {
+    let reminderLoaded = 0;
+    if (reminder.reminder && typeof reminder.reminder === "function") {
+      safeRegister("remind", reminder.reminder, { category: "storage", aliases: ["reminder", "setreminder"] });
+      reminderLoaded++;
+    }
+    if (reminder.listReminders && typeof reminder.listReminders === "function") {
+      safeRegister("reminders", reminder.listReminders, { category: "storage", aliases: ["myreminders"] });
+      reminderLoaded++;
+    }
+    if (reminder.cancelReminder && typeof reminder.cancelReminder === "function") {
+      safeRegister("cancelreminder", reminder.cancelReminder, { category: "storage", aliases: ["delreminder"] });
+      reminderLoaded++;
+    }
+    if (reminder.snooze && typeof reminder.snooze === "function") {
+      safeRegister("snooze", reminder.snooze, { category: "storage", aliases: ["snoozereminder"] });
+      reminderLoaded++;
+    }
+    if (reminderLoaded > 0) {
+      registeredCount += reminderLoaded;
+      cmdLog.ok(`✅ Reminder: loaded ${reminderLoaded} commands`);
+    }
   }
 
   // ==================== UNIT CONVERTER.JS ====================
   const uc = MODULES.unitConverter;
   if (uc) {
-    if (uc.convert) safeRegister("convert", uc.convert, { category: "tools", aliases: ["conv", "cvt"] });
-    if (uc.units) safeRegister("units", uc.units, { category: "tools", aliases: ["listunits"] });
-    cmdLog.ok(`✅ Unit Converter: loaded`);
+    let ucLoaded = 0;
+    if (uc.convert && typeof uc.convert === "function") {
+      safeRegister("convert", uc.convert, { category: "tools", aliases: ["conv", "cvt"] });
+      ucLoaded++;
+    }
+    if (uc.units && typeof uc.units === "function") {
+      safeRegister("units", uc.units, { category: "tools", aliases: ["listunits"] });
+      ucLoaded++;
+    }
+    if (ucLoaded > 0) {
+      registeredCount += ucLoaded;
+      cmdLog.ok(`✅ Unit Converter: loaded ${ucLoaded} commands`);
+    }
   }
 
   // ==================== SECURITY.JS ====================
   const sec = MODULES.security;
-  if (sec?.scan) {
+  if (sec?.scan && typeof sec.scan === "function") {
     safeRegister("scan", sec.scan, { category: "security", aliases: ["urlscan", "checksafe"] });
-    cmdLog.ok(`✅ Security: loaded`);
+    registeredCount++;
+    cmdLog.ok("✅ Security: loaded");
   }
 
   // ==================== STOCKS.JS ====================
   const stocks = MODULES.stocks;
-  if (stocks?.stock) {
+  if (stocks?.stock && typeof stocks.stock === "function") {
     safeRegister("stock", stocks.stock, { category: "info", aliases: ["stocks", "share"] });
-    cmdLog.ok(`✅ Stocks: loaded`);
+    registeredCount++;
+    cmdLog.ok("✅ Stocks: loaded");
   }
 
   // ==================== AUTOMATION.JS ====================
   const auto = MODULES.automation;
   if (auto) {
-    if (auto.autoReply) safeRegister("autoreply", auto.autoReply, { category: "automation" });
-    if (auto.autoSticker) safeRegister("autosticker", auto.autoSticker, { category: "automation" });
-    cmdLog.ok(`✅ Automation: loaded`);
+    let autoLoaded = 0;
+    if (auto.autoReply && typeof auto.autoReply === "function") {
+      safeRegister("autoreply", auto.autoReply, { category: "automation" });
+      autoLoaded++;
+    }
+    if (auto.autoSticker && typeof auto.autoSticker === "function") {
+      safeRegister("autosticker", auto.autoSticker, { category: "automation" });
+      autoLoaded++;
+    }
+    if (autoLoaded > 0) {
+      registeredCount += autoLoaded;
+      cmdLog.ok(`✅ Automation: loaded ${autoLoaded} commands`);
+    }
   }
 
-  // ==================== FINAL SUMMARY ====================
+  // ==================== FINAL VERIFICATION ====================
   cmdLog.div();
 
   if (failedModules.length > 0) {
     cmdLog.warn(`⚠️ Failed to load modules: ${failedModules.join(", ")}`);
-    cmdLog.warn(`⚠️ Some commands may be unavailable. Check file paths and syntax errors.`);
+  }
+
+  // CRITICAL: Verify essential commands are registered
+  const essentialCommands = ["menu", "ping", "ok", "start", "status", "tts"];
+  const missingEssentials = essentialCommands.filter(cmd => !commands.has(cmd));
+
+  if (missingEssentials.length > 0) {
+    cmdLog.err(`❌ CRITICAL: Missing essential commands: ${missingEssentials.join(", ")}`);
+    cmdLog.err(`   These commands will show as "Unknown Command"!`);
+  } else {
+    cmdLog.success(`✅ All essential commands registered: ${essentialCommands.join(", ")}`);
   }
 
   cmdLog.success(`✅ Registered ${registeredCount} commands total`);
@@ -949,52 +1230,6 @@ export function registerAllCommands() {
     console.log();
   }
 }
-
-// Call the registration function
-registerAllCommands();
-
-
-// ============================================================================
-//  ACTIVATION EXEMPT COMMANDS
-// ============================================================================
-const ACTIVATION_EXEMPT = new Set([
-  "activate",
-  "groupactivate",
-  "activatebot",
-  "openbot",
-  "unlockbot",
-  "activategroup",
-  "deactivate",
-  "groupdeactivate",
-  "deactivatebot",
-  "closebot",
-  "lockbot",
-  "testadmin",
-  "admintest",
-  "checkadmin",
-  "refreshadmin",
-  "refresh",
-  "clearcache",
-  "groupdebug",
-  "gdebug",
-  "groupdbg",
-  "menu",
-  "help",
-  "ping",
-  "status",
-   "start",
-  "init",
-  "begin",
-  "connectdm",
-  "dmopen",
-  "ok",
-  "dm",
-  "tome",
-  "senddm",
-  "privatemedia",
-  "savetodm",
-  "sendtome",
-]);
 
 // ============================================================================
 //  MAIN COMMAND HANDLER — COMPLETELY FIXED
