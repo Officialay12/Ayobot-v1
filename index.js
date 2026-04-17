@@ -256,7 +256,7 @@ function checkEnvVars() {
 }
 
 // ============================================================
-//   HELPER FUNCTIONS - DYNAMIC FIX FOR ALL SESSIONS
+//   HELPER FUNCTIONS - COMPLETE FIXED VERSION
 // ============================================================
 
 function normalizeJidForComparison(jid = "") {
@@ -272,6 +272,7 @@ export function normalizeToPhone(jid) {
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || jid.phone || String(jid);
   }
+
   const str = String(jid);
 
   // Method 1: Standard extraction
@@ -279,17 +280,14 @@ export function normalizeToPhone(jid) {
   let withoutDevice = withoutDomain.split(":")[0];
   let phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
 
-  // Method 2: If the result looks like a WhatsApp temp ID (15+ digits or weird pattern)
-  // Try to find the actual phone number in the JID
-  if (phoneNumber.length > 13 || phoneNumber.length < 9 || phoneNumber.startsWith("0")) {
-    // Look for a valid phone number pattern in the JID
-    // Phone numbers are typically 10-13 digits and start with country code
+  // Method 2: If result is invalid (temp ID like 223175560437838)
+  if (phoneNumber.length > 13 || phoneNumber.length < 9 || phoneNumber.startsWith("0") || phoneNumber.startsWith("2231")) {
+    // Look for valid phone number pattern (10-13 digits, starts with country code)
     const matches = str.match(/\d{9,13}/g);
     if (matches && matches.length > 0) {
-      // Find the match that looks like a real phone number
       for (const match of matches) {
-        // Valid phone: 9-13 digits, doesn't start with 0, reasonable length
-        if (match.length >= 9 && match.length <= 13 && !match.startsWith("0")) {
+        // Valid phone: 10-13 digits, doesn't start with 0 or 2231 (temp ID pattern)
+        if (match.length >= 10 && match.length <= 13 && !match.startsWith("0") && !match.startsWith("2231")) {
           phoneNumber = match;
           break;
         }
@@ -297,21 +295,44 @@ export function normalizeToPhone(jid) {
     }
   }
 
-  // Method 3: Check if the original JID has a phone number format
-  // Some WhatsApp JIDs contain the phone like "2349159180375:58@s.whatsapp.net"
+  // Method 3: Check for phone before colon (format: 2349159180375:58@...)
   if (phoneNumber.length > 13 && str.includes(":")) {
     const beforeColon = str.split(":")[0].replace(/[^0-9]/g, "");
-    if (beforeColon.length >= 9 && beforeColon.length <= 13) {
+    if (beforeColon.length >= 10 && beforeColon.length <= 13 && !beforeColon.startsWith("2231")) {
       phoneNumber = beforeColon;
     }
   }
 
-  // Final validation: If we still have garbage, try to extract from the original string
-  if (phoneNumber.length > 13 || phoneNumber.length < 9) {
-    // Last resort: look for a pattern that matches country code + number
-    const countryMatch = str.match(/(?:234|1|44|91|92|86|81|82|61|49|33|39|34|55|52|7|20|27|254|233|256|255|251|212|971|966|974)\d{7,11}/);
-    if (countryMatch) {
-      phoneNumber = countryMatch[0];
+  // Method 4: Look for Nigerian/International phone pattern
+  if (phoneNumber.length > 13 || phoneNumber.length < 10) {
+    const patterns = [
+      /234[0-9]{10}/,           // Nigerian: 234XXXXXXXXXX
+      /[0-9]{13}/,              // 13 digit numbers
+      /[0-9]{12}/,              // 12 digit numbers
+      /[0-9]{11}/,              // 11 digit numbers
+      /[0-9]{10}/               // 10 digit numbers
+    ];
+
+    for (const pattern of patterns) {
+      const match = str.match(pattern);
+      if (match && !match[0].startsWith("2231") && match[0].length >= 10) {
+        phoneNumber = match[0];
+        break;
+      }
+    }
+  }
+
+  // Final fallback: if we still have a temp ID, try to extract from the original string differently
+  if (phoneNumber.startsWith("2231") || phoneNumber.length > 13) {
+    // Look for any 10-13 digit sequence that doesn't start with 2231
+    const allNumbers = str.match(/\d+/g);
+    if (allNumbers) {
+      for (const num of allNumbers) {
+        if (num.length >= 10 && num.length <= 13 && !num.startsWith("2231")) {
+          phoneNumber = num;
+          break;
+        }
+      }
     }
   }
 
@@ -325,19 +346,23 @@ export function normalizeToPhone(jid) {
 export const normalizePhone = normalizeToPhone;
 
 // ============================================================
-//   CRITICAL: ADMIN & PERMISSION HELPERS (COMPLETE)
-//   Author: AYOCODES
-//
-//   LOGIC:
-//   1. Bot owner always has full access everywhere
-//   2. If bot owner is a group admin, bot inherits admin rights
-//   3. If bot is literal admin, bot has admin rights
-//   4. Otherwise, bot has no admin rights
+//   ADMIN & PERMISSION HELPERS
 // ============================================================
 
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 
+// Store bot number globally
+let globalBotNumber = null;
+
+export function setGlobalBotNumber(number) {
+  globalBotNumber = number;
+  console.log(`🤖 Global bot number set: ${globalBotNumber}`);
+}
+
+export function getGlobalBotNumber() {
+  return globalBotNumber;
+}
 
 // ============================================================
 //   CHECK IF USER IS BOT OWNER
@@ -351,7 +376,7 @@ export function isBotOwner(userJid, botOwnerJid) {
 }
 
 // ============================================================
-//   CHECK IF USER IS ADMIN (Bot Owner)
+//   CHECK IF USER IS ADMIN (Bot Owner) - COMPLETELY FIXED
 // ============================================================
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
@@ -359,29 +384,43 @@ export function isAdmin(userJid, ownerPhone) {
   const user = normalizePhone(userJid);
   const owner = normalizePhone(ownerPhone);
 
-  // If normalization failed on either side, try direct string matching
-  if (!user || !owner) {
-    const userStr = String(userJid);
-    const ownerStr = String(ownerPhone);
-    if (userStr.includes(ownerStr) || ownerStr.includes(userStr)) {
-      return true;
-    }
-    return false;
+  // Debug logging
+  if (ENV.DEBUG) {
+    console.log(`[isAdmin] User raw: ${userJid} → normalized: ${user}`);
+    console.log(`[isAdmin] Owner raw: ${ownerPhone} → normalized: ${owner}`);
   }
 
-  // Also check if the user contains the owner's number
-  if (user.includes(owner) || owner.includes(user)) {
+  // Direct match
+  if (user === owner) return true;
+
+  // Check if user normalized contains owner normalized
+  if (user && owner && (user.includes(owner) || owner.includes(user))) {
     return true;
   }
 
-  return user === owner;
+  // Check raw strings
+  const userStr = String(userJid);
+  const ownerStr = String(ownerPhone);
+  if (userStr.includes(owner) || ownerStr.includes(user) || userStr.includes(ownerStr) || ownerStr.includes(userStr)) {
+    return true;
+  }
+
+  // Check against global bot number
+  if (globalBotNumber) {
+    const botNorm = normalizePhone(globalBotNumber);
+    if (user === botNorm && botNorm === owner) {
+      return true;
+    }
+    if (userStr.includes(globalBotNumber) || globalBotNumber.includes(userStr)) {
+      return true;
+    }
+  }
+
+  return false;
 }
+
 // ============================================================
 //   CHECK IF BOT IS GROUP ADMIN (With Owner Inheritance)
-//
-//   Returns TRUE if:
-//   1. Bot is literally a group admin, OR
-//   2. Bot owner is a group admin (bot inherits rights)
 // ============================================================
 export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypassCache = false) {
   try {
@@ -402,8 +441,13 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
     const botPhone = normalizePhone(botRaw);
 
     if (!botPhone) {
-      log.debug(`[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`);
+      console.log(`[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`);
       return false;
+    }
+
+    // Store globally if not set
+    if (!globalBotNumber) {
+      setGlobalBotNumber(botPhone);
     }
 
     // Fetch group metadata
@@ -412,9 +456,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       return false;
     }
 
-    // ──────────────────────────────────────────────────────────────
     // CHECK 1: Is bot literally a group admin?
-    // ──────────────────────────────────────────────────────────────
     let botParticipant = null;
     for (const p of groupMetadata.participants) {
       if (normalizePhone(p.id) === botPhone) {
@@ -427,7 +469,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
 
     if (botIsLiteralAdmin) {
-      log.debug(`[isBotGroupAdmin] Bot is literal admin in ${groupJid}`);
+      console.log(`[isBotGroupAdmin] Bot is literal admin in ${groupJid}`);
       adminStatusCache.set(cacheKey, {
         isAdmin: true,
         timestamp: Date.now(),
@@ -436,16 +478,15 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       return true;
     }
 
-    // ──────────────────────────────────────────────────────────────
     // CHECK 2: Is bot owner a group admin? (Inheritance)
-    // ──────────────────────────────────────────────────────────────
     if (botOwnerJid) {
       const ownerPhone = normalizePhone(botOwnerJid);
 
       if (ownerPhone) {
         let ownerParticipant = null;
         for (const p of groupMetadata.participants) {
-          if (normalizePhone(p.id) === ownerPhone) {
+          const pNorm = normalizePhone(p.id);
+          if (pNorm === ownerPhone || (ownerPhone && pNorm.includes(ownerPhone))) {
             ownerParticipant = p;
             break;
           }
@@ -455,7 +496,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
           (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
 
         if (ownerIsGroupAdmin) {
-          log.debug(`[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`);
+          console.log(`[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`);
           adminStatusCache.set(cacheKey, {
             isAdmin: true,
             timestamp: Date.now(),
@@ -466,9 +507,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       }
     }
 
-    // ──────────────────────────────────────────────────────────────
     // Neither bot nor owner is admin
-    // ──────────────────────────────────────────────────────────────
     adminStatusCache.set(cacheKey, {
       isAdmin: false,
       timestamp: Date.now(),
@@ -478,7 +517,7 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
     return false;
 
   } catch (error) {
-    log.debug(`[isBotGroupAdmin] Error: ${error.message}`);
+    console.log(`[isBotGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
@@ -506,7 +545,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
     // Bot owner always has admin privileges everywhere
     if (botOwnerJid) {
       const ownerPhone = normalizePhone(botOwnerJid);
-      if (ownerPhone && userPhone === ownerPhone) {
+      if (ownerPhone && (userPhone === ownerPhone || userPhone.includes(ownerPhone) || ownerPhone.includes(userPhone))) {
         adminStatusCache.set(cacheKey, {
           isAdmin: true,
           timestamp: Date.now(),
@@ -524,7 +563,8 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
 
     let participant = null;
     for (const p of groupMetadata.participants) {
-      if (normalizePhone(p.id) === userPhone) {
+      const pNorm = normalizePhone(p.id);
+      if (pNorm === userPhone || (userPhone && pNorm.includes(userPhone))) {
         participant = p;
         break;
       }
@@ -542,7 +582,7 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
     return isAdmin;
 
   } catch (error) {
-    log.debug(`[isUserGroupAdmin] Error: ${error.message}`);
+    console.log(`[isUserGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
@@ -556,11 +596,11 @@ export function clearAdminCache(groupJid) {
       adminStatusCache.delete(key);
     }
   }
-  log.debug(`[clearAdminCache] Cleared cache for ${groupJid}`);
+  console.log(`[clearAdminCache] Cleared cache for ${groupJid}`);
 }
 
 // ============================================================
-//   REFRESH ADMIN STATUS (Force clear cache and re-check)
+//   REFRESH ADMIN STATUS
 // ============================================================
 export async function refreshAdminStatus(sock, groupJid, botOwnerJid = null) {
   clearAdminCache(groupJid);
@@ -569,11 +609,6 @@ export async function refreshAdminStatus(sock, groupJid, botOwnerJid = null) {
 
 // ============================================================
 //   MAIN PERMISSION CHECKER FOR GROUP COMMANDS
-//
-//   Checks:
-//   1. Command is used in a group
-//   2. User has admin privileges (bot owner OR group admin)
-//   3. Bot has admin privileges (literal OR owner inheritance)
 // ============================================================
 export async function hasGroupAdminPermission(sock, msg, session) {
   const from = msg.key.remoteJid;
@@ -593,7 +628,7 @@ export async function hasGroupAdminPermission(sock, msg, session) {
 
   // Step 2: Check if sender is bot owner (always allowed)
   if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
-    log.debug(`[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`);
+    console.log(`[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`);
     return {
       allowed: true,
       reason: "Bot owner"
