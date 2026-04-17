@@ -1096,13 +1096,19 @@ export async function viewOnceToDM({ message, userJid, sock }) {
 }
 
 // ── Aliases ────────────────────────────────────────────────────────────────
-export const ok           = viewOnceToDM;
 export const dm           = viewOnceToDM;
 export const tome         = viewOnceToDM;
 export const senddm       = viewOnceToDM;
 export const privatemedia = viewOnceToDM;
 export const savetodm     = viewOnceToDM;
 export const sendtome     = viewOnceToDM;
+export const ok = viewOnceToDM
+
+export async function start({ from, sock }) {
+  await sock.sendMessage(from, {
+    text: "🚀 *AYOBOT Started!*"
+  });
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  WAITLIST
