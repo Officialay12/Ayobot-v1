@@ -256,7 +256,7 @@ function checkEnvVars() {
 }
 
 // ============================================================
-//   HELPER FUNCTIONS
+//   HELPER FUNCTIONS - DYNAMIC FIX FOR ALL SESSIONS
 // ============================================================
 
 function normalizeJidForComparison(jid = "") {
@@ -273,12 +273,52 @@ export function normalizeToPhone(jid) {
     jid = jid.id || jid.jid || jid.phone || String(jid);
   }
   const str = String(jid);
+
+  // Method 1: Standard extraction
   let withoutDomain = str.split("@")[0];
   let withoutDevice = withoutDomain.split(":")[0];
-  const phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
-  if (ENV.DEBUG) {
-    console.log(`[normalizeToPhone] ${jid} → ${phoneNumber}`);
+  let phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
+
+  // Method 2: If the result looks like a WhatsApp temp ID (15+ digits or weird pattern)
+  // Try to find the actual phone number in the JID
+  if (phoneNumber.length > 13 || phoneNumber.length < 9 || phoneNumber.startsWith("0")) {
+    // Look for a valid phone number pattern in the JID
+    // Phone numbers are typically 10-13 digits and start with country code
+    const matches = str.match(/\d{9,13}/g);
+    if (matches && matches.length > 0) {
+      // Find the match that looks like a real phone number
+      for (const match of matches) {
+        // Valid phone: 9-13 digits, doesn't start with 0, reasonable length
+        if (match.length >= 9 && match.length <= 13 && !match.startsWith("0")) {
+          phoneNumber = match;
+          break;
+        }
+      }
+    }
   }
+
+  // Method 3: Check if the original JID has a phone number format
+  // Some WhatsApp JIDs contain the phone like "2349159180375:58@s.whatsapp.net"
+  if (phoneNumber.length > 13 && str.includes(":")) {
+    const beforeColon = str.split(":")[0].replace(/[^0-9]/g, "");
+    if (beforeColon.length >= 9 && beforeColon.length <= 13) {
+      phoneNumber = beforeColon;
+    }
+  }
+
+  // Final validation: If we still have garbage, try to extract from the original string
+  if (phoneNumber.length > 13 || phoneNumber.length < 9) {
+    // Last resort: look for a pattern that matches country code + number
+    const countryMatch = str.match(/(?:234|1|44|91|92|86|81|82|61|49|33|39|34|55|52|7|20|27|254|233|256|255|251|212|971|966|974)\d{7,11}/);
+    if (countryMatch) {
+      phoneNumber = countryMatch[0];
+    }
+  }
+
+  if (ENV.DEBUG) {
+    console.log(`[normalizeToPhone] Input: ${jid} → Output: ${phoneNumber}`);
+  }
+
   return phoneNumber;
 }
 
@@ -315,12 +355,27 @@ export function isBotOwner(userJid, botOwnerJid) {
 // ============================================================
 export function isAdmin(userJid, ownerPhone) {
   if (!userJid || !ownerPhone) return false;
+
   const user = normalizePhone(userJid);
   const owner = normalizePhone(ownerPhone);
-  if (!user || !owner) return false;
+
+  // If normalization failed on either side, try direct string matching
+  if (!user || !owner) {
+    const userStr = String(userJid);
+    const ownerStr = String(ownerPhone);
+    if (userStr.includes(ownerStr) || ownerStr.includes(userStr)) {
+      return true;
+    }
+    return false;
+  }
+
+  // Also check if the user contains the owner's number
+  if (user.includes(owner) || owner.includes(user)) {
+    return true;
+  }
+
   return user === owner;
 }
-
 // ============================================================
 //   CHECK IF BOT IS GROUP ADMIN (With Owner Inheritance)
 //
