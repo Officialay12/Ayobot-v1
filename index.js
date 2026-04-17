@@ -283,7 +283,7 @@ export function normalizeToPhone(jid) {
 }
 
 export const normalizePhone = normalizeToPhone;
-// ============================================================
+/// ============================================================
 //   CRITICAL: ADMIN & PERMISSION HELPERS
 // ============================================================
 
@@ -327,47 +327,64 @@ export async function isBotGroupAdmin(sock, groupJid, botOwnerJid = null, bypass
       return false;
     }
 
-    // Check if bot is owner - owner always has admin privileges
-    if (botOwnerJid) {
-      const ownerPhone = normalizeToPhone(botOwnerJid);
-      if (ownerPhone && botPhone === ownerPhone) {
-        adminStatusCache.set(cacheKey, {
-          isAdmin: true,
-          timestamp: Date.now(),
-          botId: botRaw,
-          botPhone,
-          found: true,
-          isOwner: true,
-        });
-        return true;
-      }
-    }
-
-    // Otherwise check group metadata
     const groupMetadata = await sock.groupMetadata(groupJid);
 
+    // ── Check if bot is literally a group admin ───────────────────────────
     let botParticipant = null;
     for (const p of groupMetadata.participants) {
-      const participantPhone = normalizeToPhone(p.id);
-      if (participantPhone === botPhone) {
+      if (normalizeToPhone(p.id) === botPhone) {
         botParticipant = p;
         break;
       }
     }
 
-    const isAdmin = botParticipant &&
+    const botIsLiteralAdmin =
+      botParticipant &&
       (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
 
+    if (botIsLiteralAdmin) {
+      adminStatusCache.set(cacheKey, {
+        isAdmin: true,
+        timestamp: Date.now(),
+        reason: "literal_admin",
+      });
+      return true;
+    }
+
+    // ── KEY FIX: If bot owner is a group admin, bot inherits admin rights ──
+    if (botOwnerJid) {
+      const ownerPhone = normalizeToPhone(botOwnerJid);
+
+      if (ownerPhone) {
+        const ownerParticipant = groupMetadata.participants.find(
+          (p) => normalizeToPhone(p.id) === ownerPhone
+        );
+
+        const ownerIsGroupAdmin =
+          ownerParticipant &&
+          (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
+
+        if (ownerIsGroupAdmin) {
+          log.debug(`[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`);
+          adminStatusCache.set(cacheKey, {
+            isAdmin: true,
+            timestamp: Date.now(),
+            reason: "owner_is_group_admin",
+          });
+          return true;
+        }
+      }
+    }
+
+    // ── Neither bot nor owner is admin ────────────────────────────────────
     adminStatusCache.set(cacheKey, {
-      isAdmin,
+      isAdmin: false,
       timestamp: Date.now(),
-      botId: botRaw,
-      botPhone,
-      found: !!botParticipant,
-      isOwner: false,
+      reason: "not_admin",
     });
 
-    return isAdmin;
+    return false;
+
   } catch (error) {
     log.debug(`Failed to check bot admin status: ${error.message}`);
     return false;
@@ -390,35 +407,36 @@ export async function isUserGroupAdmin(sock, groupJid, userJid, botOwnerJid = nu
       }
     }
 
-    // Check if user is bot owner - owner always has admin privileges
+    // Bot owner always has admin privileges everywhere
     if (botOwnerJid) {
       const ownerPhone = normalizeToPhone(botOwnerJid);
       if (ownerPhone && userPhone === ownerPhone) {
         adminStatusCache.set(cacheKey, {
           isAdmin: true,
           timestamp: Date.now(),
-          isOwner: true,
+          reason: "is_bot_owner",
         });
         return true;
       }
     }
 
     const groupMetadata = await sock.groupMetadata(groupJid);
-    const participant = groupMetadata.participants.find((p) => {
-      const participantPhone = normalizeToPhone(p.id);
-      return participantPhone === userPhone;
-    });
+    const participant = groupMetadata.participants.find(
+      (p) => normalizeToPhone(p.id) === userPhone
+    );
 
-    const isAdmin = participant &&
+    const result =
+      participant &&
       (participant.admin === "admin" || participant.admin === "superadmin");
 
     adminStatusCache.set(cacheKey, {
-      isAdmin,
+      isAdmin: result,
       timestamp: Date.now(),
-      isOwner: false,
+      reason: "group_check",
     });
 
-    return isAdmin;
+    return result;
+
   } catch (error) {
     log.debug(`Failed to check user admin status: ${error.message}`);
     return false;
@@ -446,7 +464,7 @@ export async function hasGroupAdminPermission(sock, msg, session) {
   const botOwnerJid = session?.ownerJid ||
     (ENV.ADMIN ? `${normalizeToPhone(ENV.ADMIN)}@s.whatsapp.net` : null);
 
-  // Check if user has admin privileges (including owner)
+  // Check sender has admin privileges
   const userHasAdmin = await isUserGroupAdmin(sock, from, senderJid, botOwnerJid);
 
   if (!userHasAdmin) {
@@ -456,28 +474,18 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     };
   }
 
-  // Check if bot has admin privileges (including owner)
-  let botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid);
+  // Check bot has admin privileges (literal OR inherited from owner being admin)
+  const botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid);
 
   if (!botHasAdmin) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid, true);
-  }
-
-  // Additional fallback for owner check
-  if (!botHasAdmin && botOwnerJid) {
-    const botNumber = normalizeToPhone(sock.user?.id || "");
-    const ownerNumber = normalizeToPhone(botOwnerJid);
-    if (botNumber === ownerNumber && ownerNumber) {
-      botHasAdmin = true;
+    // One retry with cache bypass
+    const retried = await isBotGroupAdmin(sock, from, botOwnerJid, true);
+    if (!retried) {
+      return {
+        allowed: false,
+        reason: "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* (or the bot owner must be a group admin) to perform this action!",
+      };
     }
-  }
-
-  if (!botHasAdmin) {
-    return {
-      allowed: false,
-      reason: "⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to perform this action!",
-    };
   }
 
   return { allowed: true, reason: "Group admin" };
@@ -485,7 +493,7 @@ export async function hasGroupAdminPermission(sock, msg, session) {
 
 export async function refreshAdminStatus(sock, groupJid) {
   clearAdminCache(groupJid);
-  return await isBotGroupAdmin(sock, groupJid, true);
+  return await isBotGroupAdmin(sock, groupJid, null, true);
 }
 
 export const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
