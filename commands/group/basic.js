@@ -480,43 +480,160 @@ export async function status({ from, userJid, isAdmin: isAdminUser, isAuthorized
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR — Native WhatsApp contact card (Message + Add contact UI)
+//  CREATOR — Contact card with Message + Add to Contact buttons
 // ════════════════════════════════════════════════════════════════════════════
+
 export async function creator({ from, sock }) {
   const finalContact =
     String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "") || "2349159180375";
 
-  // Build minimal vCard — WhatsApp uses FN + TEL;waid= to render the card UI
+  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
+
+  // ── vCard (used as fallback) ──────────────────────────────────────────────
   const vcard =
     `BEGIN:VCARD\n` +
     `VERSION:3.0\n` +
     `FN:AYOCODES 👑 (Bot Owner)\n` +
-    `N:AYOCODES;;;;\n` +
+    `N:AYOCODES;The Architect;;;\n` +
+    `ORG:AYOBOT;\n` +
     `TEL;type=CELL;type=VOICE;waid=${finalContact}:+${finalContact}\n` +
     `END:VCARD`;
 
+  // ── Method 1: List message with action rows (most supported in 2024+) ─────
   try {
-    // contacts message renders the "Message / Add contact" card UI
+    await sock.sendMessage(from, {
+      text:
+        `👑 *AYOCODES — Bot Owner*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🤖 Creator of *AYOBOT*\n` +
+        `📞 +${finalContact}\n` +
+        `💻 ${github}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `_Select an option below_ 👇`,
+      footer: "👑 AYOBOT — Powered by AYOCODES",
+      title: "AYOCODES 👑",
+      buttonText: "🔽 Options",
+      sections: [
+        {
+          title: "📬 Connect with Creator",
+          rows: [
+            {
+              title: "💬 Message on WhatsApp",
+              description: `Chat with AYOCODES directly`,
+              rowId: `https://wa.me/${finalContact}`,
+            },
+            {
+              title: "💻 GitHub Profile",
+              description: "Check out AYOBOT source & projects",
+              rowId: github,
+            },
+          ],
+        },
+      ],
+    });
+    return;
+  } catch (_) {}
+
+  // ── Method 2: Template message with hydrated URL buttons ──────────────────
+  try {
+    await sock.sendMessage(from, {
+      templateMessage: {
+        hydratedTemplate: {
+          hydratedContentText:
+            `👑 *AYOCODES — Bot Owner*\n` +
+            `🤖 Creator of AYOBOT\n` +
+            `📞 +${finalContact}`,
+          hydratedFooterText: "👑 AYOBOT",
+          hydratedButtons: [
+            {
+              urlButton: {
+                displayText: "💬 Message on WhatsApp",
+                url: `https://wa.me/${finalContact}`,
+              },
+            },
+            {
+              urlButton: {
+                displayText: "💻 GitHub Profile",
+                url: github,
+              },
+            },
+          ],
+        },
+      },
+    });
+    return;
+  } catch (_) {}
+
+  // ── Method 3: Contact card (native Message + Add to contacts buttons) ─────
+  try {
     await sock.sendMessage(from, {
       contacts: {
-        displayName: "AYOCODES 👑 (The Architect)",
+        displayName: "AYOCODES 👑 (Bot Owner)",
         contacts: [{ vcard }],
       },
     });
-  } catch (_) {
-    // Fallback to plain text if contacts type fails
-    await sock.sendMessage(from, {
-      text: `👑 *AYOCODES — Bot Owner*\n📞 wa.me/${finalContact}`,
-    });
-  }
+    return;
+  } catch (_) {}
+
+  // ── Method 4: Plain text absolute fallback ────────────────────────────────
+  await sock.sendMessage(from, {
+    text:
+      `━━━━━ 👑 *AYOCODES* ━━━━━\n\n` +
+      `🤖 *Bot Owner & Creator*\n\n` +
+      `📞 *WhatsApp:*\nwa.me/${finalContact}\n\n` +
+      `💻 *GitHub:*\n${github}\n\n` +
+      `👑 _AYOCODES — The Architect_`,
+  });
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  CREATORGIT — GitHub profile card
+// ════════════════════════════════════════════════════════════════════════════
+
 export async function creatorGit({ from, sock }) {
+  const github = ENV.CREATOR_GITHUB || "https://github.com/Officialay12";
+  const finalContact =
+    String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "") || "2349159180375";
+
+  // ── Method 1: Template with GitHub + WhatsApp buttons ────────────────────
+  try {
+    await sock.sendMessage(from, {
+      templateMessage: {
+        hydratedTemplate: {
+          hydratedContentText:
+            `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
+            `💻 *Featured Project:* AYOBOT v1.0.0\n` +
+            `🔧 _Open-source WhatsApp Bot_\n\n` +
+            `👇 Tap to visit:`,
+          hydratedFooterText: "👑 AYOBOT — by AYOCODES",
+          hydratedButtons: [
+            {
+              urlButton: {
+                displayText: "💻 Open GitHub Profile",
+                url: github,
+              },
+            },
+            {
+              urlButton: {
+                displayText: "💬 Message Creator",
+                url: `https://wa.me/${finalContact}`,
+              },
+            },
+          ],
+        },
+      },
+    });
+    return;
+  } catch (_) {}
+
+  // ── Method 2: Plain text fallback ─────────────────────────────────────────
   await sock.sendMessage(from, {
     text:
       `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
-      `🔗 *GitHub Profile:*\n${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
-      `💻 _Check out my projects!_\n\n🤖 *Featured Project:* AYOBOT v1.0.0\n👑 _AYOCODES_`,
+      `🔗 *GitHub Profile:*\n${github}\n\n` +
+      `💻 _Check out my projects!_\n\n` +
+      `🤖 *Featured Project:* AYOBOT v1.0.0\n` +
+      `👑 _AYOCODES_`,
   });
 }
 
@@ -851,79 +968,81 @@ export async function viewOnce({ message, from, sock }) {
   }
 }
 // ════════════════════════════════════════════════════════════════════════════
-//  .ok — VIEW ONCE TO DM (WORKING DELIVERY)
-//  Reactions only: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
+//  .ok — VIEW ONCE TO DM (GROUP + DM COMPATIBLE)
+//  Reactions: ⏳ processing | ✅ sent | ❌ not view-once | ⚠️ privacy | 🔴 error
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Send view-once media to user's DM - WORKING VERSION
- * Uses two-step delivery to ensure WhatsApp accepts the media
+ * Reliably extract the SENDER's personal JID regardless of context (group or DM)
  */
-async function sendViewOnceToDMSilent(sock, userJid, buffer, type) {
-  const cleanPhone = normalizeJid(userJid);
-  const dmJid = `${cleanPhone}@s.whatsapp.net`;
+function getSenderJid(message) {
+  const remoteJid = message.key?.remoteJid ?? "";
+  const isGroup = remoteJid.endsWith("@g.us");
+
+  if (isGroup) {
+    // In groups, the real sender is in participant
+    return message.key?.participant || message.participant || "";
+  }
+
+  // In DMs, remoteJid IS the sender
+  return remoteJid;
+}
+
+/**
+ * Strip any suffix and return a clean phone number
+ */
+function cleanPhone(jid = "") {
+  return jid
+    .replace(/@s\.whatsapp\.net$/, "")
+    .replace(/@g\.us$/, "")
+    .replace(/@.*$/, "")
+    .replace(/[^0-9]/g, "");
+}
+
+/**
+ * Send view-once media to a user's personal DM
+ */
+async function sendViewOnceToDMSilent(sock, rawJid, buffer, type) {
+  const phone = cleanPhone(rawJid);
+
+  if (!phone) {
+    return { success: false, error: "Could not resolve sender phone number" };
+  }
+
+  const dmJid = `${phone}@s.whatsapp.net`;
 
   try {
-    // STEP 1: Send a simple text message to establish the chat
-    // This is REQUIRED - WhatsApp won't accept media from unknown chats
-    await sock.sendMessage(dmJid, { text: "📤 Opening secure channel..." });
+    // Step 1: Establish chat with a text ping (required by WhatsApp)
+    await sock.sendMessage(dmJid, { text: "📤 Sending your view-once media..." });
     await delay(1000);
 
-    // STEP 2: Send a blank/typing indicator to ensure connection
+    // Step 2: Typing presence (optional but improves reliability)
     await sock.sendPresenceUpdate("composing", dmJid);
     await delay(500);
 
-    // STEP 3: Now send the actual view-once media
-    const messageOptions = {
-      [type]: buffer,
-      viewOnce: true
-    };
-
-    if (type === "image") {
-      messageOptions.caption = "🔒 View-Once Image\n👑 AYOBOT";
-      messageOptions.mimetype = "image/jpeg";
-    } else if (type === "video") {
-      messageOptions.caption = "🔒 View-Once Video\n👑 AYOBOT";
-      messageOptions.mimetype = "video/mp4";
-    } else if (type === "audio") {
-      messageOptions.mimetype = "audio/mp4";
-      messageOptions.ptt = true;
-    }
-
+    // Step 3: Build and send the view-once message
+    const messageOptions = buildViewOnceOptions(buffer, type);
     await sock.sendMessage(dmJid, messageOptions);
+
     return { success: true };
 
   } catch (error) {
     console.error("[sendViewOnceToDMSilent] Error:", error.message);
 
-    // If the error is about chat not existing, try a different approach
-    if (error.message?.includes("not-allowed") || error.message?.includes("privacy")) {
-      // Try sending as a regular message first, then view-once
+    const isPrivacyError =
+      error.message?.includes("not-allowed") ||
+      error.message?.includes("privacy") ||
+      error.message?.includes("blocked");
+
+    if (isPrivacyError) {
+      // Fallback: send regular media first to establish trust, then view-once
       try {
-        // Send as regular media first (not view-once) to establish trust
-        const regularOptions = {
-          [type]: buffer,
-          caption: "📸 Media received. Sending secure view-once version..."
-        };
-        if (type === "image") regularOptions.mimetype = "image/jpeg";
-        if (type === "video") regularOptions.mimetype = "video/mp4";
-
-        await sock.sendMessage(dmJid, regularOptions);
-        await delay(1000);
-
-        // Now try view-once again
-        const viewOnceOptions = {
-          [type]: buffer,
-          viewOnce: true,
-          caption: "🔒 View-Once Version (can only be opened once)"
-        };
-        if (type === "image") viewOnceOptions.mimetype = "image/jpeg";
-        if (type === "video") viewOnceOptions.mimetype = "video/mp4";
-
-        await sock.sendMessage(dmJid, viewOnceOptions);
+        await sock.sendMessage(dmJid, buildRegularOptions(buffer, type));
+        await delay(1200);
+        await sock.sendMessage(dmJid, buildViewOnceOptions(buffer, type));
         return { success: true, wasRetried: true };
       } catch (retryError) {
-        return { success: false, error: retryError.message };
+        return { success: false, error: retryError.message, isPrivacy: true };
       }
     }
 
@@ -932,58 +1051,115 @@ async function sendViewOnceToDMSilent(sock, userJid, buffer, type) {
 }
 
 /**
- * .ok COMMAND - Reply to view-once message to receive in DM
+ * Build view-once message payload
+ */
+function buildViewOnceOptions(buffer, type) {
+  const options = { [type]: buffer, viewOnce: true };
+
+  if (type === "image") {
+    options.mimetype = "image/jpeg";
+    options.caption = "🔒 View-Once Image\n👑 AYOBOT";
+  } else if (type === "video") {
+    options.mimetype = "video/mp4";
+    options.caption = "🔒 View-Once Video\n👑 AYOBOT";
+  } else if (type === "audio") {
+    options.mimetype = "audio/mp4";
+    options.ptt = true;
+  }
+
+  return options;
+}
+
+/**
+ * Build regular (non-view-once) message payload for fallback
+ */
+function buildRegularOptions(buffer, type) {
+  const options = { [type]: buffer };
+
+  if (type === "image") {
+    options.mimetype = "image/jpeg";
+    options.caption = "📸 Establishing secure channel...";
+  } else if (type === "video") {
+    options.mimetype = "video/mp4";
+    options.caption = "🎥 Establishing secure channel...";
+  } else if (type === "audio") {
+    options.mimetype = "audio/mp4";
+    options.ptt = true;
+  }
+
+  return options;
+}
+
+/**
+ * Extract view-once media from a quoted message (works in groups + DMs)
+ */
+function extractViewOnceMedia(quotedMsg) {
+  if (!quotedMsg) return { mediaMsg: null, type: null };
+
+  // All possible wrappers WhatsApp uses for view-once
+  const containers = [
+    quotedMsg?.viewOnceMessageV2?.message,
+    quotedMsg?.viewOnceMessageV2Extension?.message,
+    quotedMsg?.viewOnceMessage?.message,
+    quotedMsg?.ephemeralMessage?.message,   // some clients wrap in ephemeral
+    quotedMsg,                               // sometimes unwrapped already
+  ];
+
+  for (const container of containers) {
+    if (!container) continue;
+
+    if (container.imageMessage) return { mediaMsg: container.imageMessage, type: "image" };
+    if (container.videoMessage) return { mediaMsg: container.videoMessage, type: "video" };
+    if (container.audioMessage) return { mediaMsg: container.audioMessage, type: "audio" };
+  }
+
+  return { mediaMsg: null, type: null };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * .ok COMMAND — Reply to a view-once message to receive it in your DM
+ * Works in both GROUP chats and personal DMs
  */
 export async function viewOnceToDM({ message, userJid, sock }) {
-  // Send processing reaction
   await sendReaction(sock, message, "⏳");
 
   try {
-    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    // ── 1. Resolve the real sender JID (critical fix for groups) ──────────
+    const senderJid = getSenderJid(message) || userJid;
+
+    if (!senderJid) {
+      console.error("[.ok] Could not determine sender JID");
+      await sendReaction(sock, message, "🔴");
+      return;
+    }
+
+    // ── 2. Get the quoted message ─────────────────────────────────────────
+    const contextInfo = message.message?.extendedTextMessage?.contextInfo
+                     ?? message.message?.imageMessage?.contextInfo
+                     ?? message.message?.videoMessage?.contextInfo
+                     ?? message.message?.audioMessage?.contextInfo;
+
+    const quotedMsg = contextInfo?.quotedMessage;
 
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
       return;
     }
 
-    // Extract view-once media
-    let mediaMsg = null;
-    let type = null;
-
-    const containers = [
-      quotedMsg.viewOnceMessageV2?.message,
-      quotedMsg.viewOnceMessageV2Extension?.message,
-      quotedMsg.viewOnceMessage?.message,
-      quotedMsg
-    ];
-
-    for (const container of containers) {
-      if (!container) continue;
-      if (container.imageMessage) {
-        mediaMsg = container.imageMessage;
-        type = "image";
-        break;
-      }
-      if (container.videoMessage) {
-        mediaMsg = container.videoMessage;
-        type = "video";
-        break;
-      }
-      if (container.audioMessage) {
-        mediaMsg = container.audioMessage;
-        type = "audio";
-        break;
-      }
-    }
+    // ── 3. Extract the view-once media ────────────────────────────────────
+    const { mediaMsg, type } = extractViewOnceMedia(quotedMsg);
 
     if (!mediaMsg || !type) {
       await sendReaction(sock, message, "❌");
       return;
     }
 
-    // Download the media
+    // ── 4. Download the media ─────────────────────────────────────────────
     const stream = await downloadContentFromMessage(mediaMsg, type);
     let buffer = Buffer.from([]);
+
     for await (const chunk of stream) {
       buffer = Buffer.concat([buffer, chunk]);
     }
@@ -993,18 +1169,14 @@ export async function viewOnceToDM({ message, userJid, sock }) {
       return;
     }
 
-    // Send to user's DM
-    const result = await sendViewOnceToDMSilent(sock, userJid, buffer, type);
+    // ── 5. Deliver to DM ──────────────────────────────────────────────────
+    const result = await sendViewOnceToDMSilent(sock, senderJid, buffer, type);
 
-    // Show result reaction
+    // ── 6. React based on outcome ─────────────────────────────────────────
     if (result.success) {
       await sendReaction(sock, message, "✅");
-    } else if (result.error?.includes("not-allowed") ||
-               result.error?.includes("privacy") ||
-               result.error?.includes("blocked") ||
-               result.error?.includes("chat")) {
-      // Privacy blocked - send a helpful hint via reaction only
-      await sendReaction(sock, message, "⚠️");
+    } else if (result.isPrivacy) {
+      await sendReaction(sock, message, "⚠️"); // Privacy settings blocking DM
     } else {
       await sendReaction(sock, message, "🔴");
     }
@@ -1015,14 +1187,14 @@ export async function viewOnceToDM({ message, userJid, sock }) {
   }
 }
 
-// Export all aliases
-export const ok = viewOnceToDM;
-export const dm = viewOnceToDM;
-export const tome = viewOnceToDM;
-export const senddm = viewOnceToDM;
+// ── Aliases ────────────────────────────────────────────────────────────────
+export const ok          = viewOnceToDM;
+export const dm          = viewOnceToDM;
+export const tome        = viewOnceToDM;
+export const senddm      = viewOnceToDM;
 export const privatemedia = viewOnceToDM;
-export const savetodm = viewOnceToDM;
-export const sendtome = viewOnceToDM;
+export const savetodm    = viewOnceToDM;
+export const sendtome    = viewOnceToDM;
 
 // ════════════════════════════════════════════════════════════════════════════
 //  .start - Opens DM with bot (prerequisite for .ok to work)
