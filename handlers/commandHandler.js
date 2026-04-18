@@ -1,17 +1,13 @@
 // handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMMAND HANDLER — FULLY FIXED v3
+//  COMMAND HANDLER — FULLY FIXED v4
 //  Author: AYOCODES
 //
 //  FIXES IN THIS VERSION:
-//  1. ✅ downloader module path corrected to ../commands/group/downloader.js
-//  2. ✅ viewonce module added — .ok wired to viewOnceToDM from correct file
-//  3. ✅ sendReaction imported from index (or inlined) — no more missing global
-//  4. ✅ "push" added to ACTIVATION_EXEMPT (was missing despite being an alias)
-//  5. ✅ handleCommand passes full context object — all commands get { fullArgs, from, sock, args, ... }
-//  6. ✅ reloadCommands properly resets MODULES without mutating a const declaration
-//  7. ✅ safeImport log corrected: namedFns override defaultFns (named exports win)
-//  8. ✅ rb() logs a clear warning per skipped command instead of silent skip
+//  1. ✅ downloader path fixed to ../features/downloader.js (NOT commands/group)
+//  2. ✅ viewonce path fixed to ../commands/group/viewonce.js
+//  3. ✅ All feature modules use correct ../features/ paths
+//  4. ✅ All command modules use correct ../commands/group/ paths
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -69,10 +65,10 @@ if (!ENV.PREFIX) {
 
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
 if (!OWNER_PHONE) {
-  cmdLog.warn("No owner phone configured! Set ADMIN or OWNER_PHONE in environment");
+  cmdLog.warn("⚠️ No owner phone configured! Set ADMIN or OWNER_PHONE in environment");
 } else {
   ENV.OWNER_PHONE = OWNER_PHONE;
-  cmdLog.ok(`Owner configured: ${OWNER_PHONE}`);
+  cmdLog.ok(`✅ Owner configured: ${OWNER_PHONE}`);
 }
 
 // ============================================================================
@@ -192,17 +188,15 @@ function sanitizeInput(input) {
 }
 
 // ============================================================================
-//  MODULE LOADER
+//  MODULE LOADER — CORRECT PATHS
 // ============================================================================
 
-// ✅ MODULES is a plain object — keys can be deleted/re-added in reloadCommands
 const MODULES = {};
 
 async function safeImport(moduleName, specifier) {
   try {
     const mod = await import(specifier);
 
-    // Named exports take priority over default exports (named are more explicit)
     const defaultFns =
       mod.default && typeof mod.default === "object"
         ? Object.fromEntries(
@@ -214,7 +208,6 @@ async function safeImport(moduleName, specifier) {
       Object.entries(mod).filter(([k, v]) => k !== "default" && typeof v === "function"),
     );
 
-    // ✅ namedFns last so they override defaultFns on key collision
     const merged = { ...defaultFns, ...namedFns, __raw: mod };
     const count  = Object.keys(merged).filter((k) => k !== "__raw").length;
 
@@ -235,17 +228,22 @@ async function loadAllModules() {
   cmdLog.title("📦 LOADING COMMAND MODULES");
   cmdLog.div();
 
-  // ✅ downloader now points to commands/group/downloader.js (was ../features/downloader.js)
-  // ✅ viewonce module added so .ok command has a home
+  // ✅ CORRECT PATHS:
+  // - Features are in ../features/
+  // - Group commands are in ../commands/group/
+  // - downloader is in ../features/downloader.js (NOT commands/group)
   const moduleMap = {
+    // Group command modules
     basic        : "../commands/group/basic.js",
     admin        : "../commands/group/admin.js",
-    viewonce     : "../commands/group/viewonce.js",      // ✅ NEW
-    downloader   : "../commands/group/downloader.js",    // ✅ FIXED PATH
+    viewonce     : "../commands/group/viewonce.js",
     groupCore    : "../commands/group/core.js",
     groupMod     : "../commands/group/moderation.js",
     groupSettings: "../commands/group/settings.js",
     automation   : "../commands/group/automation.js",
+
+    // Feature modules
+    downloader   : "../features/downloader.js",    // ✅ FIXED: features folder
     ai           : "../features/ai.js",
     calculator   : "../features/calculator.js",
     crypto       : "../features/crypto.js",
@@ -276,7 +274,7 @@ async function loadAllModules() {
   ).length;
 
   cmdLog.div();
-  cmdLog.success(`Loaded ${loaded}/${Object.keys(moduleMap).length} modules`);
+  cmdLog.success(`✅ Loaded ${loaded}/${Object.keys(moduleMap).length} modules`);
   console.log();
 }
 
@@ -337,10 +335,6 @@ export function safeRegister(primaryName, handler, options = {}) {
   }
 }
 
-/**
- * Return the first function found under any of the given keys in a module.
- * Returns null (not undefined) so safeRegister can type-check cleanly.
- */
 function fn(mod, ...keys) {
   for (const key of keys) {
     if (mod && typeof mod[key] === "function") return mod[key];
@@ -360,10 +354,6 @@ export function registerAllCommands() {
   // ── BASIC.JS ──────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
-  /**
-   * rb() — register from basic module.
-   * ✅ Logs a clear warning for each skipped command (was silently skipping).
-   */
   const rb = (name, key, opts) => {
     const f = fn(b, key, name);
     if (!f) {
@@ -407,8 +397,7 @@ export function registerAllCommands() {
   rb("deactivate", "deactivate",  { category: "group",   groupOnly: true, adminOnly: true });
   rb("antilink",   "antilink",    { category: "group",   groupOnly: true, aliases: ["nolink", "blocklinks"] });
 
-  // ✅ .ok — wired to viewonce.js, NOT basic.js
-  //    viewonce.js exports viewOnceToDM plus individual named aliases so fn() finds it.
+  // ✅ .ok from viewonce.js
   {
     const vMod = MODULES.viewonce;
     const okFn = fn(vMod, "viewOnceToDM", "ok", "dm", "tome");
@@ -419,10 +408,10 @@ export function registerAllCommands() {
         aliases : ["dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome"],
       })) {
         count++;
-        cmdLog.success(".ok registered → viewOnceToDM | aliases: dm, tome, senddm, push, privatemedia, savetodm, sendtome");
+        cmdLog.success("✅ .ok registered → viewOnceToDM");
       }
     } else {
-      cmdLog.err("CRITICAL: viewOnceToDM not found in viewonce.js — .ok will not work");
+      cmdLog.err("❌ CRITICAL: viewOnceToDM not found in viewonce.js");
     }
   }
 
@@ -468,40 +457,34 @@ export function registerAllCommands() {
     if (safeRegister("dict", fn(m, "dict", "define", "dictionary"), { category: "info", aliases: ["define", "meaning", "word"] })) count++;
   }
 
-  // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
+  // ── DOWNLOADER.JS (features folder) ───────────────────────────────────────
   {
     const m = MODULES.downloader;
 
     if (!m || Object.keys(m).filter((k) => k !== "__raw").length === 0) {
-      cmdLog.warn("Downloader module not loaded — skipping registration");
+      cmdLog.warn("⚠️ Downloader module not loaded — check ../features/downloader.js");
     } else {
       cmdLog.debug(`Downloader exports: ${Object.keys(m).filter((k) => k !== "__raw").join(", ")}`);
 
-      if (safeRegister("youtube",   fn(m, "youtube"),   { category: "dl", aliases: ["yt", "ytdl", "ytinfo"] })) count++;
-      if (safeRegister("tiktok",    fn(m, "tiktok"),    { category: "dl", aliases: ["tt", "tok", "tiktokdl", "tiktokvideo"] })) count++;
-      if (safeRegister("spotify",   fn(m, "spotify"),   { category: "dl", aliases: ["sp", "spotifydl", "spdl"] })) count++;
-      if (safeRegister("instagram", fn(m, "instagram"), { category: "dl", aliases: ["ig", "insta", "igdl", "instadl"] })) count++;
-      if (safeRegister("facebook",  fn(m, "facebook"),  { category: "dl", aliases: ["fb", "fbdl", "fbd"] })) count++;
-      if (safeRegister("twitter",   fn(m, "twitter"),   { category: "dl", aliases: ["x", "tweet", "xdl", "twdl"] })) count++;
-      if (safeRegister("gif",       fn(m, "gif"),       { category: "dl", aliases: ["giphy", "tenor", "gifsearch", "animated"] })) count++;
-      if (safeRegister("img",       fn(m, "image", "imageSearch", "img"), { category: "dl", aliases: ["image", "imgsearch", "pics", "photo"] })) count++;
-      if (safeRegister("pinterest", fn(m, "pinterest"), { category: "dl", aliases: ["pin", "pinsearch", "pins"] })) count++;
-      if (safeRegister("dl",        fn(m, "download"),  { category: "dl", aliases: ["download", "get"] })) count++;
-
-      // play lives in downloader.js — only register if music.js hasn't taken it yet
-      if (!primaryCommands.has("play")) {
-        const playFn = fn(m, "play");
-        if (safeRegister("play", playFn, { category: "music", aliases: ["mp3", "song", "music"] })) count++;
-      }
+      if (safeRegister("youtube",   fn(m, "youtube", "yt", "ytdl", "downloadYouTube"), { category: "dl", aliases: ["yt", "ytdl", "ytinfo"] })) count++;
+      if (safeRegister("tiktok",    fn(m, "tiktok", "tt", "downloadTikTok"),           { category: "dl", aliases: ["tt", "tok", "tiktokdl"] })) count++;
+      if (safeRegister("spotify",   fn(m, "spotify", "sp", "downloadSpotify"),         { category: "dl", aliases: ["sp", "spotifydl"] })) count++;
+      if (safeRegister("instagram", fn(m, "instagram", "ig", "downloadInstagram"),     { category: "dl", aliases: ["ig", "insta", "igdl"] })) count++;
+      if (safeRegister("facebook",  fn(m, "facebook", "fb", "downloadFacebook"),       { category: "dl", aliases: ["fb", "fbdl"] })) count++;
+      if (safeRegister("twitter",   fn(m, "twitter", "x", "downloadTwitter"),          { category: "dl", aliases: ["x", "tweet", "xdl"] })) count++;
+      if (safeRegister("gif",       fn(m, "gif", "giphy", "searchGif"),                { category: "dl", aliases: ["giphy", "tenor", "gifsearch"] })) count++;
+      if (safeRegister("img",       fn(m, "image", "img", "searchImage"),              { category: "dl", aliases: ["image", "imgsearch", "pics"] })) count++;
+      if (safeRegister("pinterest", fn(m, "pinterest", "pin", "searchPinterest"),      { category: "dl", aliases: ["pin", "pinsearch"] })) count++;
+      if (safeRegister("dl",        fn(m, "download", "dl", "universalDownload"),      { category: "dl", aliases: ["download", "get"] })) count++;
+      if (safeRegister("play",      fn(m, "play", "musicDownload"),                    { category: "music", aliases: ["mp3", "song", "music"] })) count++;
     }
   }
 
-  // ── MUSIC.JS ──────────────────────────────────────────────────────────────
+  // ── MUSIC.JS (fallback if downloader doesn't have play) ────────────────────
   {
     const m = MODULES.music;
-    // Only register play from music.js if downloader hasn't claimed it
     if (!primaryCommands.has("play")) {
-      if (safeRegister("play", fn(m, "musicDownload", "play", "playMusic", "download"), { category: "music", aliases: ["mp3", "music", "song"] })) count++;
+      if (safeRegister("play", fn(m, "musicDownload", "play", "playMusic"), { category: "music", aliases: ["mp3", "music", "song"] })) count++;
     }
     if (safeRegister("lyrics",      fn(m, "musicLyrics", "lyrics", "getLyrics"),   { category: "music", aliases: ["lyric", "songlyrics"] })) count++;
     if (safeRegister("trending",    fn(m, "musicTrending", "trending", "charts"),  { category: "music", aliases: ["chart", "topsongs"] })) count++;
@@ -683,14 +666,14 @@ export function registerAllCommands() {
 
   // ── FINAL SUMMARY ─────────────────────────────────────────────────────────
   cmdLog.div();
-  cmdLog.success(`Registered ${count} commands | Primary: ${primaryCommands.size} | With aliases: ${commands.size}`);
+  cmdLog.success(`✅ Registered ${count} commands | Primary: ${primaryCommands.size} | With aliases: ${commands.size}`);
 
-  const critical = ["menu", "ping", "ok", "start", "status", "tts", "joke", "quote", "play"];
+  const critical = ["menu", "ping", "ok", "start", "status", "tts", "joke", "quote", "play", "img", "gif"];
   const missing  = critical.filter((c) => !commands.has(c));
   if (missing.length > 0) {
-    cmdLog.err(`Missing critical commands: ${missing.join(", ")}`);
+    cmdLog.err(`❌ Missing critical commands: ${missing.join(", ")}`);
   } else {
-    cmdLog.success(`All critical commands present: ${critical.join(", ")}`);
+    cmdLog.success(`✅ All critical commands present: ${critical.join(", ")}`);
   }
 
   console.log();
@@ -712,14 +695,13 @@ async function resolveEffectiveBotAdmin(sock, groupJid, ownerPhone) {
 
 // ============================================================================
 //  ACTIVATION EXEMPT COMMANDS
-//  ✅ "push" added — it's an alias for .ok and must bypass activation gate
 // ============================================================================
 const ACTIVATION_EXEMPT = new Set([
   "activate", "deactivate",
   "testadmin", "refreshadmin", "admintest", "checkadmin", "refresh", "clearcache",
   "groupdebug", "gdebug", "groupdbg",
   "menu", "help", "ping", "status", "start", "init", "begin", "connectdm", "dmopen",
-  "ok", "dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome",  // ✅ push was missing
+  "ok", "dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome",
 ]);
 
 // ============================================================================
@@ -740,7 +722,6 @@ export async function handleCommand(message, sock) {
     const sessionMode = session?.mode       || ENV.BOT_MODE || "public";
     const sessionId   = session?.id         || "";
 
-    // ── Resolve sender JID ──────────────────────────────────────────────────
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
@@ -758,7 +739,6 @@ export async function handleCommand(message, sock) {
     const isAdminUser      = fromMe || isAdmin(userJid, ownerPhone);
     const isAuthorizedUser = isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
-    // ── Extract message text ─────────────────────────────────────────────────
     const m = message.message || {};
     const msgText =
       m.conversation               ||
@@ -770,7 +750,7 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // ── Trivia answer handler ────────────────────────────────────────────────
+    // Trivia handler
     if (!trimmed.startsWith(ENV.PREFIX)) {
       if (global.activeTrivia instanceof Map && global.activeTrivia.has(from)) {
         const upper = trimmed.toUpperCase();
@@ -789,8 +769,7 @@ export async function handleCommand(message, sock) {
       return;
     }
 
-    // ── Parse command ────────────────────────────────────────────────────────
-    const body        = trimmed.slice(ENV.PREFIX.length).trim();
+    const body = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
     const parts       = body.split(/\s+/);
@@ -801,18 +780,14 @@ export async function handleCommand(message, sock) {
     const fullArgs = rawArgs.join(" ");
     const args     = rawArgs.map(sanitizeInput);
 
-    // ── Banned check ─────────────────────────────────────────────────────────
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
 
-    // ── Group activation gate ────────────────────────────────────────────────
     if (isGroup && !isAdminUser && !isGroupActivated(sessionId, from)) {
       if (!ACTIVATION_EXEMPT.has(commandName)) return;
     }
 
-    // ── Private mode gate ────────────────────────────────────────────────────
     if (sessionMode === "private" && !isAdminUser) return;
 
-    // ── Lookup command ────────────────────────────────────────────────────────
     const commandMeta = commands.get(commandName);
 
     if (!commandMeta) {
@@ -830,42 +805,28 @@ export async function handleCommand(message, sock) {
     }
 
     const handlerFunction = commandMeta.handler;
-    const primaryName     = commandMeta.isAlias
-      ? commandMeta.primaryName
-      : (commandMeta.primaryName || commandName);
+    const primaryName     = commandMeta.isAlias ? commandMeta.primaryName : (commandMeta.primaryName || commandName);
 
-    // ── Usage tracking ────────────────────────────────────────────────────────
     if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
     commandUsage.get(userJid)[primaryName] = (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
-    const stats = commandStats.get(primaryName) || {
-      uses: 0, errors: 0, lastUsed: null, avgResponseTime: 0, totalResponseTime: 0,
-    };
+    const stats = commandStats.get(primaryName) || { uses: 0, errors: 0, lastUsed: null, avgResponseTime: 0, totalResponseTime: 0 };
     stats.uses++;
     stats.lastUsed = Date.now();
     commandStats.set(primaryName, stats);
     if (session) session.commandCount = (session.commandCount || 0) + 1;
 
-    // ── Rate limiting ─────────────────────────────────────────────────────────
     if (!isAdminUser && !rateLimiter.isAllowed(userJid)) {
       const seconds = Math.ceil(rateLimiter.remaining(userJid) / 1000);
-      const msgs = [
-        `⏳ *Slow down!* Wait *${seconds}s*.`,
-        `🧘 *Take a breath!* Wait ${seconds}s.`,
-        `⚡ *Rate limited!* Try again in ${seconds}s.`,
-      ];
+      const msgs = [`⏳ *Slow down!* Wait *${seconds}s*.`, `🧘 *Take a breath!* Wait ${seconds}s.`, `⚡ *Rate limited!* Try again in ${seconds}s.`];
       return sock.sendMessage(from, { text: msgs[Math.floor(Math.random() * msgs.length)] });
     }
 
-    // ── Cooldown ──────────────────────────────────────────────────────────────
     if (!isAdminUser && commandCooldown.isOnCooldown(userJid, primaryName)) {
       const seconds = Math.ceil(commandCooldown.getRemaining(userJid, primaryName) / 1000);
-      return sock.sendMessage(from, {
-        text: `⏳ *Cooldown!* Wait *${seconds}s* before using *${ENV.PREFIX}${primaryName}* again.`,
-      });
+      return sock.sendMessage(from, { text: `⏳ *Cooldown!* Wait *${seconds}s* before using *${ENV.PREFIX}${primaryName}* again.` });
     }
 
-    // ── Permission gates ──────────────────────────────────────────────────────
     if (commandMeta.adminOnly && !isAdminUser) {
       return sock.sendMessage(from, { text: `⛔ *${ENV.PREFIX}${commandName}* is for the *bot owner* only.` });
     }
@@ -883,19 +844,11 @@ export async function handleCommand(message, sock) {
       const botIsAdmin = await resolveEffectiveBotAdmin(sock, from, ownerPhone);
       if (!botIsAdmin) {
         return sock.sendMessage(from, {
-          text:
-            `⚠️ *Bot Not Admin*\n\n` +
-            `I need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.\n\n` +
-            `📌 *How to fix:*\n` +
-            `1. Make me a group admin, OR\n` +
-            `2. Make the bot owner a group admin (I inherit their rights)\n` +
-            `3. Run *${ENV.PREFIX}refreshadmin* to force-refresh\n\n` +
-            `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+          text: `⚠️ *Bot Not Admin*\n\nI need to be a *group admin* to use *${ENV.PREFIX}${commandName}*.\n\n📌 *How to fix:*\n1. Make me a group admin, OR\n2. Make the bot owner a group admin\n3. Run *${ENV.PREFIX}refreshadmin*`,
         });
       }
     }
 
-    // ── Execute ───────────────────────────────────────────────────────────────
     commandCooldown.setCooldown(userJid, primaryName);
     cmdLog.cmd(`[${executionId}] ${ENV.PREFIX}${commandName} → ${primaryName} | ${cleanPhone}${isGroup ? " [G]" : ""}`);
 
@@ -903,16 +856,15 @@ export async function handleCommand(message, sock) {
       if (session && typeof session === "object") session.mode = newMode;
     };
 
-    // ✅ Full context object — every command gets all fields it might need
     const context = {
       args, fullArgs, message, from,
-      groupJid    : isGroup ? from : null,
+      groupJid: isGroup ? from : null,
       userJid, cleanPhone, isGroup, isDM: !isGroup, fromMe, sock,
-      isAdmin     : isAdminUser,
+      isAdmin: isAdminUser,
       isAuthorized: isAuthorizedUser,
-      commandName : primaryName,
-      invokedAs   : commandName,
-      prefix      : ENV.PREFIX,
+      commandName: primaryName,
+      invokedAs: commandName,
+      prefix: ENV.PREFIX,
       session, sessionId, sessionMode, ownerPhone, ENV, setMode,
     };
 
@@ -921,31 +873,25 @@ export async function handleCommand(message, sock) {
     try {
       await Promise.race([
         handlerFunction(context),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Command timeout (60s)")), 60_000),
-        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Command timeout (60s)")), 60_000)),
       ]);
 
       const ms = Date.now() - handlerStart;
       stats.totalResponseTime += ms;
-      stats.avgResponseTime    = stats.totalResponseTime / stats.uses;
+      stats.avgResponseTime = stats.totalResponseTime / stats.uses;
       commandStats.set(primaryName, stats);
       cmdLog.success(`[${executionId}] ${primaryName} OK (${ms}ms)`);
     } catch (cmdError) {
       stats.errors++;
       commandStats.set(primaryName, stats);
       cmdLog.err(`[${executionId}] ${primaryName} error: ${cmdError.message}`);
-      const errMsg = cmdError.message?.length > 100
-        ? "❌ An error occurred while executing the command."
-        : `❌ *Error:* ${sanitizeInput(cmdError.message)}`;
+      const errMsg = cmdError.message?.length > 100 ? "❌ An error occurred while executing the command." : `❌ *Error:* ${sanitizeInput(cmdError.message)}`;
       try { await sock.sendMessage(from, { text: errMsg }); } catch (_) {}
     }
   } catch (fatalError) {
     cmdLog.err(`[${executionId}] FATAL: ${fatalError.message}`);
     try {
-      await sock?.sendMessage(message?.key?.remoteJid, {
-        text: "❌ A system error occurred. Please try again.",
-      });
+      await sock?.sendMessage(message?.key?.remoteJid, { text: "❌ A system error occurred. Please try again." });
     } catch (_) {}
   }
 }
@@ -974,11 +920,7 @@ function levenshteinDistance(a, b) {
       if (b[i - 1] === a[j - 1]) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1,
-        );
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
       }
     }
   }
@@ -992,15 +934,15 @@ export function getCommandInfo(name) {
   const meta = commands.get(name?.toLowerCase());
   if (!meta) return null;
   return {
-    name            : meta.primaryName || name,
-    category        : meta.category,
-    description     : meta.description,
-    adminOnly       : meta.adminOnly,
-    groupOnly       : meta.groupOnly,
+    name: meta.primaryName || name,
+    category: meta.category,
+    description: meta.description,
+    adminOnly: meta.adminOnly,
+    groupOnly: meta.groupOnly,
     requireGroupAdmin: meta.requireGroupAdmin,
-    requireBotAdmin : meta.requireBotAdmin,
-    isAlias         : meta.isAlias || false,
-    aliases         : meta.aliases || [],
+    requireBotAdmin: meta.requireBotAdmin,
+    isAlias: meta.isAlias || false,
+    aliases: meta.aliases || [],
   };
 }
 
@@ -1011,13 +953,13 @@ export function getCommandStats(name) {
 export function getAllStats() {
   let totalUses = 0, totalErrors = 0;
   for (const s of commandStats.values()) {
-    totalUses   += s.uses;
+    totalUses += s.uses;
     totalErrors += s.errors;
   }
   return {
     totalCommands: primaryCommands.size,
-    totalAliases : commands.size - primaryCommands.size,
-    totalEntries : commands.size,
+    totalAliases: commands.size - primaryCommands.size,
+    totalEntries: commands.size,
     totalUses, totalErrors,
     topCommands: Array.from(commandStats.entries())
       .sort((a, b) => b[1].uses - a[1].uses)
@@ -1032,15 +974,10 @@ export async function reloadCommands() {
   primaryCommands.clear();
   aliasMap.clear();
   commandStats.clear();
-
-  // ✅ MODULES is a plain object — delete keys individually (can't reassign a const)
-  for (const key of Object.keys(MODULES)) {
-    delete MODULES[key];
-  }
-
+  for (const key of Object.keys(MODULES)) delete MODULES[key];
   await loadAllModules();
   registerAllCommands();
-  cmdLog.success("Commands reloaded successfully");
+  cmdLog.success("✅ Commands reloaded");
 }
 
 export function shutdown() {
@@ -1049,6 +986,6 @@ export function shutdown() {
 }
 
 process.on("SIGTERM", shutdown);
-process.on("SIGINT",  shutdown);
+process.on("SIGINT", shutdown);
 
 export { commandCooldown, MODULES as modules, rateLimiter };
