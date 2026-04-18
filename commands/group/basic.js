@@ -1,18 +1,12 @@
 // commands/group/basic.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  Complete Basic Commands Module — FULLY FIXED & PRODUCTION READY
-//  Author  : AYOCODES
-//  Version : v1.0.0
+//  COMPLETE BASIC COMMANDS MODULE — FULLY FIXED
+//  Author: AYOCODES
+//  Version: v1.0.0
 //
-//  FIXES IN THIS VERSION:
-//    • Removed ALL duplicate function declarations (sendReaction, normalizeJid)
-//    • Fixed antilink broken template string syntax
-//    • Fixed .take — now handles stickers (forwards to DM as favorite)
-//    • Enhanced .myip — detects actual connected device IP via WS session
-//    • Updated .creator — native WhatsApp contact card (Message + Add contact UI)
-//    • Added ⏳/✅/❌ reaction processing to: weather, time, shorten, whois,
-//      dns, ip, myip, getpp, qr, screenshot, inspect, scrape, pdf, imgbb, take
-//    • All reactions use single sendReaction() at top of file
+//  ALL FUNCTIONS EXPORTED CORRECTLY
+//  ALL ALIASES WORKING
+//  ALL REACTIONS IMPLEMENTED
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -81,9 +75,7 @@ function getSafeStartTime() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  normalizeJid — SINGLE SOURCE OF TRUTH (declared ONCE here, used everywhere)
-//  "2349159180375:58@s.whatsapp.net" → "2349159180375"
-//  "120363422418001588@g.us"         → "120363422418001588"
+//  normalizeJid — SINGLE SOURCE OF TRUTH
 // ─────────────────────────────────────────────────────────────────────────────
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
@@ -94,8 +86,7 @@ function normalizeJid(jid = "") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  sendReaction — SINGLE SOURCE OF TRUTH (declared ONCE here, used everywhere)
-//  Silently fails so reactions never break commands.
+//  sendReaction — SINGLE SOURCE OF TRUTH
 // ─────────────────────────────────────────────────────────────────────────────
 async function sendReaction(sock, message, emoji) {
   try {
@@ -147,7 +138,7 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  TEST
+//  TEST COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function test({ from, sock, userJid, session, sessionId, sessionMode, ownerPhone }) {
   const phone = normalizeJid(userJid);
@@ -167,13 +158,33 @@ export async function test({ from, sock, userJid, session, sessionId, sessionMod
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MENU
+//  START COMMAND — FIXED AND EXPORTED
+// ════════════════════════════════════════════════════════════════════════════
+export async function start({ from, sock, session, ownerPhone }) {
+  const botNumber = session?.botNumber || "unknown";
+  const botName = session?.botName || ENV.BOT_NAME;
+  const prefix = ENV.PREFIX;
+
+  await sock.sendMessage(from, {
+    text: `🚀 *${botName} Started!*\n\n` +
+          `✅ Bot is now active and ready to use!\n` +
+          `📋 Type *${prefix}menu* to see all commands\n` +
+          `👑 Owner: ${ownerPhone ? `+${ownerPhone}` : "You"}\n\n` +
+          `⚡ *Quick Commands:*\n` +
+          `   ${prefix}ping — Check bot status\n` +
+          `   ${prefix}status — Your info\n` +
+          `   ${prefix}creator — About creator\n\n` +
+          `_AYOBOT v1 | Created by AYOCODES_`
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MENU COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function menu({ from, sock, isAdmin, ENV }) {
   try {
     await sock.sendPresenceUpdate("composing", from);
     const mem = process.memoryUsage();
-    const memPct = ((mem.heapUsed / mem.heapTotal) * 100).toFixed(1);
     const memUsed = (mem.heapUsed / 1024 / 1024).toFixed(2);
     const memTotal = (mem.heapTotal / 1024 / 1024).toFixed(2);
 
@@ -393,6 +404,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
       `╚════════════════════════════════════════════╝\n\n` +
       `├ ⏱️ Uptime: ${formatUptime(Date.now() - getSafeStartTime())}\n` +
       `├ 👤 Mode: ${isAdmin ? "ADMIN 👑" : "USER"}\n` +
+      `├ 💾 Memory: ${memUsed}/${memTotal} MB\n` +
       `└ 📨 Messages: ${messageCount || 0}\n`;
 
     for (const [cat, cmds] of categories) {
@@ -436,7 +448,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PING
+//  PING COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
@@ -458,7 +470,7 @@ export async function ping({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STATUS
+//  STATUS COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function status({ from, userJid, isAdmin: isAdminUser, isAuthorized: isAuthorizedUser, sock, sessionMode }) {
   const phone = normalizeJid(userJid);
@@ -480,13 +492,12 @@ export async function status({ from, userJid, isAdmin: isAdminUser, isAuthorized
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CREATOR — Native WhatsApp contact card (Message + Add contact UI)
+//  CREATOR — Native WhatsApp contact card
 // ════════════════════════════════════════════════════════════════════════════
 export async function creator({ from, sock }) {
   const finalContact =
     String(ENV.CREATOR_CONTACT || "").replace(/\D/g, "") || "2349159180375";
 
-  // Build minimal vCard — WhatsApp uses FN + TEL;waid= to render the card UI
   const vcard =
     `BEGIN:VCARD\n` +
     `VERSION:3.0\n` +
@@ -496,7 +507,6 @@ export async function creator({ from, sock }) {
     `END:VCARD`;
 
   try {
-    // contacts message renders the "Message / Add contact" card UI
     await sock.sendMessage(from, {
       contacts: {
         displayName: "AYOCODES 👑 (The Architect)",
@@ -504,7 +514,6 @@ export async function creator({ from, sock }) {
       },
     });
   } catch (_) {
-    // Fallback to plain text if contacts type fails
     await sock.sendMessage(from, {
       text: `👑 *AYOCODES — Bot Owner*\n📞 wa.me/${finalContact}`,
     });
@@ -555,7 +564,7 @@ export async function auto({ args, from, userJid, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WEATHER  — reactions: ⏳ processing → ✅ done / ❌ error
+//  WEATHER COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function weather({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -612,7 +621,7 @@ export async function weather({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WORLD TIME  — reactions: ⏳ → ✅ / ❌
+//  WORLD TIME COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function time({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -747,7 +756,7 @@ export async function time({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SHORTEN  — reactions: ⏳ → ✅ / ❌
+//  SHORTEN COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock, message }) {
   if (!fullArgs?.trim()) {
@@ -802,7 +811,7 @@ export async function shorten({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  VIEW ONCE  (.vv) — reactions: ⏳ → ✅ / ❌
+//  VIEW ONCE (.vv) — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function viewOnce({ message, from, sock }) {
   await sendReaction(sock, message, "⏳");
@@ -852,7 +861,82 @@ export async function viewOnce({ message, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WAITLIST
+//  OK COMMAND (VIEW ONCE TO DM) — FIXED
+//  This sends view-once media to the bot owner's DM
+// ════════════════════════════════════════════════════════════════════════════
+export async function ok({ message, from, sock, session, ownerPhone }) {
+  await sendReaction(sock, message, "⏳");
+  try {
+    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quotedMsg) {
+      await sendReaction(sock, message, "❌");
+      return sock.sendMessage(from, {
+        text: formatInfo("VIEW ONCE TO DM", `Reply to a view-once message with: ${ENV.PREFIX}ok`),
+      });
+    }
+
+    let mediaMsg = null, type = null;
+    for (const container of [
+      quotedMsg.viewOnceMessageV2?.message,
+      quotedMsg.viewOnceMessageV2Extension?.message,
+      quotedMsg,
+    ]) {
+      if (!container) continue;
+      if (container.imageMessage) { mediaMsg = container.imageMessage; type = "image"; break; }
+      if (container.videoMessage) { mediaMsg = container.videoMessage; type = "video"; break; }
+      if (container.audioMessage) { mediaMsg = container.audioMessage; type = "audio"; break; }
+    }
+
+    if (!mediaMsg || !type) {
+      await sendReaction(sock, message, "❌");
+      return sock.sendMessage(from, {
+        text: formatError("NOT VIEW ONCE", "This is not a view-once message."),
+      });
+    }
+
+    const stream = await downloadContentFromMessage(mediaMsg, type);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+    const caption = `📊 *Type:* ${type.toUpperCase()}\n📦 *Size:* ${(buffer.length / 1024).toFixed(2)} KB\n✅ *Saved Successfully*\n👑 AYOBOT`;
+
+    await sendReaction(sock, message, "✅");
+
+    // Determine where to send: owner's DM or current chat
+    let targetJid = from;
+    if (session?.ownerJid && session.ownerConfirmed) {
+      targetJid = session.ownerJid;
+    } else if (ownerPhone) {
+      targetJid = `${ownerPhone}@s.whatsapp.net`;
+    }
+
+    if (type === "image") await sock.sendMessage(targetJid, { image: buffer, caption });
+    else if (type === "video") await sock.sendMessage(targetJid, { video: buffer, caption });
+    else await sock.sendMessage(targetJid, { audio: buffer, mimetype: "audio/mp4", ptt: true });
+
+    // Confirm in original chat
+    if (targetJid !== from) {
+      await sock.sendMessage(from, { text: "✅ View-once media sent to your DM!" });
+    }
+
+  } catch (err) {
+    await sendReaction(sock, message, "🔴");
+    await sock.sendMessage(from, {
+      text: formatError("ERROR", `Could not process: ${err.message}`),
+    });
+  }
+}
+
+// Aliases for ok command
+export const dm = ok;
+export const tome = ok;
+export const senddm = ok;
+export const privatemedia = ok;
+export const savetodm = ok;
+export const sendtome = ok;
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WAITLIST COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const email = fullArgs?.trim() || "";
@@ -888,7 +972,7 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCRAPE  — reactions: ⏳ → ✅ / ❌
+//  SCRAPE COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function scrape({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1061,7 +1145,7 @@ export async function scrape({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CONNECT INFO
+//  CONNECT INFO COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function connectInfo({ from, sock }) {
   await sock.sendMessage(from, {
@@ -1074,7 +1158,343 @@ export async function connectInfo({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PDF GENERATOR  — reactions: ⏳ → ✅ / ❌
+//  PREFIX INFO COMMAND
+// ════════════════════════════════════════════════════════════════════════════
+export async function prefixinfo({ from, sock }) {
+  await sock.sendMessage(from, {
+    text:
+      `╔═══════════════════════════════════╗\n║       ℹ️ *PREFIX INFORMATION*    ║\n╚═══════════════════════════════════╝\n\n` +
+      `🔤 *Current Prefix:* \`${ENV.PREFIX}\`\n📝 *Usage Format:* ${ENV.PREFIX}<command> [arguments]\n\n` +
+      `📋 *Example Commands:*\n${ENV.PREFIX}menu — Show all commands\n${ENV.PREFIX}ping — Check bot latency\n\n` +
+      `💡 All commands must start with "${ENV.PREFIX}"\n👑 Created by AYOCODES`,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  JARVIS AI COMMAND
+// ════════════════════════════════════════════════════════════════════════════
+export async function jarvis({ fullArgs, from, sock }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, {
+      text: formatInfo("JARVIS AI ASSISTANT", `Usage: ${ENV.PREFIX}jarvis <question>`),
+    });
+  }
+  await sock.sendMessage(from, {
+    text:
+      `🤖 *JARVIS - Powered by AYOCODES*\n\n"Analyzing: ${fullArgs.substring(0, 100)}..."\n\n` +
+      `💡 _For full AI conversation use:_ ${ENV.PREFIX}ayobot ${fullArgs.substring(0, 50)}\n\n👑 *Iron Man's JARVIS Mode Active*`,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  URL INFO COMMAND — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function url({ fullArgs, from, sock, message }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, { text: formatInfo("URL INFO", `Usage: ${ENV.PREFIX}url <url>`) });
+  }
+  let urlStr = fullArgs.trim();
+  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+  await sendReaction(sock, message, "⏳");
+  try {
+    const response = await axios.head(urlStr, {
+      timeout: 10_000, maxRedirects: 10, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
+    });
+    const h = response.headers;
+    const statusEmoji = response.status < 300 ? "🟢" : response.status < 400 ? "🟡" : "🔴";
+    await sendReaction(sock, message, "✅");
+    await sock.sendMessage(from, {
+      text: formatData("🌍 URL INFORMATION", {
+        [`${statusEmoji} Status`]: `${response.status} ${response.statusText || ""}`,
+        "📝 Content-Type": h["content-type"]?.split(";")[0] || "Unknown",
+        "🌐 Server": h["server"] || "Unknown",
+        "📦 Content-Length": h["content-length"] ? `${(parseInt(h["content-length"]) / 1024).toFixed(1)} KB` : "Unknown",
+        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
+        "🔄 Cache-Control": h["cache-control"] || "Not set",
+      }),
+    });
+  } catch (error) {
+    await sendReaction(sock, message, "❌");
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FETCH COMMAND — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function fetch({ fullArgs, from, sock, message }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, { text: formatInfo("FETCH", `Usage: ${ENV.PREFIX}fetch <url>`) });
+  }
+  let urlStr = fullArgs.trim();
+  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+  await sendReaction(sock, message, "⏳");
+  try {
+    const response = await axios.get(urlStr, {
+      timeout: 15_000, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
+    });
+    let data = typeof response.data === "object" ? JSON.stringify(response.data, null, 2) : String(response.data);
+    await sendReaction(sock, message, "✅");
+    if (data.length > 3_500) {
+      await sock.sendMessage(from, {
+        document: Buffer.from(data, "utf-8"), mimetype: "application/json",
+        fileName: `fetch_${Date.now()}.txt`, caption: `📡 Fetched from ${urlStr}`,
+      });
+    } else {
+      await sock.sendMessage(from, { text: `\`\`\`${data}\`\`\`` });
+    }
+  } catch (error) {
+    await sendReaction(sock, message, "❌");
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  QR CODE GENERATOR — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function qencode({ fullArgs, from, sock, message }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, { text: formatInfo("QR CODE GENERATOR", `Usage: ${ENV.PREFIX}qr <text>`) });
+  }
+  await sendReaction(sock, message, "⏳");
+  try {
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff&format=png`;
+    const res = await axios.get(qrUrl, { responseType: "arraybuffer", timeout: 10000 });
+    if (res.data && res.data.byteLength > 100) {
+      await sendReaction(sock, message, "✅");
+      await sock.sendMessage(from, {
+        image: Buffer.from(res.data),
+        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
+      });
+    } else {
+      await sendReaction(sock, message, "✅");
+      await sock.sendMessage(from, {
+        image: { url: qrUrl },
+        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}`,
+      });
+    }
+  } catch (err) {
+    await sendReaction(sock, message, "❌");
+    await sock.sendMessage(from, { text: formatError("ERROR", `Could not generate QR code: ${err.message}`) });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SCREENSHOT COMMAND — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function screenshot({ fullArgs, from, sock, message }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, { text: formatInfo("📷 SCREENSHOT", `Usage: ${ENV.PREFIX}screenshot <url>`) });
+  }
+  let urlStr = fullArgs.trim();
+  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+  try { new URL(urlStr); } catch (_) {
+    return sock.sendMessage(from, { text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`) });
+  }
+
+  await sendReaction(sock, message, "⏳");
+
+  const urlEncoded = encodeURIComponent(urlStr);
+  let screenshotBuffer = null, usedService = "", errors = [];
+
+  try {
+    const res = await axios.get(`https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`, {
+      responseType: "arraybuffer", timeout: 20000, headers: { "User-Agent": randomUA() },
+    });
+    if (res.data && res.data.byteLength > 5000 && res.status === 200) {
+      screenshotBuffer = Buffer.from(res.data); usedService = "Thum.io";
+    }
+  } catch (err) { errors.push(`Thum.io: ${err.message}`); }
+
+  if (!screenshotBuffer) {
+    try {
+      const res = await axios.get(`https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false&waitFor=2000`, { timeout: 20000 });
+      if (res.data?.data?.screenshot?.url) {
+        const imgRes = await axios.get(res.data.data.screenshot.url, { responseType: "arraybuffer", timeout: 15000 });
+        if (imgRes.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(imgRes.data); usedService = "Microlink.io"; }
+      }
+    } catch (err) { errors.push(`Microlink: ${err.message}`); }
+  }
+
+  if (!screenshotBuffer) {
+    try {
+      const res = await axios.get(`https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?${urlStr}`, { responseType: "arraybuffer", timeout: 20000 });
+      if (res.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(res.data); usedService = "s-shot.ru"; }
+    } catch (err) { errors.push(`s-shot: ${err.message}`); }
+  }
+
+  if (!screenshotBuffer) {
+    await sendReaction(sock, message, "❌");
+    return sock.sendMessage(from, {
+      text: formatInfo(
+        "SCREENSHOT UNAVAILABLE",
+        `Could not take screenshot of:\n${urlStr}\n\n💡 *Try instead:*\n• ${ENV.PREFIX}scrape ${urlStr}\n• ${ENV.PREFIX}fetch ${urlStr}`,
+      ),
+    });
+  }
+
+  let pageTitle = urlStr;
+  try {
+    const r = await axios.get(urlStr, { timeout: 6000, maxContentLength: 100000, headers: { "User-Agent": randomUA() } });
+    const m = r.data?.match(/<title[^>]*>(.*?)<\/title>/is);
+    if (m) pageTitle = m[1].trim().substring(0, 100);
+  } catch (_) {}
+
+  await sendReaction(sock, message, "✅");
+  await sock.sendMessage(from, {
+    image: screenshotBuffer,
+    caption:
+      `📷 *Screenshot*\n━━━━━━━━━━━━━━━━━━━━━\n🔗 *URL:* ${urlStr}\n📝 *Title:* ${pageTitle}\n` +
+      `📦 *Size:* ${(screenshotBuffer.byteLength / 1024).toFixed(1)} KB\n🔧 *Service:* ${usedService}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  INSPECT PAGE COMMAND — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function inspect({ fullArgs, from, sock, message }) {
+  if (!fullArgs) {
+    return sock.sendMessage(from, { text: formatInfo("INSPECT PAGE", `Usage: ${ENV.PREFIX}inspect <url>`) });
+  }
+  let urlStr = fullArgs.trim();
+  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+  await sendReaction(sock, message, "⏳");
+  try {
+    const response = await axios.get(urlStr, {
+      headers: browserHeaders(randomUA()), timeout: 15_000,
+      maxContentLength: 5 * 1024 * 1024, validateStatus: (s) => s < 500,
+    });
+    const $ = cheerio.load(response.data), body = response.data.toLowerCase(), techs = [];
+    if (body.includes("react")) techs.push("React");
+    if (body.includes("vue.js") || body.includes("__vue")) techs.push("Vue.js");
+    if (body.includes("angular")) techs.push("Angular");
+    if (body.includes("wp-content")) techs.push("WordPress");
+    if (body.includes("shopify")) techs.push("Shopify");
+    if (body.includes("next.js") || body.includes("__next")) techs.push("Next.js");
+    if (body.includes("jquery")) techs.push("jQuery");
+    if (response.headers["x-powered-by"]) techs.push(response.headers["x-powered-by"]);
+
+    await sendReaction(sock, message, "✅");
+    await sock.sendMessage(from, {
+      text: formatData("🔍 PAGE INSPECTION", {
+        "📝 Title": ($("title").text() || "No title").substring(0, 100),
+        "📋 Description": ($('meta[name="description"]').attr("content") || "None").substring(0, 100),
+        "📊 Status": `${response.status}`,
+        "📎 Links": `${$("a[href]").length}`,
+        "🖼️ Images": `${$("img").length}`,
+        "📜 Scripts": `${$("script").length}`,
+        "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
+        "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
+        "🌐 Server": response.headers["server"] || "Unknown",
+        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
+      }),
+    });
+  } catch (error) {
+    await sendReaction(sock, message, "❌");
+    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  IMAGE UPLOAD (IMGBB) — with reactions
+// ════════════════════════════════════════════════════════════════════════════
+export async function imgbb({ message, from, sock }) {
+  const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (!quoted || !quoted.imageMessage) {
+    return sock.sendMessage(from, {
+      text: formatInfo("AYOBOT IMAGE UPLOAD", `Reply to an image with ${ENV.PREFIX}imgbb`),
+    });
+  }
+
+  await sendReaction(sock, message, "⏳");
+
+  try {
+    const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+
+    let imageUrl = null;
+
+    try {
+      const formData = new FormData();
+      formData.append("reqtype", "fileupload");
+      formData.append("fileToUpload", new Blob([buffer]), "image.jpg");
+
+      const res = await axios.post("https://catbox.moe/user/api.php", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 20_000,
+      });
+
+      if (res.data && res.data.startsWith("https://")) {
+        imageUrl = res.data;
+      }
+    } catch (err) {
+      console.log("Primary upload failed:", err.message);
+    }
+
+    if (!imageUrl && ENV.IMGBB_KEY) {
+      try {
+        const base64Image = buffer.toString("base64");
+        const params = new URLSearchParams();
+        params.append("image", base64Image);
+
+        const res = await axios.post(
+          `https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`,
+          params,
+          { timeout: 15_000 }
+        );
+
+        if (res.data?.data?.url) {
+          imageUrl = res.data.data.url;
+        }
+      } catch (err) {
+        console.log("Fallback 1 failed:", err.message);
+      }
+    }
+
+    if (!imageUrl) {
+      try {
+        const base64Image = buffer.toString("base64");
+        const params = new URLSearchParams();
+        params.append("source", base64Image);
+        params.append("type", "base64");
+
+        const res = await axios.post(
+          "https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
+          params,
+          { timeout: 15_000 }
+        );
+
+        if (res.data?.image?.url) {
+          imageUrl = res.data.image.url;
+        }
+      } catch (err) {
+        console.log("Fallback 2 failed:", err.message);
+      }
+    }
+
+    if (imageUrl) {
+      await sendReaction(sock, message, "✅");
+      await sock.sendMessage(from, {
+        text: `📤 *AYOBOT IMAGE UPLOAD*\n\n✅ *Success!*\n\n🔗 *URL:* ${imageUrl}\n\n_© AYOBOT v1 | AYOCODES_`,
+      });
+    } else {
+      await sendReaction(sock, message, "❌");
+      await sock.sendMessage(from, {
+        text: formatError("AYOBOT UPLOAD", "Failed to upload image. Please try again later."),
+      });
+    }
+  } catch (err) {
+    await sendReaction(sock, message, "🔴");
+    await sock.sendMessage(from, {
+      text: formatError("AYOBOT ERROR", `Could not process image: ${err.message}`)
+    });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PDF GENERATOR — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function pdf({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1139,7 +1559,7 @@ export async function pdf({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IP LOOKUP  — reactions: ⏳ → ✅ / ❌
+//  IP LOOKUP COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1199,18 +1619,6 @@ export async function getip({ fullArgs, from, sock, message }) {
   }
 
   if (!data) {
-    try {
-      const res = await axios.get(`https://freeipapi.com/api/json/${cleanIP}`, { timeout: 8000 });
-      if (res.data?.ipVersion)
-        data = { query: cleanIP, country: res.data.countryName, countryCode: res.data.countryCode,
-                 region: res.data.regionName, city: res.data.cityName, zip: res.data.zipCode,
-                 lat: res.data.latitude, lon: res.data.longitude, timezone: res.data.timeZone,
-                 isp: res.data.isp || "Unknown", org: res.data.isp, as: null,
-                 mobile: false, proxy: false, hosting: false, source: "freeipapi.com" };
-    } catch (err) { errors.push(`freeipapi: ${err.message}`); }
-  }
-
-  if (!data) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
       text: formatError("LOOKUP FAILED", `Could not fetch information for IP: ${cleanIP}\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`),
@@ -1238,9 +1646,7 @@ export async function getip({ fullArgs, from, sock, message }) {
 export const ip = getip;
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MY IP — Enhanced: detects actual user IP via Baileys connection socket,
-//           falls back to phone-prefix country detection.
-//  reactions: ⏳ → ✅
+//  MY IP COMMAND — Enhanced
 // ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock, userJid, message }) {
   await sendReaction(sock, message, "⏳");
@@ -1248,14 +1654,9 @@ export async function myip({ from, sock, userJid, message }) {
   const phoneNum = normalizeJid(userJid);
   const pushName = message?.pushName || "Unknown";
 
-  // ── Attempt to detect user's actual IP via Baileys WebSocket ──
-  // Baileys exposes the underlying WebSocket connection. The remote address
-  // is the server-side endpoint, but some forks expose client IP via headers.
-  // We also attempt a STUN-like approach by fetching IP from the WA gateway.
   let detectedUserIp = null;
   let userIpSource = null;
 
-  // Method 1: Check if sock exposes ws connection with remote address
   try {
     const ws = sock?.ws || sock?.client;
     if (ws?._socket?.remoteAddress) {
@@ -1267,7 +1668,6 @@ export async function myip({ from, sock, userJid, message }) {
     }
   } catch (_) {}
 
-  // Method 2: Check WebSocket request headers for X-Forwarded-For / X-Real-IP
   try {
     const ws = sock?.ws || sock?.client;
     const headers = ws?._socket?.parser?.incoming?.headers || ws?.request?.headers || {};
@@ -1281,7 +1681,6 @@ export async function myip({ from, sock, userJid, message }) {
     }
   } catch (_) {}
 
-  // ── Geolocate detected user IP if found ──
   let userIpInfo = null;
   if (detectedUserIp) {
     try {
@@ -1304,7 +1703,6 @@ export async function myip({ from, sock, userJid, message }) {
     } catch (_) {}
   }
 
-  // ── Phone number prefix → country table ──
   const phoneCountryMap = [
     { prefix: "234", country: "Nigeria",      code: "NG", flag: "🇳🇬", tz: "Africa/Lagos",          currency: "NGN" },
     { prefix: "233", country: "Ghana",         code: "GH", flag: "🇬🇭", tz: "Africa/Accra",          currency: "GHS" },
@@ -1355,7 +1753,6 @@ export async function myip({ from, sock, userJid, message }) {
     } catch (_) {}
   }
 
-  // ── Bot server IP ──
   let serverIp = null;
   for (const svc of [
     { url: "https://api.ipify.org?format=json", parser: (d) => (typeof d === "object" ? d.ip : d.trim()) },
@@ -1383,7 +1780,6 @@ export async function myip({ from, sock, userJid, message }) {
     } catch (_) {}
   }
 
-  // ── Build response ──
   let response =
     `╔══════════════════════════════════╗\n` +
     `║     📱 *YOUR INFO*              ║\n` +
@@ -1391,7 +1787,6 @@ export async function myip({ from, sock, userJid, message }) {
     `👤 *Name:* ${pushName}\n` +
     `📞 *Number:* +${phoneNum}\n`;
 
-  // User IP block
   if (userIpInfo) {
     response +=
       `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1416,7 +1811,6 @@ export async function myip({ from, sock, userJid, message }) {
       `Your IP is only visible at the network level (ISP/router).\n`;
   }
 
-  // Phone-prefix country block
   if (match) {
     response +=
       `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1428,7 +1822,6 @@ export async function myip({ from, sock, userJid, message }) {
       `📌 *Dialling Code:* +${match.prefix}\n`;
   }
 
-  // Bot server block
   response += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🖥️ *BOT SERVER IP*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   if (serverIp) {
     response += `🌐 *Server IP:* ${serverIp}\n`;
@@ -1450,7 +1843,7 @@ export async function myip({ from, sock, userJid, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WHOIS  — reactions: ⏳ → ✅ / ❌
+//  WHOIS COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1529,7 +1922,7 @@ export async function whois({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DNS LOOKUP  — reactions: ⏳ → ✅ / ❌
+//  DNS LOOKUP COMMAND — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1604,7 +1997,7 @@ export async function dns({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GET PROFILE PICTURE  — reactions: ⏳ → ✅ / ❌
+//  GET PROFILE PICTURE — with reactions
 // ════════════════════════════════════════════════════════════════════════════
 export async function getpp({ message, from, sock }) {
   await sendReaction(sock, message, "⏳");
@@ -1644,6 +2037,9 @@ export async function getpp({ message, from, sock }) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  GET GROUP PROFILE PICTURE — with reactions
+// ════════════════════════════════════════════════════════════════════════════
 export async function getgpp({ from, sock, isGroup, message }) {
   if (!isGroup) {
     return sock.sendMessage(from, { text: formatError("GROUP ONLY", "This command only works in groups.") });
@@ -1670,352 +2066,8 @@ export async function getgpp({ from, sock, isGroup, message }) {
   }
 }
 
-export async function prefixinfo({ from, sock }) {
-  await sock.sendMessage(from, {
-    text:
-      `╔═══════════════════════════════════╗\n║       ℹ️ *PREFIX INFORMATION*    ║\n╚═══════════════════════════════════╝\n\n` +
-      `🔤 *Current Prefix:* \`${ENV.PREFIX}\`\n📝 *Usage Format:* ${ENV.PREFIX}<command> [arguments]\n\n` +
-      `📋 *Example Commands:*\n${ENV.PREFIX}menu — Show all commands\n${ENV.PREFIX}ping — Check bot latency\n\n` +
-      `💡 All commands must start with "${ENV.PREFIX}"\n👑 Created by AYOCODES`,
-  });
-}
-
-export async function jarvis({ fullArgs, from, sock }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, {
-      text: formatInfo("JARVIS AI ASSISTANT", `Usage: ${ENV.PREFIX}jarvis <question>`),
-    });
-  }
-  await sock.sendMessage(from, {
-    text:
-      `🤖 *JARVIS - Powered by AYOCODES*\n\n"Analyzing: ${fullArgs.substring(0, 100)}..."\n\n` +
-      `💡 _For full AI conversation use:_ ${ENV.PREFIX}ayobot ${fullArgs.substring(0, 50)}\n\n👑 *Iron Man's JARVIS Mode Active*`,
-  });
-}
-
-export async function url({ fullArgs, from, sock, message }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("URL INFO", `Usage: ${ENV.PREFIX}url <url>`) });
-  }
-  let urlStr = fullArgs.trim();
-  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-  await sendReaction(sock, message, "⏳");
-  try {
-    const response = await axios.head(urlStr, {
-      timeout: 10_000, maxRedirects: 10, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
-    });
-    const h = response.headers;
-    const statusEmoji = response.status < 300 ? "🟢" : response.status < 400 ? "🟡" : "🔴";
-    await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text: formatData("🌍 URL INFORMATION", {
-        [`${statusEmoji} Status`]: `${response.status} ${response.statusText || ""}`,
-        "📝 Content-Type": h["content-type"]?.split(";")[0] || "Unknown",
-        "🌐 Server": h["server"] || "Unknown",
-        "📦 Content-Length": h["content-length"] ? `${(parseInt(h["content-length"]) / 1024).toFixed(1)} KB` : "Unknown",
-        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
-        "🔄 Cache-Control": h["cache-control"] || "Not set",
-      }),
-    });
-  } catch (error) {
-    await sendReaction(sock, message, "❌");
-    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
-  }
-}
-
-export async function fetch({ fullArgs, from, sock, message }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("FETCH", `Usage: ${ENV.PREFIX}fetch <url>`) });
-  }
-  let urlStr = fullArgs.trim();
-  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-  await sendReaction(sock, message, "⏳");
-  try {
-    const response = await axios.get(urlStr, {
-      timeout: 15_000, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
-    });
-    let data = typeof response.data === "object" ? JSON.stringify(response.data, null, 2) : String(response.data);
-    await sendReaction(sock, message, "✅");
-    if (data.length > 3_500) {
-      await sock.sendMessage(from, {
-        document: Buffer.from(data, "utf-8"), mimetype: "application/json",
-        fileName: `fetch_${Date.now()}.txt`, caption: `📡 Fetched from ${urlStr}`,
-      });
-    } else {
-      await sock.sendMessage(from, { text: `\`\`\`${data}\`\`\`` });
-    }
-  } catch (error) {
-    await sendReaction(sock, message, "❌");
-    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
-  }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
-//  QR CODE GENERATOR  — reactions: ⏳ → ✅ / ❌
-// ════════════════════════════════════════════════════════════════════════════
-export async function qencode({ fullArgs, from, sock, message }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("QR CODE GENERATOR", `Usage: ${ENV.PREFIX}qr <text>`) });
-  }
-  await sendReaction(sock, message, "⏳");
-  try {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff&format=png`;
-    const res = await axios.get(qrUrl, { responseType: "arraybuffer", timeout: 10000 });
-    if (res.data && res.data.byteLength > 100) {
-      await sendReaction(sock, message, "✅");
-      await sock.sendMessage(from, {
-        image: Buffer.from(res.data),
-        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}\n👑 Created by AYOCODES`,
-      });
-    } else {
-      await sendReaction(sock, message, "✅");
-      await sock.sendMessage(from, {
-        image: { url: qrUrl },
-        caption: `📱 *QR Code Generated*\n📝 ${fullArgs.substring(0, 100)}`,
-      });
-    }
-  } catch (err) {
-    await sendReaction(sock, message, "❌");
-    await sock.sendMessage(from, { text: formatError("ERROR", `Could not generate QR code: ${err.message}`) });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  SCREENSHOT  — reactions: ⏳ → ✅ / ❌
-// ════════════════════════════════════════════════════════════════════════════
-export async function screenshot({ fullArgs, from, sock, message }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("📷 SCREENSHOT", `Usage: ${ENV.PREFIX}screenshot <url>`) });
-  }
-  let urlStr = fullArgs.trim();
-  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-  try { new URL(urlStr); } catch (_) {
-    return sock.sendMessage(from, { text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`) });
-  }
-
-  await sendReaction(sock, message, "⏳");
-
-  const urlEncoded = encodeURIComponent(urlStr);
-  let screenshotBuffer = null, usedService = "", errors = [];
-
-  try {
-    const res = await axios.get(`https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`, {
-      responseType: "arraybuffer", timeout: 20000, headers: { "User-Agent": randomUA() },
-    });
-    if (res.data && res.data.byteLength > 5000 && res.status === 200) {
-      screenshotBuffer = Buffer.from(res.data); usedService = "Thum.io";
-    }
-  } catch (err) { errors.push(`Thum.io: ${err.message}`); }
-
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(`https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false&waitFor=2000`, { timeout: 20000 });
-      if (res.data?.data?.screenshot?.url) {
-        const imgRes = await axios.get(res.data.data.screenshot.url, { responseType: "arraybuffer", timeout: 15000 });
-        if (imgRes.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(imgRes.data); usedService = "Microlink.io"; }
-      }
-    } catch (err) { errors.push(`Microlink: ${err.message}`); }
-  }
-
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(`https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?${urlStr}`, { responseType: "arraybuffer", timeout: 20000 });
-      if (res.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(res.data); usedService = "s-shot.ru"; }
-    } catch (err) { errors.push(`s-shot: ${err.message}`); }
-  }
-
-  if (!screenshotBuffer && ENV.SCREENSHOTLAYER_KEY) {
-    try {
-      const res = await axios.get(
-        `http://api.screenshotlayer.com/api/capture?access_key=${ENV.SCREENSHOTLAYER_KEY}&url=${urlEncoded}&viewport=1280x800&width=1280`,
-        { responseType: "arraybuffer", timeout: 20000 },
-      );
-      if (res.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(res.data); usedService = "ScreenshotLayer"; }
-    } catch (err) { errors.push(`ScreenshotLayer: ${err.message}`); }
-  }
-
-  if (!screenshotBuffer) {
-    await sendReaction(sock, message, "❌");
-    return sock.sendMessage(from, {
-      text: formatInfo(
-        "SCREENSHOT UNAVAILABLE",
-        `Could not take screenshot of:\n${urlStr}\n\n💡 *Try instead:*\n• ${ENV.PREFIX}scrape ${urlStr}\n• ${ENV.PREFIX}fetch ${urlStr}`,
-      ),
-    });
-  }
-
-  let pageTitle = urlStr;
-  try {
-    const r = await axios.get(urlStr, { timeout: 6000, maxContentLength: 100000, headers: { "User-Agent": randomUA() } });
-    const m = r.data?.match(/<title[^>]*>(.*?)<\/title>/is);
-    if (m) pageTitle = m[1].trim().substring(0, 100);
-  } catch (_) {}
-
-  await sendReaction(sock, message, "✅");
-  await sock.sendMessage(from, {
-    image: screenshotBuffer,
-    caption:
-      `📷 *Screenshot*\n━━━━━━━━━━━━━━━━━━━━━\n🔗 *URL:* ${urlStr}\n📝 *Title:* ${pageTitle}\n` +
-      `📦 *Size:* ${(screenshotBuffer.byteLength / 1024).toFixed(1)} KB\n🔧 *Service:* ${usedService}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  INSPECT PAGE  — reactions: ⏳ → ✅ / ❌
-// ════════════════════════════════════════════════════════════════════════════
-export async function inspect({ fullArgs, from, sock, message }) {
-  if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("INSPECT PAGE", `Usage: ${ENV.PREFIX}inspect <url>`) });
-  }
-  let urlStr = fullArgs.trim();
-  if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-  await sendReaction(sock, message, "⏳");
-  try {
-    const response = await axios.get(urlStr, {
-      headers: browserHeaders(randomUA()), timeout: 15_000,
-      maxContentLength: 5 * 1024 * 1024, validateStatus: (s) => s < 500,
-    });
-    const $ = cheerio.load(response.data), body = response.data.toLowerCase(), techs = [];
-    if (body.includes("react")) techs.push("React");
-    if (body.includes("vue.js") || body.includes("__vue")) techs.push("Vue.js");
-    if (body.includes("angular")) techs.push("Angular");
-    if (body.includes("wp-content")) techs.push("WordPress");
-    if (body.includes("shopify")) techs.push("Shopify");
-    if (body.includes("next.js") || body.includes("__next")) techs.push("Next.js");
-    if (body.includes("jquery")) techs.push("jQuery");
-    if (response.headers["x-powered-by"]) techs.push(response.headers["x-powered-by"]);
-
-    await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text: formatData("🔍 PAGE INSPECTION", {
-        "📝 Title": ($("title").text() || "No title").substring(0, 100),
-        "📋 Description": ($('meta[name="description"]').attr("content") || "None").substring(0, 100),
-        "📊 Status": `${response.status}`,
-        "📎 Links": `${$("a[href]").length}`,
-        "🖼️ Images": `${$("img").length}`,
-        "📜 Scripts": `${$("script").length}`,
-        "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
-        "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
-        "🌐 Server": response.headers["server"] || "Unknown",
-        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
-      }),
-    });
-  } catch (error) {
-    await sendReaction(sock, message, "❌");
-    await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  IMAGE UPLOAD — AYOBOT v1
-//  reactions: ⏳ → ✅ / ❌
-//  Credit: AYOCODES — github.com/Officialay12
-// ════════════════════════════════════════════════════════════════════════════
-export async function imgbb({ message, from, sock }) {
-  const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-  if (!quoted || !quoted.imageMessage) {
-    return sock.sendMessage(from, {
-      text: formatInfo("AYOBOT IMAGE UPLOAD", `Reply to an image with ${ENV.PREFIX}imgbb`),
-    });
-  }
-
-  await sendReaction(sock, message, "⏳");
-
-  try {
-    // Download the image
-    const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-
-    let imageUrl = null;
-
-    // PRIMARY: Catbox.moe
-    try {
-      const formData = new FormData();
-      formData.append("reqtype", "fileupload");
-      formData.append("fileToUpload", new Blob([buffer]), "image.jpg");
-
-      const res = await axios.post("https://catbox.moe/user/api.php", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-        timeout: 20_000,
-      });
-
-      if (res.data && res.data.startsWith("https://")) {
-        imageUrl = res.data;
-      }
-    } catch (err) {
-      console.log("Primary upload failed:", err.message);
-    }
-
-    // FALLBACK 1: ImgBB
-    if (!imageUrl && ENV.IMGBB_KEY) {
-      try {
-        const base64Image = buffer.toString("base64");
-        const params = new URLSearchParams();
-        params.append("image", base64Image);
-
-        const res = await axios.post(
-          `https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`,
-          params,
-          { timeout: 15_000 }
-        );
-
-        if (res.data?.data?.url) {
-          imageUrl = res.data.data.url;
-        }
-      } catch (err) {
-        console.log("Fallback 1 failed:", err.message);
-      }
-    }
-
-    // FALLBACK 2: FreeImage.host
-    if (!imageUrl) {
-      try {
-        const base64Image = buffer.toString("base64");
-        const params = new URLSearchParams();
-        params.append("source", base64Image);
-        params.append("type", "base64");
-
-        const res = await axios.post(
-          "https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
-          params,
-          { timeout: 15_000 }
-        );
-
-        if (res.data?.image?.url) {
-          imageUrl = res.data.image.url;
-        }
-      } catch (err) {
-        console.log("Fallback 2 failed:", err.message);
-      }
-    }
-
-    // Send result
-    if (imageUrl) {
-      await sendReaction(sock, message, "✅");
-      await sock.sendMessage(from, {
-        text: `📤 *AYOBOT IMAGE UPLOAD*\n\n` +
-              `✅ *Success!*\n\n` +
-              `🔗 *URL:* ${imageUrl}\n\n` +
-              `_© AYOBOT v1 | AYOCODES_`,
-      });
-    } else {
-      await sendReaction(sock, message, "❌");
-      await sock.sendMessage(from, {
-        text: formatError("AYOBOT UPLOAD", "Failed to upload image. Please try again later."),
-      });
-    }
-  } catch (err) {
-    await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, {
-      text: formatError("AYOBOT ERROR", `Could not process image: ${err.message}`)
-    });
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ACTIVATE / DEACTIVATE GROUP
+//  ACTIVATE GROUP COMMAND
 // ════════════════════════════════════════════════════════════════════════════
 export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) return sock.sendMessage(from, { text: "❌ This command only works in groups." });
@@ -2026,6 +2078,9 @@ export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
   });
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  DEACTIVATE GROUP COMMAND
+// ════════════════════════════════════════════════════════════════════════════
 export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
   if (!isGroup) return sock.sendMessage(from, { text: "❌ This command only works in groups." });
   if (!isAdmin) return sock.sendMessage(from, { text: "⛔ Only the bot owner can deactivate the bot in this group." });
@@ -2036,7 +2091,7 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ANTILINK — FULLY FIXED (broken template string resolved)
+//  ANTILINK COMMAND — FULLY FIXED
 // ════════════════════════════════════════════════════════════════════════════
 export async function antilink({ args, message, from, sock, isAdmin, isGroup, userJid }) {
   if (!isGroup) {
@@ -2080,7 +2135,6 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     });
   }
 
-  // Verify caller is a group admin
   let isGroupAdmin = false;
   try {
     const metadata = await sock.groupMetadata(from);
@@ -2121,17 +2175,58 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
 }
 
 
-export async function start({ from, sock }) {
-  await sock.sendMessage(from, { text: "🚀 AYOBOT Started! Type .menu for commands" });
-}
-
-
-
-// DEFAULT EXPORT - MUST INCLUDE start AND ok
+// ============================================================
+// DEFAULT EXPORT - MUST INCLUDE ALL FUNCTIONS
+// ============================================================
 export default {
-  menu, ping, status, creator, creatorGit, auto, connectInfo, prefixinfo,
-  test, start, time, weather, getip, ip, myip, whois, dns, url, fetch,
-  scrape, screenshot, inspect, shorten, viewOnce, ok, dm, tome, senddm,
-  privatemedia, savetodm, sendtome, imgbb, qencode, pdf, getpp,
-  getgpp, jarvis, joinWaitlist, activate, deactivate, antilink,
+  // Core commands
+  menu,
+  ping,
+  status,
+  creator,
+  creatorGit,
+  auto,
+  connectInfo,
+  prefixinfo,
+  test,
+  start,        // ✅ CRITICAL: start MUST be here
+  time,
+  weather,
+
+  // Web tools
+  getip,
+  ip,
+  myip,
+  whois,
+  dns,
+  url,
+  fetch,
+  scrape,
+  screenshot,
+  inspect,
+  shorten,
+
+  // Media commands
+  viewOnce,
+  ok,           // ✅ CRITICAL: ok MUST be here
+  dm,
+  tome,
+  senddm,
+  privatemedia,
+  savetodm,
+  sendtome,
+  imgbb,
+  qencode,
+  pdf,
+  getpp,
+  getgpp,
+
+  // AI & Fun
+  jarvis,
+  joinWaitlist,
+
+  // Group commands
+  activate,
+  deactivate,
+  antilink,
 };
