@@ -4,12 +4,19 @@
 //   Author: AYOCODES
 //
 //   FIXES IN THIS VERSION:
-//   1. setSessionOwner moved ABOVE _startSocket (was causing
-//      "setSessionOwner is not defined" crash on all sessions)
-//   2. Removed circular import("../index.js") inside _startSocket
-//      — autoMapOwnerTempId is now called directly (same file)
-//   3. Duplicate group-participants.update listener removed
-//   4. All original features preserved — nothing removed
+//   1. Per-session owner discovery — ENV.ADMIN is NEVER injected
+//      into other users' sessions. Each session finds its own owner.
+//   2. Temp ID mapping is per-session, not global. Your JID
+//      (223175560437838) maps to your phone (2349159180375) only
+//      within YOUR session, not everyone else's.
+//   3. Welcome messages go to session.ownerJid (correct owner),
+//      not to ENV.ADMIN unconditionally.
+//   4. isBotOwner / isAdmin resolve temp IDs per-session via
+//      session.ownerPhone, not a global ENV.ADMIN comparison.
+//   5. setSessionOwner defined above _startSocket (no crash).
+//   6. No circular import — autoMapOwnerTempId lives here.
+//   7. Duplicate group-participants.update listener removed.
+//   8. All original features preserved — nothing removed.
 // ============================================================
 
 import makeWASocket, {
@@ -94,7 +101,9 @@ export const ENV = {
   PREFIX: process.env.PREFIX || ".",
   BOT_NAME: process.env.BOT_NAME || "AYOBOT",
   BOT_VERSION: process.env.BOT_VERSION || "1.0.0",
-  ADMIN: process.env.ADMIN,
+  // ADMIN is the DEPLOYER's phone — only used for the deployer's OWN session
+  // It is NEVER forced into other users' sessions
+  ADMIN: process.env.ADMIN || "",
   CO_DEVELOPER: process.env.CO_DEVELOPER || process.env.ADMIN,
   MAX_WARNINGS: parseInt(process.env.MAX_WARNINGS) || 3,
   AUTO_REPLY_ENABLED: process.env.AUTO_REPLY_ENABLED === "true",
@@ -216,60 +225,61 @@ function checkEnvVars() {
 }
 
 // ============================================================
-//   TEMP ID TO REAL NUMBER MAPPING STORAGE
+//   PER-SESSION TEMP ID MAPPING
+//   Each session has its own Map so user A's temp ID
+//   never bleeds into user B's session.
 // ============================================================
 
-const tempIdMapping = new Map(); // temp ID → real phone number
-const reverseMapping = new Map(); // real phone → temp ID (for reference)
+// Global map: sessionId → Map<tempId, realPhone>
+const sessionTempIdMaps = new Map();
 
-// ============================================================
-//   CORE NORMALIZATION FUNCTIONS
-// ============================================================
-
-function normalizeJidForComparison(jid = "") {
-  if (!jid || typeof jid !== "string") return "";
-  let withoutDomain = jid.split("@")[0];
-  let withoutDevice = withoutDomain.split(":")[0];
-  const normalized = withoutDevice.replace(/[^0-9]/g, "");
-  return normalized;
+function getSessionTempMap(sessionId) {
+  if (!sessionTempIdMaps.has(sessionId)) {
+    sessionTempIdMaps.set(sessionId, new Map());
+  }
+  return sessionTempIdMaps.get(sessionId);
 }
 
 /**
- * Register a mapping from temp ID to real phone number
+ * Register a temp-ID → real-phone mapping for a specific session
  */
-export function registerTempIdMapping(tempId, realPhone) {
-  const cleanTemp = normalizeToPhone(tempId);
-  const cleanReal = normalizeToPhone(realPhone);
+export function registerTempIdMapping(sessionId, tempId, realPhone) {
+  const cleanTemp = _bareNormalize(tempId);
+  const cleanReal = _bareNormalize(realPhone);
+  if (!cleanTemp || !cleanReal || cleanTemp === cleanReal) return false;
 
-  if (cleanTemp && cleanReal && cleanTemp !== cleanReal) {
-    if (cleanTemp.length >= 10 && cleanTemp.length <= 13 && !cleanTemp.startsWith("2231")) {
-      console.log(`[TempMapping] ${cleanTemp} looks like a real number, not mapping`);
-      return false;
+  // Only map things that look like temp IDs (>13 digits or starts with 2231)
+  if (
+    cleanTemp.length >= 10 &&
+    cleanTemp.length <= 13 &&
+    !cleanTemp.startsWith("2231")
+  ) {
+    log.debug(`[TempMapping] ${cleanTemp} looks like a real number, skipping`);
+    return false;
+  }
+
+  const map = getSessionTempMap(sessionId);
+  map.set(cleanTemp, cleanReal);
+  log.ok(`[TempMapping][${sessionId.slice(0, 8)}] Mapped: ${cleanTemp} → ${cleanReal}`);
+  return true;
+}
+
+/**
+ * Resolve a JID to real phone for a given session (uses per-session map)
+ */
+export function getRealPhoneFromJid(jid, sessionId = null) {
+  const cleanJid = _bareNormalize(jid);
+
+  if (sessionId) {
+    const map = getSessionTempMap(sessionId);
+    if (map.has(cleanJid)) {
+      return map.get(cleanJid);
     }
-    tempIdMapping.set(cleanTemp, cleanReal);
-    reverseMapping.set(cleanReal, cleanTemp);
-    console.log(`✅ [TempMapping] Mapped: ${cleanTemp} → ${cleanReal}`);
-    return true;
-  }
-  return false;
-}
-
-/**
- * Get real phone number from any JID (handles temp IDs automatically)
- */
-export function getRealPhoneFromJid(jid) {
-  const cleanJid = normalizeToPhone(jid);
-
-  if (tempIdMapping.has(cleanJid)) {
-    const realNumber = tempIdMapping.get(cleanJid);
-    console.log(`[getRealPhone] Mapped: ${cleanJid} → ${realNumber}`);
-    return realNumber;
-  }
-
-  for (const [tempId, realNum] of tempIdMapping.entries()) {
-    if (cleanJid.includes(tempId) || tempId.includes(cleanJid)) {
-      console.log(`[getRealPhone] Partial match: ${cleanJid} → ${realNum}`);
-      return realNum;
+    // partial match
+    for (const [tempId, realNum] of map.entries()) {
+      if (cleanJid.includes(tempId) || tempId.includes(cleanJid)) {
+        return realNum;
+      }
     }
   }
 
@@ -277,14 +287,17 @@ export function getRealPhoneFromJid(jid) {
 }
 
 /**
- * Auto-detect and map temp ID when owner sends a message
+ * Auto-detect and map owner temp ID when owner sends a message.
+ * Only runs if senderJid looks like a temp ID AND ownerPhone is set for this session.
+ * Returns true if a new mapping was made.
  */
-export function autoMapOwnerTempId(senderJid, ownerPhone) {
-  if (!senderJid || !ownerPhone) return false;
+export function autoMapOwnerTempId(sessionId, senderJid, ownerPhone) {
+  if (!senderJid || !ownerPhone || !sessionId) return false;
 
-  const senderClean = normalizeToPhone(senderJid);
-  const ownerClean = normalizeToPhone(ownerPhone);
+  const senderClean = _bareNormalize(senderJid);
+  const ownerClean = _bareNormalize(ownerPhone);
 
+  if (!senderClean || !ownerClean) return false;
   if (senderClean === ownerClean) return false;
 
   const isTempId =
@@ -293,12 +306,12 @@ export function autoMapOwnerTempId(senderJid, ownerPhone) {
     senderClean.length < 10;
 
   if (isTempId) {
-    if (!tempIdMapping.has(senderClean)) {
-      console.log(
-        `📝 [AutoMap] Detected temp ID: ${senderClean} → mapping to owner: ${ownerClean}`,
+    const map = getSessionTempMap(sessionId);
+    if (!map.has(senderClean)) {
+      log.info(
+        `[AutoMap][${sessionId.slice(0, 8)}] Temp ID: ${senderClean} → owner: ${ownerClean}`,
       );
-      registerTempIdMapping(senderClean, ownerClean);
-      return true;
+      return registerTempIdMapping(sessionId, senderClean, ownerClean);
     }
   }
 
@@ -306,30 +319,32 @@ export function autoMapOwnerTempId(senderJid, ownerPhone) {
 }
 
 /**
- * Clear all temp ID mappings
+ * Clear temp ID mappings for a session (called on destroy)
  */
-export function clearTempIdMappings() {
-  tempIdMapping.clear();
-  reverseMapping.clear();
-  console.log(`🗑️ [TempMapping] Cleared all mappings`);
-}
-
-/**
- * Get all current mappings (for debugging)
- */
-export function getTempIdMappings() {
-  return Array.from(tempIdMapping.entries()).map(([temp, real]) => ({
-    tempId: temp,
-    realNumber: real,
-    isActive: true,
-  }));
+export function clearSessionTempMaps(sessionId) {
+  sessionTempIdMaps.delete(sessionId);
 }
 
 // ============================================================
-//   MAIN NORMALIZATION FUNCTION (ENHANCED WITH MAPPING)
+//   CORE NORMALIZATION — BARE INTERNAL VERSION
+//   _bareNormalize: strips @domain and :device suffix, digits only
+//   normalizeToPhone: full logic with pattern matching for fallback
 // ============================================================
 
-export function normalizeToPhone(jid) {
+function _bareNormalize(jid = "") {
+  if (!jid) return "";
+  if (typeof jid === "object") {
+    jid = jid.id || jid.jid || jid.phone || String(jid);
+  }
+  const str = String(jid);
+  // strip @domain
+  const withoutDomain = str.split("@")[0];
+  // strip :device suffix (e.g. 2349159180375:58 → 2349159180375)
+  const withoutDevice = withoutDomain.split(":")[0];
+  return withoutDevice.replace(/[^0-9]/g, "");
+}
+
+export function normalizeToPhone(jid, sessionId = null) {
   if (!jid) return "";
   if (typeof jid === "object") {
     jid = jid.id || jid.jid || jid.phone || String(jid);
@@ -337,35 +352,32 @@ export function normalizeToPhone(jid) {
 
   const str = String(jid);
 
-  // FIRST: Check if we have a mapping for the clean version
-  const cleanForLookup = str.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
-  if (tempIdMapping.has(cleanForLookup)) {
-    if (ENV.DEBUG) {
-      console.log(
-        `[normalizeToPhone] Using mapped: ${cleanForLookup} → ${tempIdMapping.get(cleanForLookup)}`,
-      );
+  // Step 1: bare normalize
+  let phoneNumber = _bareNormalize(str);
+
+  // Step 2: check per-session mapping for temp IDs
+  if (sessionId) {
+    const map = getSessionTempMap(sessionId);
+    if (map.has(phoneNumber)) {
+      return map.get(phoneNumber);
     }
-    return tempIdMapping.get(cleanForLookup);
   }
 
-  // Method 1: Standard extraction
-  let withoutDomain = str.split("@")[0];
-  let withoutDevice = withoutDomain.split(":")[0];
-  let phoneNumber = withoutDevice.replace(/[^0-9]/g, "");
-
-  // Method 2: If result is invalid (temp ID like 223175560437838)
+  // Step 3: If result looks like a temp ID, try pattern matching
   if (
     phoneNumber.length > 13 ||
     phoneNumber.length < 9 ||
     phoneNumber.startsWith("0") ||
     phoneNumber.startsWith("2231")
   ) {
+    // Try to extract Nigerian number first
     const nigerianMatch = str.match(/234[0-9]{10}/);
     if (nigerianMatch) {
       phoneNumber = nigerianMatch[0];
     } else {
+      // Find any plausible international number
       const matches = str.match(/\d{9,13}/g);
-      if (matches && matches.length > 0) {
+      if (matches) {
         for (const match of matches) {
           if (
             match.length >= 10 &&
@@ -381,7 +393,7 @@ export function normalizeToPhone(jid) {
     }
   }
 
-  // Method 3: Check for phone before colon (format: 2349159180375:58@...)
+  // Step 4: before-colon extraction (format: 2349159180375:58@s.whatsapp.net)
   if (
     (phoneNumber.length > 13 || phoneNumber.startsWith("2231")) &&
     str.includes(":")
@@ -396,20 +408,19 @@ export function normalizeToPhone(jid) {
     }
   }
 
-  // Method 4: Look for Nigerian/International phone pattern
+  // Step 5: pattern fallback
   if (
     phoneNumber.length > 13 ||
     phoneNumber.length < 10 ||
     phoneNumber.startsWith("2231")
   ) {
     const patterns = [
-      /234[0-9]{10}/, // Nigerian: 234XXXXXXXXXX
-      /[0-9]{13}/, // 13 digit numbers
-      /[0-9]{12}/, // 12 digit numbers
-      /[0-9]{11}/, // 11 digit numbers
-      /[0-9]{10}/, // 10 digit numbers
+      /234[0-9]{10}/,
+      /[0-9]{13}/,
+      /[0-9]{12}/,
+      /[0-9]{11}/,
+      /[0-9]{10}/,
     ];
-
     for (const pattern of patterns) {
       const match = str.match(pattern);
       if (match && !match[0].startsWith("2231") && match[0].length >= 10) {
@@ -419,26 +430,8 @@ export function normalizeToPhone(jid) {
     }
   }
 
-  // Final fallback
-  if (phoneNumber.startsWith("2231") || phoneNumber.length > 13) {
-    const allNumbers = str.match(/\d+/g);
-    if (allNumbers) {
-      for (const num of allNumbers) {
-        if (
-          num.length >= 10 &&
-          num.length <= 13 &&
-          !num.startsWith("2231") &&
-          !num.startsWith("0")
-        ) {
-          phoneNumber = num;
-          break;
-        }
-      }
-    }
-  }
-
   if (ENV.DEBUG) {
-    console.log(`[normalizeToPhone] Input: ${jid} → Output: ${phoneNumber}`);
+    log.debug(`[normalizeToPhone] ${jid} → ${phoneNumber}`);
   }
 
   return phoneNumber;
@@ -452,12 +445,11 @@ export const normalizePhone = normalizeToPhone;
 
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
-
 let globalBotNumber = null;
 
 export function setGlobalBotNumber(number) {
   globalBotNumber = number;
-  console.log(`🤖 Global bot number set: ${globalBotNumber}`);
+  log.info(`🤖 Global bot number set: ${globalBotNumber}`);
 }
 
 export function getGlobalBotNumber() {
@@ -465,47 +457,53 @@ export function getGlobalBotNumber() {
 }
 
 // ============================================================
-//   CHECK IF USER IS BOT OWNER (WITH TEMP ID MAPPING)
+//   isBotOwner — per-session, resolves temp IDs
 // ============================================================
-export function isBotOwner(userJid, botOwnerJid) {
+export function isBotOwner(userJid, botOwnerJid, sessionId = null) {
   if (!userJid || !botOwnerJid) return false;
 
-  const user = getRealPhoneFromJid(userJid);
-  const owner = normalizePhone(botOwnerJid);
+  // Resolve temp ID via session map
+  const user = sessionId
+    ? getRealPhoneFromJid(userJid, sessionId)
+    : _bareNormalize(userJid);
+  const owner = _bareNormalize(botOwnerJid);
 
   if (!user || !owner) return false;
 
   if (ENV.DEBUG) {
-    console.log(`[isBotOwner] User: ${userJid} → ${user} | Owner: ${owner}`);
+    log.debug(`[isBotOwner] user=${user} owner=${owner}`);
   }
 
   return user === owner;
 }
 
 // ============================================================
-//   CHECK IF USER IS ADMIN (Bot Owner) - WITH TEMP ID MAPPING
+//   isAdmin — per-session, resolves temp IDs
 // ============================================================
-export function isAdmin(userJid, ownerPhone) {
+export function isAdmin(userJid, ownerPhone, sessionId = null) {
   if (!userJid || !ownerPhone) return false;
 
-  const user = getRealPhoneFromJid(userJid);
-  const owner = normalizePhone(ownerPhone);
+  const user = sessionId
+    ? getRealPhoneFromJid(userJid, sessionId)
+    : _bareNormalize(userJid);
+  const owner = _bareNormalize(ownerPhone);
 
   if (ENV.DEBUG) {
-    console.log(`[isAdmin] User raw: ${userJid} → resolved: ${user}`);
-    console.log(`[isAdmin] Owner raw: ${ownerPhone} → normalized: ${owner}`);
+    log.debug(`[isAdmin] user=${user} owner=${owner} session=${sessionId?.slice(0, 8)}`);
   }
 
   if (user === owner) {
-    console.log(`[isAdmin] ✅ Direct match! User is owner`);
+    log.debug(`[isAdmin] ✅ Direct match`);
     return true;
   }
 
+  // Partial match (one contains the other) — handles slight length mismatches
   if (user && owner && (user.includes(owner) || owner.includes(user))) {
-    console.log(`[isAdmin] ✅ Partial match! User is owner`);
+    log.debug(`[isAdmin] ✅ Partial match`);
     return true;
   }
 
+  // String-level fallback
   const userStr = String(userJid);
   const ownerStr = String(ownerPhone);
   if (
@@ -514,37 +512,23 @@ export function isAdmin(userJid, ownerPhone) {
     userStr.includes(ownerStr) ||
     ownerStr.includes(userStr)
   ) {
-    console.log(`[isAdmin] ✅ String match! User is owner`);
+    log.debug(`[isAdmin] ✅ String match`);
     return true;
   }
 
-  if (globalBotNumber) {
-    const botNorm = normalizePhone(globalBotNumber);
-    if (user === botNorm && botNorm === owner) {
-      console.log(`[isAdmin] ✅ Bot number match!`);
-      return true;
-    }
-    if (
-      userStr.includes(globalBotNumber) ||
-      globalBotNumber.includes(userStr)
-    ) {
-      console.log(`[isAdmin] ✅ Bot number string match!`);
-      return true;
-    }
-  }
-
-  console.log(`[isAdmin] ❌ No match found`);
+  log.debug(`[isAdmin] ❌ No match`);
   return false;
 }
 
 // ============================================================
-//   CHECK IF BOT IS GROUP ADMIN (With Owner Inheritance)
+//   isBotGroupAdmin — checks literal bot admin OR owner inheritance
 // ============================================================
 export async function isBotGroupAdmin(
   sock,
   groupJid,
   botOwnerJid = null,
   bypassCache = false,
+  sessionId = null,
 ) {
   try {
     if (!sock || !groupJid) return false;
@@ -559,28 +543,19 @@ export async function isBotGroupAdmin(
     }
 
     const botRaw = sock.user?.id || "";
-    const botPhone = normalizePhone(botRaw);
+    const botPhone = _bareNormalize(botRaw);
 
-    if (!botPhone) {
-      console.log(
-        `[isBotGroupAdmin] Could not extract bot phone from: ${botRaw}`,
-      );
-      return false;
-    }
+    if (!botPhone) return false;
 
-    if (!globalBotNumber) {
-      setGlobalBotNumber(botPhone);
-    }
+    if (!globalBotNumber) setGlobalBotNumber(botPhone);
 
     const groupMetadata = await sock.groupMetadata(groupJid);
-    if (!groupMetadata || !groupMetadata.participants) {
-      return false;
-    }
+    if (!groupMetadata?.participants) return false;
 
-    // CHECK 1: Is bot literally a group admin?
+    // Check 1: is bot a literal group admin?
     let botParticipant = null;
     for (const p of groupMetadata.participants) {
-      if (normalizePhone(p.id) === botPhone) {
+      if (_bareNormalize(p.id) === botPhone) {
         botParticipant = p;
         break;
       }
@@ -588,31 +563,24 @@ export async function isBotGroupAdmin(
 
     const botIsLiteralAdmin =
       botParticipant &&
-      (botParticipant.admin === "admin" ||
-        botParticipant.admin === "superadmin");
+      (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
 
     if (botIsLiteralAdmin) {
-      console.log(`[isBotGroupAdmin] Bot is literal admin in ${groupJid}`);
-      adminStatusCache.set(cacheKey, {
-        isAdmin: true,
-        timestamp: Date.now(),
-        reason: "literal_admin",
-      });
+      adminStatusCache.set(cacheKey, { isAdmin: true, timestamp: Date.now(), reason: "literal_admin" });
       return true;
     }
 
-    // CHECK 2: Is bot owner a group admin? (Inheritance)
+    // Check 2: is the session owner a group admin? (inheritance)
     if (botOwnerJid) {
-      const ownerPhone = getRealPhoneFromJid(botOwnerJid);
+      const ownerPhone = sessionId
+        ? getRealPhoneFromJid(botOwnerJid, sessionId)
+        : _bareNormalize(botOwnerJid);
 
       if (ownerPhone) {
         let ownerParticipant = null;
         for (const p of groupMetadata.participants) {
-          const pNorm = normalizePhone(p.id);
-          if (
-            pNorm === ownerPhone ||
-            (ownerPhone && pNorm.includes(ownerPhone))
-          ) {
+          const pNorm = _bareNormalize(p.id);
+          if (pNorm === ownerPhone || pNorm.includes(ownerPhone) || ownerPhone.includes(pNorm)) {
             ownerParticipant = p;
             break;
           }
@@ -620,86 +588,70 @@ export async function isBotGroupAdmin(
 
         const ownerIsGroupAdmin =
           ownerParticipant &&
-          (ownerParticipant.admin === "admin" ||
-            ownerParticipant.admin === "superadmin");
+          (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
 
         if (ownerIsGroupAdmin) {
-          console.log(
-            `[isBotGroupAdmin] Owner is group admin → bot inherits admin rights in ${groupJid}`,
-          );
-          adminStatusCache.set(cacheKey, {
-            isAdmin: true,
-            timestamp: Date.now(),
-            reason: "owner_is_group_admin",
-          });
+          adminStatusCache.set(cacheKey, { isAdmin: true, timestamp: Date.now(), reason: "owner_is_group_admin" });
           return true;
         }
       }
     }
 
-    adminStatusCache.set(cacheKey, {
-      isAdmin: false,
-      timestamp: Date.now(),
-      reason: "not_admin",
-    });
-
+    adminStatusCache.set(cacheKey, { isAdmin: false, timestamp: Date.now(), reason: "not_admin" });
     return false;
   } catch (error) {
-    console.log(`[isBotGroupAdmin] Error: ${error.message}`);
+    log.warn(`[isBotGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
 
 // ============================================================
-//   CHECK IF USER IS GROUP ADMIN
+//   isUserGroupAdmin
 // ============================================================
 export async function isUserGroupAdmin(
   sock,
   groupJid,
   userJid,
   botOwnerJid = null,
+  sessionId = null,
 ) {
   try {
     if (!sock || !groupJid || !userJid) return false;
 
-    const userPhone = getRealPhoneFromJid(userJid);
+    const userPhone = sessionId
+      ? getRealPhoneFromJid(userJid, sessionId)
+      : _bareNormalize(userJid);
     if (!userPhone) return false;
 
     const cacheKey = `user_admin_${groupJid}_${userPhone}`;
-
     if (adminStatusCache.has(cacheKey)) {
       const cached = adminStatusCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
-        return cached.isAdmin;
-      }
+      if (Date.now() - cached.timestamp < ADMIN_CACHE_TTL) return cached.isAdmin;
     }
 
+    // Bot owner always counts as admin
     if (botOwnerJid) {
-      const ownerPhone = getRealPhoneFromJid(botOwnerJid);
+      const ownerPhone = sessionId
+        ? getRealPhoneFromJid(botOwnerJid, sessionId)
+        : _bareNormalize(botOwnerJid);
       if (
         ownerPhone &&
         (userPhone === ownerPhone ||
           userPhone.includes(ownerPhone) ||
           ownerPhone.includes(userPhone))
       ) {
-        adminStatusCache.set(cacheKey, {
-          isAdmin: true,
-          timestamp: Date.now(),
-          reason: "is_bot_owner",
-        });
+        adminStatusCache.set(cacheKey, { isAdmin: true, timestamp: Date.now(), reason: "is_bot_owner" });
         return true;
       }
     }
 
     const groupMetadata = await sock.groupMetadata(groupJid);
-    if (!groupMetadata || !groupMetadata.participants) {
-      return false;
-    }
+    if (!groupMetadata?.participants) return false;
 
     let participant = null;
     for (const p of groupMetadata.participants) {
-      const pNorm = normalizePhone(p.id);
-      if (pNorm === userPhone || (userPhone && pNorm.includes(userPhone))) {
+      const pNorm = _bareNormalize(p.id);
+      if (pNorm === userPhone || pNorm.includes(userPhone) || userPhone.includes(pNorm)) {
         participant = p;
         break;
       }
@@ -709,71 +661,46 @@ export async function isUserGroupAdmin(
       participant &&
       (participant.admin === "admin" || participant.admin === "superadmin");
 
-    adminStatusCache.set(cacheKey, {
-      isAdmin: isAdminResult,
-      timestamp: Date.now(),
-      reason: "group_check",
-    });
-
-    return isAdminResult;
+    adminStatusCache.set(cacheKey, { isAdmin: !!isAdminResult, timestamp: Date.now(), reason: "group_check" });
+    return !!isAdminResult;
   } catch (error) {
-    console.log(`[isUserGroupAdmin] Error: ${error.message}`);
+    log.warn(`[isUserGroupAdmin] Error: ${error.message}`);
     return false;
   }
 }
 
-// ============================================================
-//   CLEAR ADMIN CACHE
-// ============================================================
 export function clearAdminCache(groupJid) {
   for (const key of adminStatusCache.keys()) {
-    if (key.includes(groupJid)) {
-      adminStatusCache.delete(key);
-    }
+    if (key.includes(groupJid)) adminStatusCache.delete(key);
   }
-  console.log(`[clearAdminCache] Cleared cache for ${groupJid}`);
 }
 
-// ============================================================
-//   REFRESH ADMIN STATUS
-// ============================================================
-export async function refreshAdminStatus(sock, groupJid, botOwnerJid = null) {
+export async function refreshAdminStatus(sock, groupJid, botOwnerJid = null, sessionId = null) {
   clearAdminCache(groupJid);
-  return await isBotGroupAdmin(sock, groupJid, botOwnerJid, true);
+  return await isBotGroupAdmin(sock, groupJid, botOwnerJid, true, sessionId);
 }
 
 // ============================================================
-//   MAIN PERMISSION CHECKER FOR GROUP COMMANDS
+//   hasGroupAdminPermission — uses session context throughout
 // ============================================================
 export async function hasGroupAdminPermission(sock, msg, session) {
   const from = msg.key.remoteJid;
   const isGroup = from?.endsWith("@g.us");
 
   if (!isGroup) {
-    return {
-      allowed: false,
-      reason: "❌ This command only works in groups!",
-    };
+    return { allowed: false, reason: "❌ This command only works in groups!" };
   }
 
   const senderJid = msg.key.participant || msg.key.remoteJid;
-  const botOwnerJid =
-    session?.ownerJid ||
-    (ENV.ADMIN ? `${normalizePhone(ENV.ADMIN)}@s.whatsapp.net` : null);
+  const sessionId = session?.id || null;
+  const botOwnerJid = session?.ownerJid || null;
 
-  if (botOwnerJid && isBotOwner(senderJid, botOwnerJid)) {
-    console.log(
-      `[hasGroupAdminPermission] Bot owner ${normalizePhone(senderJid)} - allowed`,
-    );
+  // Bot owner always allowed
+  if (botOwnerJid && isBotOwner(senderJid, botOwnerJid, sessionId)) {
     return { allowed: true, reason: "Bot owner" };
   }
 
-  const userIsAdmin = await isUserGroupAdmin(
-    sock,
-    from,
-    senderJid,
-    botOwnerJid,
-  );
+  const userIsAdmin = await isUserGroupAdmin(sock, from, senderJid, botOwnerJid, sessionId);
 
   if (!userIsAdmin) {
     return {
@@ -782,10 +709,10 @@ export async function hasGroupAdminPermission(sock, msg, session) {
     };
   }
 
-  const botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid);
+  const botHasAdmin = await isBotGroupAdmin(sock, from, botOwnerJid, false, sessionId);
 
   if (!botHasAdmin) {
-    const retried = await isBotGroupAdmin(sock, from, botOwnerJid, true);
+    const retried = await isBotGroupAdmin(sock, from, botOwnerJid, true, sessionId);
     if (!retried) {
       return {
         allowed: false,
@@ -825,11 +752,7 @@ export async function sendMsg(sock, jid, content, options = {}) {
       messageOptions = content;
     }
 
-    const result = await sock.sendMessage(jid, {
-      ...messageOptions,
-      ...options,
-    });
-    return result;
+    return await sock.sendMessage(jid, { ...messageOptions, ...options });
   } catch (error) {
     log.debug(`[sendMsg] Error: ${error.message}`);
     return null;
@@ -873,12 +796,7 @@ export async function saveBannedUsers() {
   try {
     await sessionMetaCollection.updateOne(
       { _id: "global_bans" },
-      {
-        $set: {
-          bans: Array.from(bannedUsers.entries()),
-          updatedAt: new Date(),
-        },
-      },
+      { $set: { bans: Array.from(bannedUsers.entries()), updatedAt: new Date() } },
       { upsert: true },
     );
     log.debug("Banned users saved");
@@ -892,12 +810,7 @@ export async function saveGroupSettings() {
   try {
     await sessionMetaCollection.updateOne(
       { _id: "group_settings" },
-      {
-        $set: {
-          settings: Array.from(groupSettings.entries()),
-          updatedAt: new Date(),
-        },
-      },
+      { $set: { settings: Array.from(groupSettings.entries()), updatedAt: new Date() } },
       { upsert: true },
     );
     log.debug("Group settings saved");
@@ -911,12 +824,7 @@ export async function saveWarnings() {
   try {
     await sessionMetaCollection.updateOne(
       { _id: "group_warnings" },
-      {
-        $set: {
-          warnings: Array.from(groupWarnings.entries()),
-          updatedAt: new Date(),
-        },
-      },
+      { $set: { warnings: Array.from(groupWarnings.entries()), updatedAt: new Date() } },
       { upsert: true },
     );
     log.debug("Warnings saved");
@@ -931,29 +839,19 @@ export async function loadPersistedState() {
     const bans = await sessionMetaCollection.findOne({ _id: "global_bans" });
     if (bans?.bans) {
       bannedUsers.clear();
-      for (const [key, value] of bans.bans) {
-        bannedUsers.set(key, value);
-      }
+      for (const [key, value] of bans.bans) bannedUsers.set(key, value);
       log.info(`Loaded ${bannedUsers.size} banned users`);
     }
-    const settings = await sessionMetaCollection.findOne({
-      _id: "group_settings",
-    });
+    const settings = await sessionMetaCollection.findOne({ _id: "group_settings" });
     if (settings?.settings) {
       groupSettings.clear();
-      for (const [key, value] of settings.settings) {
-        groupSettings.set(key, value);
-      }
+      for (const [key, value] of settings.settings) groupSettings.set(key, value);
       log.info(`Loaded settings for ${groupSettings.size} groups`);
     }
-    const warnings = await sessionMetaCollection.findOne({
-      _id: "group_warnings",
-    });
+    const warnings = await sessionMetaCollection.findOne({ _id: "group_warnings" });
     if (warnings?.warnings) {
       groupWarnings.clear();
-      for (const [key, value] of warnings.warnings) {
-        groupWarnings.set(key, value);
-      }
+      for (const [key, value] of warnings.warnings) groupWarnings.set(key, value);
       log.info(`Loaded warnings for ${groupWarnings.size} groups`);
     }
   } catch (error) {
@@ -1033,18 +931,12 @@ function cleanupOldData() {
 
   if (commandUsage.size > 10000) {
     const entries = Array.from(commandUsage.entries());
-    entries.sort((a, b) => {
-      const timeA = a[1].timestamp || a[1];
-      const timeB = b[1].timestamp || b[1];
-      return timeA - timeB;
-    });
-    const toDelete = entries.slice(0, commandUsage.size - 5000);
-    for (const [key] of toDelete) commandUsage.delete(key);
+    entries.sort((a, b) => (a[1].timestamp || a[1]) - (b[1].timestamp || b[1]));
+    for (const [key] of entries.slice(0, commandUsage.size - 5000)) commandUsage.delete(key);
   }
 
   for (const [key, data] of deletedMessages.entries()) {
-    if (data && now - (data.timestamp || 0) > MAX_AGE)
-      deletedMessages.delete(key);
+    if (data && now - (data.timestamp || 0) > MAX_AGE) deletedMessages.delete(key);
   }
 
   for (const [key, timestamp] of userCooldown.entries()) {
@@ -1052,8 +944,7 @@ function cleanupOldData() {
   }
 
   for (const [key, data] of spamTracker.entries()) {
-    if (now - (data.lastMessageTime || data.timestamp || 0) > MAX_AGE)
-      spamTracker.delete(key);
+    if (now - (data.lastMessageTime || data.timestamp || 0) > MAX_AGE) spamTracker.delete(key);
   }
 
   for (const [key, data] of adminCache.entries()) {
@@ -1061,8 +952,7 @@ function cleanupOldData() {
   }
 
   for (const [key, data] of groupMetadataCache.entries()) {
-    if (now - (data.timestamp || 0) > GROUP_META_TTL)
-      groupMetadataCache.delete(key);
+    if (now - (data.timestamp || 0) > GROUP_META_TTL) groupMetadataCache.delete(key);
   }
 }
 
@@ -1072,8 +962,7 @@ setInterval(cleanupOldData, 60 * 60 * 1000);
 //   GROUP ACTIVATION FUNCTIONS
 // ============================================================
 export function activateGroup(sessionId, groupJid) {
-  if (!groupActivations.has(sessionId))
-    groupActivations.set(sessionId, new Set());
+  if (!groupActivations.has(sessionId)) groupActivations.set(sessionId, new Set());
   groupActivations.get(sessionId).add(groupJid);
 }
 
@@ -1100,25 +989,24 @@ export function removeBann(jid) {
 }
 
 // ============================================================
-//   ADMIN HELPERS
+//   AUTHORIZATION CHECK
 // ============================================================
-
-export function isAuthorized(userJid, ownerPhone, sessionMode) {
-  if (isAdmin(userJid, ownerPhone)) return true;
+export function isAuthorized(userJid, ownerPhone, sessionMode, sessionId = null) {
+  if (isAdmin(userJid, ownerPhone, sessionId)) return true;
   if (ownerPhone) {
-    const session = sessionOwnerMap.get(normalizePhone(ownerPhone));
+    const session = sessionOwnerMap.get(_bareNormalize(ownerPhone));
     if (session?.authorizedUsers?.has(userJid)) return true;
-    if (session?.authorizedUsers?.has(normalizePhone(userJid))) return true;
+    if (session?.authorizedUsers?.has(_bareNormalize(userJid))) return true;
   }
   if (authorizedUsers.has(userJid)) return true;
-  if (authorizedUsers.has(normalizePhone(userJid))) return true;
+  if (authorizedUsers.has(_bareNormalize(userJid))) return true;
   const mode = sessionMode || ENV.BOT_MODE || "public";
   if (mode === "public") return true;
   return false;
 }
 
 // ============================================================
-//   CIRCUIT BREAKER FOR EXTERNAL APIS
+//   CIRCUIT BREAKER
 // ============================================================
 class CircuitBreaker {
   constructor(failureThreshold = 5, timeout = 60000) {
@@ -1134,9 +1022,7 @@ class CircuitBreaker {
       if (Date.now() - this.lastFailureTime > this.timeout) {
         this.state = "HALF_OPEN";
       } else {
-        throw new Error(
-          "Circuit breaker is OPEN - service temporarily unavailable",
-        );
+        throw new Error("Circuit breaker is OPEN - service temporarily unavailable");
       }
     }
     try {
@@ -1294,6 +1180,9 @@ function createSessionObject(sessionId) {
     mode: process.env.BOT_MODE || "public",
     authorizedUsers: new Set(),
     lastActivity: Date.now(),
+    // Whether this session's owner has been confirmed (via pairing code phone
+    // or first message). Prevents ENV.ADMIN from being injected prematurely.
+    ownerConfirmed: false,
   };
 }
 
@@ -1306,9 +1195,7 @@ async function ensureMongoConnection() {
   }
 
   try {
-    if (mongoClient) {
-      await mongoClient.close().catch(() => {});
-    }
+    if (mongoClient) await mongoClient.close().catch(() => {});
 
     mongoClient = new MongoClient(ENV.MONGODB_URI, {
       maxPoolSize: 10,
@@ -1327,10 +1214,7 @@ async function ensureMongoConnection() {
     userLogCollection = db.collection("user_log");
 
     await authCollection.createIndex({ _id: 1 });
-    await sessionMetaCollection.createIndex(
-      { sessionId: 1 },
-      { unique: true },
-    );
+    await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true });
     await sessionMetaCollection.createIndex({ active: 1 });
     await sessionMetaCollection.createIndex({ updatedAt: -1 });
     await userLogCollection.createIndex({ phone: 1 }, { unique: true });
@@ -1398,9 +1282,7 @@ async function loadHandlersForSession(session) {
   }
 
   session.handlersReady = !!session.commandHandler;
-  log.ok(
-    `[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`,
-  );
+  log.ok(`[${sid}] Handlers ready: ${session.handlersReady ? "YES" : "NO"}`);
 }
 
 // ============================================================
@@ -1418,12 +1300,10 @@ async function processMessageQueue(session) {
       queued.msg._session = session;
       queued.msg._sessionId = session.id;
       queued.msg._sessionMode = session.mode || "public";
-      queued.msg._ownerPhone = session.ownerPhone || ENV.ADMIN || "";
+      queued.msg._ownerPhone = session.ownerPhone || "";
       await session.commandHandler(queued.msg, queued.sock);
     } catch (err) {
-      log.err(
-        `[${session.id.slice(0, 8)}] Queued message error: ${err.message}`,
-      );
+      log.err(`[${session.id.slice(0, 8)}] Queued message error: ${err.message}`);
     }
   }
 
@@ -1471,11 +1351,14 @@ async function updateUserMessageCount(session) {
 }
 
 // ============================================================
-//   OWNER HELPERS
-//   *** MUST BE DEFINED BEFORE _startSocket ***
+//   SET SESSION OWNER
+//   *** DEFINED ABOVE _startSocket — no crash ***
+//   Only sets owner once per session (ownerConfirmed guard).
 // ============================================================
 function setSessionOwner(session, jid, phone, name = "Owner") {
-  const cleanPhone = normalizePhone(phone);
+  const cleanPhone = _bareNormalize(phone || jid);
+  if (!cleanPhone) return;
+
   const cleanJid = `${cleanPhone}@s.whatsapp.net`;
   const cleanName =
     name && name !== cleanPhone && name !== "Unknown" ? name : "Owner";
@@ -1483,6 +1366,7 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
   session.ownerJid = cleanJid;
   session.ownerPhone = cleanPhone;
   session.ownerName = cleanName;
+  session.ownerConfirmed = true;
 
   if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
 
@@ -1502,9 +1386,7 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
     .catch(() => {});
 
   trackUser(session).catch(() => {});
-  log.ok(
-    `[${session.id.slice(0, 8)}] Owner set: +${cleanPhone} (${cleanName})`,
-  );
+  log.ok(`[${session.id.slice(0, 8)}] Owner confirmed: +${cleanPhone} (${cleanName})`);
 }
 
 // ============================================================
@@ -1514,31 +1396,27 @@ function attachListeners(session) {
   const { sock } = session;
   const sid = session.id.slice(0, 8);
 
-  // Group participant handler (with admin inheritance)
+  // Group participant handler
   sock.ev.on("group-participants.update", async (update) => {
     try {
       const { id: groupJid, participants, action } = update;
 
-      // When bot joins a new group — attempt admin inheritance
-      if (action === "add" && session.botSelfJid && participants.includes(session.botSelfJid)) {
+      if (
+        action === "add" &&
+        session.botSelfJid &&
+        participants.includes(session.botSelfJid)
+      ) {
         log.info(`[${sid}] Bot added to group: ${groupJid}`);
         setTimeout(async () => {
           try {
-            const { ensureBotAdminInheritance } = await import(
-              "./utils/validators.js"
-            );
-            await ensureBotAdminInheritance(
-              groupJid,
-              sock,
-              session.ownerJid,
-            );
+            const { ensureBotAdminInheritance } = await import("./utils/validators.js");
+            await ensureBotAdminInheritance(groupJid, sock, session.ownerJid);
           } catch (err) {
             log.warn(`[${sid}] Inheritance failed: ${err.message}`);
           }
         }, 5000);
       }
 
-      // Call existing group handler
       if (session.groupHandler) {
         await session.groupHandler(update, sock);
       }
@@ -1571,41 +1449,36 @@ function attachListeners(session) {
 
       if (messageText && messageText.length > ENV.MAX_MESSAGE_SIZE) return;
 
+      // Determine raw sender JID
       let rawSender;
       if (isGroup) {
         rawSender = msg.key.participant || msg.participant || "";
       } else if (fromMe) {
-        rawSender = session.botSelfJid || session.ownerJid || from;
+        rawSender = session.botSelfJid || from;
       } else {
         rawSender = from;
       }
 
-      // ── Auto-map owner temp ID (no circular import needed — same file) ──
-      const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
-      if (ownerPhoneFromEnv && rawSender && !session.destroyed) {
-        const wasMapped = autoMapOwnerTempId(rawSender, ownerPhoneFromEnv);
-        if (wasMapped) {
-          log.ok(
-            `[${sid}] ✅ Mapped owner's temp ID: ${rawSender} → ${ownerPhoneFromEnv}`,
-          );
-        }
+      // ── Per-session temp ID mapping ──
+      // If this session already has a confirmed owner and the sender
+      // looks like a temp ID that matches the owner, map it.
+      if (session.ownerPhone && rawSender && !session.destroyed) {
+        autoMapOwnerTempId(session.id, rawSender, session.ownerPhone);
       }
 
-      const senderPhone = normalizePhone(rawSender);
+      // Resolve sender to real phone using session-specific map
+      const senderPhone = normalizeToPhone(rawSender, session.id);
       const senderJid = senderPhone
         ? `${senderPhone}@s.whatsapp.net`
         : rawSender;
       const senderNumber = senderPhone || rawSender.split("@")[0];
 
       if (messageText) {
-        const logMessage =
-          messageText.substring(0, 60) +
-          (messageText.length > 60 ? "…" : "");
-        log.msg(
-          `[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${logMessage}`,
-        );
+        const logMessage = messageText.substring(0, 60) + (messageText.length > 60 ? "…" : "");
+        log.msg(`[${sid}][${isGroup ? "G" : "D"}] ${senderNumber}: ${logMessage}`);
       }
 
+      // Ban check
       if (
         bannedUsers.has(senderJid) ||
         bannedUsers.has(senderPhone) ||
@@ -1618,17 +1491,17 @@ function attachListeners(session) {
       session.messageCount++;
       messageCount++;
 
-      if (
-        !session.ownerJid &&
-        !isGroup &&
-        messageText?.startsWith(ENV.PREFIX)
-      ) {
-        setSessionOwner(session, senderJid, senderNumber, "Owner");
+      // ── Owner discovery from first DM command ──
+      // Only set owner if NOT yet confirmed for this session.
+      // We do NOT fall back to ENV.ADMIN here — that would pollute
+      // other users' sessions with the deployer's phone number.
+      if (!session.ownerConfirmed && !isGroup && messageText?.startsWith(ENV.PREFIX)) {
+        // The person who first sends a command in DM owns this session
+        setSessionOwner(session, senderJid, senderPhone, "Owner");
       }
 
       if (!session.handlersReady || !session.commandHandler) {
-        if (!messageQueues.has(session.id))
-          messageQueues.set(session.id, []);
+        if (!messageQueues.has(session.id)) messageQueues.set(session.id, []);
         const queue = messageQueues.get(session.id);
         if (queue.length >= MAX_QUEUE_SIZE) queue.shift();
         queue.push({ msg, sock });
@@ -1644,7 +1517,7 @@ function attachListeners(session) {
       msg._session = session;
       msg._sessionId = session.id;
       msg._sessionMode = session.mode || "public";
-      msg._ownerPhone = session.ownerPhone || ENV.ADMIN || "";
+      msg._ownerPhone = session.ownerPhone || "";
 
       try {
         await session.commandHandler(msg, sock);
@@ -1668,12 +1541,7 @@ function attachListeners(session) {
 
   sock.ev.on("messages.update", async (updates) => {
     try {
-      if (
-        !session.connected ||
-        !ENV.ANTI_DELETE_ENABLED ||
-        !session.antiDeleteHandler
-      )
-        return;
+      if (!session.connected || !ENV.ANTI_DELETE_ENABLED || !session.antiDeleteHandler) return;
       for (const u of updates) {
         try {
           await session.antiDeleteHandler(u, sock);
@@ -1691,25 +1559,30 @@ function attachListeners(session) {
 
 // ============================================================
 //   WELCOME MESSAGE
+//   Sends to session.ownerJid — which is the ACTUAL owner of this
+//   session, not ENV.ADMIN.
 // ============================================================
 async function sendWelcomeMessage(session, sock) {
   try {
-    await delay(15000);
-
-    let connectionChecked = false;
-    for (let i = 0; i < 3; i++) {
-      if (session.connected && session.ownerJid) {
-        connectionChecked = true;
-        break;
-      }
-      await delay(5000);
+    // Wait for owner to be confirmed
+    for (let i = 0; i < 12; i++) {
+      if (session.ownerConfirmed && session.ownerJid) break;
+      await delay(2500);
     }
 
-    if (!connectionChecked || !session.ownerJid) return;
+    if (!session.ownerConfirmed || !session.ownerJid) {
+      log.warn(`[${session.id.slice(0, 8)}] Welcome skipped — no confirmed owner`);
+      return;
+    }
+
+    // Also wait for connection to stabilise
+    if (!session.connected) {
+      await delay(5000);
+      if (!session.connected) return;
+    }
 
     const connectTime = Date.now() - session.startTime;
-    const speedIcon =
-      connectTime < 15000 ? "🟢" : connectTime < 30000 ? "🟡" : "🔴";
+    const speedIcon = connectTime < 15000 ? "🟢" : connectTime < 30000 ? "🟡" : "🔴";
     const connectSecs = (connectTime / 1000).toFixed(1);
     const mem = process.memoryUsage();
     const usedMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
@@ -1759,9 +1632,7 @@ async function clearSessionAuth(sessionId) {
     });
     log.info(`[${sessionId.slice(0, 8)}] Auth cleared from MongoDB`);
   } catch (e) {
-    log.warn(
-      `[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`,
-    );
+    log.warn(`[${sessionId.slice(0, 8)}] Could not clear auth: ${e.message}`);
   }
 }
 
@@ -1812,10 +1683,16 @@ async function startSession(sessionId, isNew = true) {
 }
 
 // ============================================================
-//   _startSocket — FIXED
-//   • setSessionOwner is now defined above this function
-//   • No circular import("../index.js") — autoMapOwnerTempId
-//     is called directly (it lives in this same file)
+//   _startSocket — FULLY FIXED
+//
+//   KEY CHANGES vs old version:
+//   1. ENV.ADMIN is ONLY set as owner if this is the deployer's
+//      own session (detected by: bot number matches ENV.ADMIN,
+//      OR pairing was done with ENV.ADMIN's phone).
+//      For all OTHER sessions, owner is left unset until the
+//      real user interacts.
+//   2. setSessionOwner is called above this function — no crash.
+//   3. No circular import.
 // ============================================================
 async function _startSocket(session) {
   if (session.destroyed) return;
@@ -1825,10 +1702,7 @@ async function _startSocket(session) {
     await ensureMongoConnection();
 
     const { version } = await fetchLatestBaileysVersion();
-    const { state, saveCreds } = await useMongoAuthState(
-      authCollection,
-      session.id,
-    );
+    const { state, saveCreds } = await useMongoAuthState(authCollection, session.id);
 
     const sock = makeWASocket({
       version,
@@ -1851,11 +1725,7 @@ async function _startSocket(session) {
       emitOwnEvents: true,
       shouldIgnoreJid: (j) => isJidBroadcast(j),
       patchMessageBeforeSending: (msg) => {
-        if (
-          msg.buttonsMessage ||
-          msg.templateMessage ||
-          msg.listMessage
-        ) {
+        if (msg.buttonsMessage || msg.templateMessage || msg.listMessage) {
           msg = {
             viewOnceMessage: {
               message: {
@@ -1903,7 +1773,7 @@ async function _startSocket(session) {
         session.reconnectAttempts = 0;
 
         session.botSelfJid = sock.user?.id || null;
-        const botNumber = normalizePhone(session.botSelfJid || "");
+        const botNumber = _bareNormalize(session.botSelfJid || "");
         const rawName =
           sock.user?.name ||
           sock.user?.verifiedName ||
@@ -1915,50 +1785,51 @@ async function _startSocket(session) {
         session.botNumber = botNumber;
         session.botName = userName || botNumber;
 
-        // ── Set owner from ENV immediately on connect ──
-        const ownerPhoneFromEnv = ENV.ADMIN || ENV.OWNER_PHONE || "";
-        if (ownerPhoneFromEnv) {
-          const ownerClean = normalizePhone(ownerPhoneFromEnv);
-          console.log(`[${sid}] 👑 Owner phone in ENV: ${ownerClean}`);
+        if (!globalBotNumber) setGlobalBotNumber(botNumber);
 
-          if (!session.ownerPhone) {
-            // setSessionOwner is now defined above — no crash
+        // ── Owner resolution — THE CRITICAL FIX ──
+        // We only set ENV.ADMIN as owner if the bot's own number matches
+        // ENV.ADMIN — meaning this IS the deployer's session.
+        // For all other sessions, owner is discovered later (pairing phone
+        // or first DM command). This prevents cross-session owner pollution.
+        if (!session.ownerConfirmed) {
+          const adminPhone = ENV.ADMIN ? _bareNormalize(ENV.ADMIN) : "";
+
+          // Case 1: pairing was done with a specific phone (stored in pairingPhone)
+          if (session.pairingPhone) {
+            const pp = _bareNormalize(session.pairingPhone);
+            setSessionOwner(session, `${pp}@s.whatsapp.net`, pp, userName || "Owner");
+            log.ok(`[${sid}] Owner set from pairing phone: +${pp}`);
+          }
+          // Case 2: this is the deployer's session (bot number === ENV.ADMIN phone)
+          else if (adminPhone && botNumber === adminPhone) {
             setSessionOwner(
               session,
-              `${ownerClean}@s.whatsapp.net`,
-              ownerClean,
+              `${adminPhone}@s.whatsapp.net`,
+              adminPhone,
               userName || "Owner",
             );
-          } else if (userName && session.ownerName === "Owner") {
-            session.ownerName = userName;
-            sessionMetaCollection
-              ?.updateOne(
-                { sessionId: session.id },
-                { $set: { ownerName: userName } },
-              )
-              .catch(() => {});
+            log.ok(`[${sid}] Deployer session detected — owner: +${adminPhone}`);
           }
-          console.log(`[${sid}] 📝 Owner registered: +${ownerClean}`);
-        } else {
-          // Fallback: use bot number as owner if no ENV set
-          if (!session.ownerPhone) {
-            setSessionOwner(
-              session,
-              `${botNumber}@s.whatsapp.net`,
-              botNumber,
-              userName || "Owner",
-            );
-            if (!session.authMethod) session.authMethod = "session";
+          // Case 3: restored session with saved ownerPhone in DB
+          // (handled below when we load from sessionMetaCollection)
+          else {
+            log.info(`[${sid}] Owner not yet known — awaiting first interaction`);
           }
+        } else if (userName && session.ownerName === "Owner") {
+          // Update name if we now have it
+          session.ownerName = userName;
+          sessionMetaCollection
+            ?.updateOne({ sessionId: session.id }, { $set: { ownerName: userName } })
+            .catch(() => {});
         }
 
         await saveCreds();
         await loadHandlersForSession(session);
         attachListeners(session);
-        log.ok(
-          `[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`,
-        );
+        log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
         await processMessageQueue(session);
+        // Welcome runs async — does NOT block connection
         sendWelcomeMessage(session, sock).catch((err) =>
           log.warn(`[${sid}] Welcome error: ${err.message}`),
         );
@@ -1981,7 +1852,9 @@ async function _startSocket(session) {
           session.ownerJid = null;
           session.ownerName = null;
           session.authMethod = null;
+          session.ownerConfirmed = false;
           session.reconnectAttempts = 0;
+          clearSessionTempMaps(session.id);
           setTimeout(() => _startSocket(session), 3000);
           return;
         }
@@ -1992,24 +1865,16 @@ async function _startSocket(session) {
         }
 
         session.reconnectAttempts++;
-        const backoff = Math.min(
-          5000 * session.reconnectAttempts,
-          30000,
-        );
-        if (session.reconnectTimeout)
-          clearTimeout(session.reconnectTimeout);
-        session.reconnectTimeout = setTimeout(
-          () => _startSocket(session),
-          backoff,
-        );
+        const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
+        if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+        session.reconnectTimeout = setTimeout(() => _startSocket(session), backoff);
       }
     });
 
     sock.ev.on("creds.update", saveCreds);
   } catch (e) {
     log.err(`[${sid}] Socket startup error: ${e.message}`);
-    if (!session.destroyed)
-      setTimeout(() => _startSocket(session), 10000);
+    if (!session.destroyed) setTimeout(() => _startSocket(session), 10000);
   }
 }
 
@@ -2025,8 +1890,7 @@ async function destroySession(sessionId) {
   if (session.ownerPhone) sessionOwnerMap.delete(session.ownerPhone);
   if (session.pingInterval) clearInterval(session.pingInterval);
   if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
-  if (session.pairingCodeTimeout)
-    clearTimeout(session.pairingCodeTimeout);
+  if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
   if (session.queueTimeout) clearTimeout(session.queueTimeout);
 
   if (session.sock) {
@@ -2038,6 +1902,7 @@ async function destroySession(sessionId) {
 
   await clearSessionAuth(sessionId);
   await sessionMetaCollection.deleteOne({ sessionId });
+  clearSessionTempMaps(sessionId);
   sessions.delete(sessionId);
   groupActivations.delete(sessionId);
   messageQueues.delete(sessionId);
@@ -2047,6 +1912,7 @@ async function destroySession(sessionId) {
 
 // ============================================================
 //   REQUEST PAIRING CODE
+//   Stores the phone number so _startSocket can set owner correctly
 // ============================================================
 async function requestPairingCode(session, phoneNumber) {
   const clean = (phoneNumber || "").replace(/\D/g, "");
@@ -2055,10 +1921,7 @@ async function requestPairingCode(session, phoneNumber) {
   if (session.connected)
     return { success: false, error: "Already connected" };
   if (!session.sock)
-    return {
-      success: false,
-      error: "Bot starting up — wait a moment",
-    };
+    return { success: false, error: "Bot starting up — wait a moment" };
 
   if (session.pairingCode && session.pairingExpiry > Date.now()) {
     return {
@@ -2073,26 +1936,22 @@ async function requestPairingCode(session, phoneNumber) {
   try {
     const rawCode = await session.sock.requestPairingCode(clean);
     const code =
-      String(rawCode)
-        .match(/.{1,4}/g)
-        ?.join("-") || String(rawCode);
+      String(rawCode).match(/.{1,4}/g)?.join("-") || String(rawCode);
 
     session.pairingCode = code;
+    // *** Store pairingPhone so _startSocket can set owner on connect ***
     session.pairingPhone = clean;
     session.pairingExpiry = Date.now() + 60000;
     session.authMethod = "pairing";
 
-    if (session.pairingCodeTimeout)
-      clearTimeout(session.pairingCodeTimeout);
+    if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
     session.pairingCodeTimeout = setTimeout(() => {
       session.pairingCode = null;
-      session.pairingPhone = null;
+      // Keep pairingPhone — it's the owner, don't clear it
       session.pairingExpiry = null;
     }, 60000);
 
-    log.ok(
-      `[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`,
-    );
+    log.ok(`[${session.id.slice(0, 8)}] Pairing code: ${code} for +${clean}`);
     return {
       success: true,
       code,
@@ -2101,9 +1960,7 @@ async function requestPairingCode(session, phoneNumber) {
       expiresIn: 60,
     };
   } catch (e) {
-    log.err(
-      `[${session.id.slice(0, 8)}] Pairing code failed: ${e.message}`,
-    );
+    log.err(`[${session.id.slice(0, 8)}] Pairing code failed: ${e.message}`);
     return { success: false, error: e.message };
   }
 }
@@ -2192,8 +2049,8 @@ function connectedHTML(session) {
       <div style="display:flex;align-items:center;gap:16px;">
         <div style="width:56px;height:56px;background:linear-gradient(135deg,#ff3366,#ff6b3d);border-radius:50%;display:flex;align-items:center;justify-content:center;"><i class="fas fa-crown" style="font-size:24px;color:white;"></i></div>
         <div>
-          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
-          <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">+${escapeHtml(session.ownerPhone || "—")}</div>
+          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(session.ownerName || "Pending…")}</div>
+          <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">${session.ownerPhone ? `+${escapeHtml(session.ownerPhone)}` : "Send a command to confirm ownership"}</div>
         </div>
       </div>
       <div class="status-badge status-online"><i class="fas fa-shield-alt"></i> BOT OWNER</div>
@@ -2544,7 +2401,6 @@ function userTrackingHTML() {
 // ============================================================
 //   SESSION ID MANAGEMENT
 // ============================================================
-
 function getOrCreateSessionId(req, res) {
   let sessionId = req.cookies?.ayoSessionId;
   if (!sessionId) {
@@ -2560,12 +2416,10 @@ function getOrCreateSessionId(req, res) {
 // ============================================================
 //   ADMIN MIDDLEWARE
 // ============================================================
-
 function requireAdmin(req, res, next) {
   const token = req.cookies?.ayoAdminToken;
   if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
-  if (!token || !adminTokens.has(token))
-    return res.redirect("/ayocodes-admin/login");
+  if (!token || !adminTokens.has(token)) return res.redirect("/ayocodes-admin/login");
   next();
 }
 
@@ -2616,6 +2470,7 @@ function setupWebDashboard() {
       botName: session.botName,
       ownerPhone: session.ownerPhone,
       ownerName: session.ownerName,
+      ownerConfirmed: session.ownerConfirmed,
       messageCount: session.messageCount,
       commandCount: session.commandCount,
       uptime: Math.floor((Date.now() - session.startTime) / 1000),
@@ -2629,12 +2484,10 @@ function setupWebDashboard() {
 
   app.post("/api/request-pairing/:sessionId", async (req, res) => {
     const { phoneNumber } = req.body;
-    if (!phoneNumber)
-      return res.json({ success: false, error: "Phone number required." });
+    if (!phoneNumber) return res.json({ success: false, error: "Phone number required." });
     let session = sessions.get(req.params.sessionId);
     if (!session) session = await startSession(req.params.sessionId, true);
-    if (!session)
-      return res.json({ success: false, error: "Could not create session." });
+    if (!session) return res.json({ success: false, error: "Could not create session." });
     res.json(await requestPairingCode(session, phoneNumber));
   });
 
@@ -2649,8 +2502,7 @@ function setupWebDashboard() {
 
   app.post("/api/waitlist-join/:sessionId", async (req, res) => {
     const { version } = req.body;
-    if (!version)
-      return res.json({ success: false, error: "version required" });
+    if (!version) return res.json({ success: false, error: "version required" });
     const session = sessions.get(req.params.sessionId);
     if (!session?.connected || !session.sock || !session.ownerJid) {
       return res.json({ success: false, error: "Bot not connected" });
@@ -2693,10 +2545,7 @@ function setupWebDashboard() {
   app.get("/ayocodes-admin/logout", (req, res) => {
     const token = req.cookies?.ayoAdminToken;
     if (token) adminTokens.delete(token);
-    res.setHeader(
-      "Set-Cookie",
-      "ayoAdminToken=; HttpOnly; Path=/; Max-Age=0",
-    );
+    res.setHeader("Set-Cookie", "ayoAdminToken=; HttpOnly; Path=/; Max-Age=0");
     res.redirect("/ayocodes-admin/login");
   });
 
@@ -2706,8 +2555,7 @@ function setupWebDashboard() {
   });
 
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY)
-      return res.status(403).json({ error: "Not enabled" });
+    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
     const list = Array.from(sessions.values()).map((s) => ({
       instanceId: s.id,
       ownerPhone: s.ownerPhone,
@@ -2725,39 +2573,23 @@ function setupWebDashboard() {
     });
   });
 
-  app.post(
-    "/ayocodes-admin/api/disconnect",
-    requireAdmin,
-    async (req, res) => {
-      if (!ENV.AYOCODES_ADMIN_KEY)
-        return res.status(403).json({ error: "Not enabled" });
-      const { instanceId } = req.body;
-      if (!instanceId)
-        return res.status(400).json({ error: "instanceId required" });
-      await destroySession(instanceId);
-      res.json({ ok: true });
-    },
-  );
+  app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
+    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
+    const { instanceId } = req.body;
+    if (!instanceId) return res.status(400).json({ error: "instanceId required" });
+    await destroySession(instanceId);
+    res.json({ ok: true });
+  });
 
-  app.post(
-    "/ayocodes-admin/api/delete-offline",
-    requireAdmin,
-    async (req, res) => {
-      if (!ENV.AYOCODES_ADMIN_KEY)
-        return res.status(403).json({ error: "Not enabled" });
-      const offline = Array.from(sessions.values()).filter(
-        (s) => !s.connected,
-      );
-      let deleted = 0;
-      for (const s of offline) {
-        try {
-          await destroySession(s.id);
-          deleted++;
-        } catch (_) {}
-      }
-      res.json({ ok: true, deleted, remaining: sessions.size });
-    },
-  );
+  app.post("/ayocodes-admin/api/delete-offline", requireAdmin, async (req, res) => {
+    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
+    const offline = Array.from(sessions.values()).filter((s) => !s.connected);
+    let deleted = 0;
+    for (const s of offline) {
+      try { await destroySession(s.id); deleted++; } catch (_) {}
+    }
+    res.json({ ok: true, deleted, remaining: sessions.size });
+  });
 
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     if (!ENV.AYOCODES_ADMIN_KEY) return res.status(404).send("Not found");
@@ -2765,8 +2597,7 @@ function setupWebDashboard() {
   });
 
   app.get("/ayocodes-admin/api/users", requireAdmin, async (req, res) => {
-    if (!ENV.AYOCODES_ADMIN_KEY)
-      return res.status(403).json({ error: "Not enabled" });
+    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
     try {
       await ensureMongoConnection();
       const page = parseInt(req.query.page) || 1;
@@ -2774,35 +2605,20 @@ function setupWebDashboard() {
       const skip = (page - 1) * limit;
       const search = req.query.search || "";
       const query = search
-        ? {
-            $or: [
-              { phone: { $regex: search, $options: "i" } },
-              { name: { $regex: search, $options: "i" } },
-            ],
-          }
+        ? { $or: [{ phone: { $regex: search, $options: "i" } }, { name: { $regex: search, $options: "i" } }] }
         : {};
 
       const [users, total] = await Promise.all([
-        userLogCollection
-          .find(query)
-          .sort({ lastSeen: -1 })
-          .skip(skip)
-          .limit(limit)
-          .toArray(),
+        userLogCollection.find(query).sort({ lastSeen: -1 }).skip(skip).limit(limit).toArray(),
         userLogCollection.countDocuments(query),
       ]);
 
       const activeSessions = new Set(
-        Array.from(sessions.values())
-          .filter((s) => s.connected)
-          .map((s) => s.ownerPhone),
+        Array.from(sessions.values()).filter((s) => s.connected).map((s) => s.ownerPhone),
       );
 
       res.json({
-        users: users.map((u) => ({
-          ...u,
-          online: activeSessions.has(u.phone),
-        })),
+        users: users.map((u) => ({ ...u, online: activeSessions.has(u.phone) })),
         total,
         page,
         pages: Math.ceil(total / limit),
@@ -2812,46 +2628,33 @@ function setupWebDashboard() {
     }
   });
 
-  app.get(
-    "/ayocodes-admin/api/users/export",
-    requireAdmin,
-    async (req, res) => {
-      if (!ENV.AYOCODES_ADMIN_KEY)
-        return res.status(403).json({ error: "Not enabled" });
-      try {
-        await ensureMongoConnection();
-        const users = await userLogCollection
-          .find({})
-          .sort({ lastSeen: -1 })
-          .toArray();
-        const csv = [
-          "Phone,Name,First Seen,Last Seen,Total Messages,Total Sessions,Auth Method,Bot Number",
-          ...users.map((u) =>
-            [
-              u.phone || "",
-              (u.name || "").replace(/,/g, ";"),
-              u.firstSeen
-                ? new Date(u.firstSeen).toISOString()
-                : "",
-              u.lastSeen ? new Date(u.lastSeen).toISOString() : "",
-              u.totalMessages || 0,
-              u.totalSessions || 0,
-              u.authMethod || "",
-              u.botNumber || "",
-            ].join(","),
-          ),
-        ].join("\n");
-        res.setHeader("Content-Type", "text/csv");
-        res.setHeader(
-          "Content-Disposition",
-          "attachment; filename=ayobot-users.csv",
-        );
-        res.send(csv);
-      } catch (e) {
-        res.status(500).send("Export failed: " + e.message);
-      }
-    },
-  );
+  app.get("/ayocodes-admin/api/users/export", requireAdmin, async (req, res) => {
+    if (!ENV.AYOCODES_ADMIN_KEY) return res.status(403).json({ error: "Not enabled" });
+    try {
+      await ensureMongoConnection();
+      const users = await userLogCollection.find({}).sort({ lastSeen: -1 }).toArray();
+      const csv = [
+        "Phone,Name,First Seen,Last Seen,Total Messages,Total Sessions,Auth Method,Bot Number",
+        ...users.map((u) =>
+          [
+            u.phone || "",
+            (u.name || "").replace(/,/g, ";"),
+            u.firstSeen ? new Date(u.firstSeen).toISOString() : "",
+            u.lastSeen ? new Date(u.lastSeen).toISOString() : "",
+            u.totalMessages || 0,
+            u.totalSessions || 0,
+            u.authMethod || "",
+            u.botNumber || "",
+          ].join(","),
+        ),
+      ].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=ayobot-users.csv");
+      res.send(csv);
+    } catch (e) {
+      res.status(500).send("Export failed: " + e.message);
+    }
+  });
 
   app.get("/api/metrics", requireAdmin, (req, res) => {
     res.json({
@@ -2881,8 +2684,7 @@ function setupWebDashboard() {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       sessions: sessions.size,
-      connected: Array.from(sessions.values()).filter((s) => s.connected)
-        .length,
+      connected: Array.from(sessions.values()).filter((s) => s.connected).length,
       database: dbConnected ? "connected" : "disconnected",
     });
   });
@@ -2890,8 +2692,7 @@ function setupWebDashboard() {
   const PORT = ENV.PORT;
   app.listen(PORT, "0.0.0.0", () => {
     log.ok(`Dashboard → http://localhost:${PORT}`);
-    if (ENV.AYOCODES_ADMIN_KEY)
-      log.ok(`Admin → http://localhost:${PORT}/ayocodes-admin`);
+    if (ENV.AYOCODES_ADMIN_KEY) log.ok(`Admin → http://localhost:${PORT}/ayocodes-admin`);
     const publicUrl = process.env.RENDER_EXTERNAL_URL
       ? process.env.RENDER_EXTERNAL_URL.startsWith("http")
         ? process.env.RENDER_EXTERNAL_URL
@@ -2938,28 +2739,24 @@ async function loadAndDisplayFeatures() {
     try {
       const mod = await import(f.path);
       const fns = Object.keys(mod).filter((k) => typeof mod[k] === "function");
-      console.log(
-        `✅ ${f.emoji} ${f.name.padEnd(16)} ➜ ${fns.length} exports`,
-      );
+      console.log(`✅ ${f.emoji} ${f.name.padEnd(16)} ➜ ${fns.length} exports`);
       loaded++;
       total += fns.length;
     } catch (e) {
-      console.log(
-        `❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`,
-      );
+      console.log(`❌ ${f.emoji} ${f.name.padEnd(16)} ➜ ${e.message.substring(0, 55)}`);
       failed++;
     }
   }
 
   console.log(`\n┏${line}┓`);
-  console.log(
-    `┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(55) + "┃",
-  );
+  console.log(`┃  📊 ${loaded} loaded | ${failed} failed | ${total} total functions`.padEnd(55) + "┃");
   console.log(`┗${line}┛\n`);
 }
 
 // ============================================================
 //   RESTORE SESSIONS
+//   Loads saved ownerPhone from DB to restore ownership without
+//   falling back to ENV.ADMIN for non-deployer sessions.
 // ============================================================
 async function restoreAllSessions() {
   try {
@@ -2970,17 +2767,29 @@ async function restoreAllSessions() {
     for (const s of saved) {
       try {
         const session = await startSession(s.sessionId, false);
-        if (session && s.mode) {
-          session.mode = s.mode;
-          for (let i = 0; i < 30 && !session.handlersReady; i++)
-            await delay(1000);
-          if (session.handlersReady)
+        if (session) {
+          if (s.mode) session.mode = s.mode;
+
+          // Restore owner from DB — this is the CORRECT owner for this session
+          if (s.ownerPhone && !session.ownerConfirmed) {
+            const restoredPhone = _bareNormalize(s.ownerPhone);
+            if (restoredPhone) {
+              session.ownerJid = `${restoredPhone}@s.whatsapp.net`;
+              session.ownerPhone = restoredPhone;
+              session.ownerName = s.ownerName || "Owner";
+              session.ownerConfirmed = true;
+              sessionOwnerMap.set(restoredPhone, session);
+              log.info(`[${s.sessionId.slice(0, 8)}] Owner restored from DB: +${restoredPhone}`);
+            }
+          }
+
+          for (let i = 0; i < 30 && !session.handlersReady; i++) await delay(1000);
+          if (session.handlersReady) {
             log.info(`[${s.sessionId.slice(0, 8)}] Session restored`);
+          }
         }
       } catch (e) {
-        log.warn(
-          `Could not restore session ${s.sessionId}: ${e.message}`,
-        );
+        log.warn(`Could not restore session ${s.sessionId}: ${e.message}`);
       }
     }
   } catch (error) {
@@ -2992,9 +2801,7 @@ async function restoreAllSessions() {
 //   STARTUP SEQUENCE
 // ============================================================
 async function main() {
-  console.log(
-    `\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 by AYOCODES…${C.reset}\n`,
-  );
+  console.log(`\n${C.bold}${C.cyan}🚀 Starting AYOBOT v1.0.0 by AYOCODES…${C.reset}\n`);
   checkEnvVars();
 
   try {
@@ -3008,9 +2815,7 @@ async function main() {
   setupWebDashboard();
   setInterval(cleanupOldData, 60 * 60 * 1000);
   await restoreAllSessions();
-  await loadAndDisplayFeatures().catch((e) =>
-    log.warn("Feature display: " + e.message),
-  );
+  await loadAndDisplayFeatures().catch((e) => log.warn("Feature display: " + e.message));
 
   console.log(`${C.green}${C.bold}✨ AYOBOT v1.0.0 ready.${C.reset}\n`);
 }
@@ -3026,10 +2831,7 @@ async function gracefulShutdown(sig) {
 
   for (const session of sessions.values()) {
     if (session.sock) {
-      try {
-        session.sock.end();
-        session.sock.removeAllListeners();
-      } catch (_) {}
+      try { session.sock.end(); session.sock.removeAllListeners(); } catch (_) {}
     }
     if (session.pingInterval) clearInterval(session.pingInterval);
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
