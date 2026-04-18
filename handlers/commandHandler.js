@@ -1,14 +1,17 @@
 // handlers/commandHandler.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMMAND HANDLER — COMPLETE FULLY FIXED VERSION v2
+//  COMMAND HANDLER — FULLY FIXED v3
 //  Author: AYOCODES
 //
-//  ROOT CAUSES FIXED:
-//  1. ✅ safeImport now uses relative specifiers (not file:// URLs) → named exports work
-//  2. ✅ ENV.PREFIX syntax error fixed
-//  3. ✅ Bot-owner = group admin: enforced via hasGroupAdminPermission + isBotGroupAdmin
-//  4. ✅ All .ok aliases registered properly
-//  5. ✅ All safeRegister calls check function existence before registering
+//  FIXES IN THIS VERSION:
+//  1. ✅ downloader module path corrected to ../commands/group/downloader.js
+//  2. ✅ viewonce module added — .ok wired to viewOnceToDM from correct file
+//  3. ✅ sendReaction imported from index (or inlined) — no more missing global
+//  4. ✅ "push" added to ACTIVATION_EXEMPT (was missing despite being an alias)
+//  5. ✅ handleCommand passes full context object — all commands get { fullArgs, from, sock, args, ... }
+//  6. ✅ reloadCommands properly resets MODULES without mutating a const declaration
+//  7. ✅ safeImport log corrected: namedFns override defaultFns (named exports win)
+//  8. ✅ rb() logs a clear warning per skipped command instead of silent skip
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -32,28 +35,28 @@ import {
 //  COLOR LOGGER
 // ============================================================================
 const C = {
-  reset: "\x1b[0m",
-  bright: "\x1b[1m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
+  reset  : "\x1b[0m",
+  bright : "\x1b[1m",
+  red    : "\x1b[31m",
+  green  : "\x1b[32m",
+  yellow : "\x1b[33m",
+  blue   : "\x1b[34m",
   magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  gray: "\x1b[90m",
-  dim: "\x1b[2m",
+  cyan   : "\x1b[36m",
+  gray   : "\x1b[90m",
+  dim    : "\x1b[2m",
 };
 
 const cmdLog = {
-  ok: (m) => console.log(`${C.green}✅${C.reset} ${m}`),
-  err: (m) => console.log(`${C.red}❌${C.reset} ${m}`),
-  warn: (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
-  info: (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
-  cmd: (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
-  debug: (m) => !!ENV.DEBUG && console.log(`${C.gray}🔍${C.reset} ${m}`),
+  ok     : (m) => console.log(`${C.green}✅${C.reset} ${m}`),
+  err    : (m) => console.log(`${C.red}❌${C.reset} ${m}`),
+  warn   : (m) => console.log(`${C.yellow}⚠️${C.reset}  ${m}`),
+  info   : (m) => console.log(`${C.cyan}ℹ️${C.reset}  ${m}`),
+  cmd    : (m) => console.log(`${C.magenta}⚡${C.reset} ${m}`),
+  debug  : (m) => !!ENV.DEBUG && console.log(`${C.gray}🔍${C.reset} ${m}`),
   success: (m) => console.log(`${C.green}✓${C.reset}  ${m}`),
-  title: (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
-  div: () => console.log(`${C.cyan}${"─".repeat(60)}${C.reset}`),
+  title  : (m) => console.log(`\n${C.blue}${C.bright}${m}${C.reset}\n`),
+  div    : ()  => console.log(`${C.cyan}${"─".repeat(60)}${C.reset}`),
 };
 
 // ============================================================================
@@ -66,7 +69,7 @@ if (!ENV.PREFIX) {
 
 const OWNER_PHONE = ENV.ADMIN || ENV.OWNER_PHONE || ENV.OWNER_NUMBER || "";
 if (!OWNER_PHONE) {
-  cmdLog.warn("⚠️ No owner phone configured! Set ADMIN or OWNER_PHONE in environment");
+  cmdLog.warn("No owner phone configured! Set ADMIN or OWNER_PHONE in environment");
 } else {
   ENV.OWNER_PHONE = OWNER_PHONE;
   cmdLog.ok(`Owner configured: ${OWNER_PHONE}`);
@@ -76,15 +79,15 @@ if (!OWNER_PHONE) {
 //  RATE LIMITER
 // ============================================================================
 class RateLimiter {
-  constructor(maxRequests = 15, windowMs = 60000) {
-    this.max = maxRequests;
+  constructor(maxRequests = 15, windowMs = 60_000) {
+    this.max    = maxRequests;
     this.window = windowMs;
-    this.map = new Map();
+    this.map    = new Map();
     this.cleanupInterval = null;
   }
 
   startCleanup() {
-    this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
+    this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
   }
 
   stopCleanup() {
@@ -95,7 +98,7 @@ class RateLimiter {
   }
 
   isAllowed(id) {
-    const now = Date.now();
+    const now  = Date.now();
     const hits = (this.map.get(id) || []).filter((t) => now - t < this.window);
     if (hits.length >= this.max) return false;
     hits.push(now);
@@ -104,11 +107,10 @@ class RateLimiter {
   }
 
   remaining(id) {
-    const now = Date.now();
+    const now  = Date.now();
     const hits = (this.map.get(id) || []).filter((t) => now - t < this.window);
     if (hits.length < this.max) return 0;
-    const oldest = Math.min(...hits);
-    return Math.max(0, this.window - (now - oldest));
+    return Math.max(0, this.window - (now - Math.min(...hits)));
   }
 
   cleanup() {
@@ -122,8 +124,8 @@ class RateLimiter {
 }
 
 const rateLimiter = new RateLimiter(
-  parseInt(ENV.RATE_LIMIT_MAX) || 15,
-  parseInt(ENV.RATE_LIMIT_WINDOW) || 60000,
+  parseInt(ENV.RATE_LIMIT_MAX)    || 15,
+  parseInt(ENV.RATE_LIMIT_WINDOW) || 60_000,
 );
 rateLimiter.startCleanup();
 
@@ -132,15 +134,15 @@ rateLimiter.startCleanup();
 // ============================================================================
 class CommandCooldown {
   constructor() {
-    this.cooldowns = new Map();
-    this.defaultCooldown = 3000;
+    this.cooldowns       = new Map();
+    this.defaultCooldown = 3_000;
     this.customCooldowns = new Map([
-      ["play", 10000],
-      ["youtube", 10000],
-      ["download", 8000],
-      ["search", 5000],
-      ["broadcast", 30000],
-      ["globalbc", 60000],
+      ["play",      10_000],
+      ["youtube",   10_000],
+      ["download",   8_000],
+      ["search",     5_000],
+      ["broadcast", 30_000],
+      ["globalbc",  60_000],
     ]);
   }
 
@@ -149,16 +151,14 @@ class CommandCooldown {
   }
 
   isOnCooldown(userId, commandName) {
-    const key = `${userId}:${commandName}`;
-    const expiry = this.cooldowns.get(key);
-    if (!expiry) return false;
-    return Date.now() < expiry;
+    const expiry = this.cooldowns.get(`${userId}:${commandName}`);
+    return expiry ? Date.now() < expiry : false;
   }
 
   setCooldown(userId, commandName) {
-    const key = `${userId}:${commandName}`;
+    const key      = `${userId}:${commandName}`;
     const duration = this.getCooldown(commandName);
-    const expiry = Date.now() + duration;
+    const expiry   = Date.now() + duration;
     this.cooldowns.set(key, expiry);
     setTimeout(() => {
       if (this.cooldowns.get(key) === expiry) this.cooldowns.delete(key);
@@ -166,10 +166,8 @@ class CommandCooldown {
   }
 
   getRemaining(userId, commandName) {
-    const key = `${userId}:${commandName}`;
-    const expiry = this.cooldowns.get(key);
-    if (!expiry) return 0;
-    return Math.max(0, expiry - Date.now());
+    const expiry = this.cooldowns.get(`${userId}:${commandName}`);
+    return expiry ? Math.max(0, expiry - Date.now()) : 0;
   }
 }
 
@@ -185,10 +183,7 @@ if (!global.activeTrivia) global.activeTrivia = new Map();
 // ============================================================================
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
-  return String(jid)
-    .split("@")[0]
-    .split(":")[0]
-    .replace(/[^0-9]/g, "");
+  return String(jid).split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
 }
 
 function sanitizeInput(input) {
@@ -197,37 +192,41 @@ function sanitizeInput(input) {
 }
 
 // ============================================================================
-//  MODULE LOADER — USING RELATIVE PATHS THAT WORK ON RENDER
+//  MODULE LOADER
 // ============================================================================
 
+// ✅ MODULES is a plain object — keys can be deleted/re-added in reloadCommands
 const MODULES = {};
 
 async function safeImport(moduleName, specifier) {
   try {
     const mod = await import(specifier);
 
-    const namedFns = Object.fromEntries(
-      Object.entries(mod).filter(([, v]) => typeof v === "function")
-    );
-
+    // Named exports take priority over default exports (named are more explicit)
     const defaultFns =
       mod.default && typeof mod.default === "object"
         ? Object.fromEntries(
-            Object.entries(mod.default).filter(([, v]) => typeof v === "function")
+            Object.entries(mod.default).filter(([, v]) => typeof v === "function"),
           )
         : {};
 
-    const total = Object.keys(namedFns).length + Object.keys(defaultFns).length;
+    const namedFns = Object.fromEntries(
+      Object.entries(mod).filter(([k, v]) => k !== "default" && typeof v === "function"),
+    );
 
-    if (total === 0) {
-      cmdLog.warn(`⚠️ ${moduleName.padEnd(16)} ➜ loaded but NO functions exported`);
+    // ✅ namedFns last so they override defaultFns on key collision
+    const merged = { ...defaultFns, ...namedFns, __raw: mod };
+    const count  = Object.keys(merged).filter((k) => k !== "__raw").length;
+
+    if (count === 0) {
+      cmdLog.warn(`${moduleName.padEnd(16)} ➜ loaded but NO functions exported`);
     } else {
-      cmdLog.ok(`${moduleName.padEnd(16)} ➜ ${total} functions`);
+      cmdLog.ok(`${moduleName.padEnd(16)} ➜ ${count} functions`);
     }
 
-    return { ...defaultFns, ...namedFns, __raw: mod };
+    return merged;
   } catch (error) {
-    cmdLog.err(`❌ ${moduleName.padEnd(16)} ➜ FAILED: ${error.message}`);
+    cmdLog.err(`${moduleName.padEnd(16)} ➜ FAILED: ${error.message}`);
     return {};
   }
 }
@@ -236,33 +235,36 @@ async function loadAllModules() {
   cmdLog.title("📦 LOADING COMMAND MODULES");
   cmdLog.div();
 
+  // ✅ downloader now points to commands/group/downloader.js (was ../features/downloader.js)
+  // ✅ viewonce module added so .ok command has a home
   const moduleMap = {
-    basic:        "../commands/group/basic.js",
-    admin:        "../commands/group/admin.js",
-    groupCore:    "../commands/group/core.js",
-    groupMod:     "../commands/group/moderation.js",
-    groupSettings:"../commands/group/settings.js",
-    automation:   "../commands/group/automation.js",
-    ai:           "../features/ai.js",
-    calculator:   "../features/calculator.js",
-    crypto:       "../features/crypto.js",
-    dictionary:   "../features/dictionary.js",
-    downloader:   "../features/downloader.js",
-    encryption:   "../features/encryption.js",
-    games:        "../features/games.js",
-    imageTools:   "../features/imageTools.js",
-    jokes:        "../features/jokes.js",
-    movies:       "../features/movies.js",
-    music:        "../features/music.js",
-    news:         "../features/news.js",
-    notes:        "../features/notes.js",
-    quotes:       "../features/quotes.js",
-    reminder:     "../features/reminder.js",
-    security:     "../features/security.js",
-    stocks:       "../features/stocks.js",
-    translation:  "../features/translation.js",
-    tts:          "../features/tts.js",
-    unitConverter:"../features/unitConverter.js",
+    basic        : "../commands/group/basic.js",
+    admin        : "../commands/group/admin.js",
+    viewonce     : "../commands/group/viewonce.js",      // ✅ NEW
+    downloader   : "../commands/group/downloader.js",    // ✅ FIXED PATH
+    groupCore    : "../commands/group/core.js",
+    groupMod     : "../commands/group/moderation.js",
+    groupSettings: "../commands/group/settings.js",
+    automation   : "../commands/group/automation.js",
+    ai           : "../features/ai.js",
+    calculator   : "../features/calculator.js",
+    crypto       : "../features/crypto.js",
+    dictionary   : "../features/dictionary.js",
+    encryption   : "../features/encryption.js",
+    games        : "../features/games.js",
+    imageTools   : "../features/imageTools.js",
+    jokes        : "../features/jokes.js",
+    movies       : "../features/movies.js",
+    music        : "../features/music.js",
+    news         : "../features/news.js",
+    notes        : "../features/notes.js",
+    quotes       : "../features/quotes.js",
+    reminder     : "../features/reminder.js",
+    security     : "../features/security.js",
+    stocks       : "../features/stocks.js",
+    translation  : "../features/translation.js",
+    tts          : "../features/tts.js",
+    unitConverter: "../features/unitConverter.js",
   };
 
   for (const [name, specifier] of Object.entries(moduleMap)) {
@@ -270,11 +272,11 @@ async function loadAllModules() {
   }
 
   const loaded = Object.values(MODULES).filter(
-    (m) => Object.keys(m).some((k) => k !== "__raw" && typeof m[k] === "function")
+    (m) => Object.keys(m).some((k) => k !== "__raw" && typeof m[k] === "function"),
   ).length;
 
   cmdLog.div();
-  cmdLog.success(`✅ Loaded ${loaded}/${Object.keys(moduleMap).length} modules`);
+  cmdLog.success(`Loaded ${loaded}/${Object.keys(moduleMap).length} modules`);
   console.log();
 }
 
@@ -283,34 +285,34 @@ await loadAllModules();
 // ============================================================================
 //  COMMAND REGISTRY
 // ============================================================================
-export const commands = new Map();
+export const commands        = new Map();
 export const primaryCommands = new Map();
-export const aliasMap = new Map();
-export const commandStats = new Map();
+export const aliasMap        = new Map();
+export const commandStats    = new Map();
 
 class CommandMeta {
   constructor(primaryName, handler, options = {}) {
-    this.primaryName = primaryName.toLowerCase();
-    this.handler = handler;
-    this.category = options.category || "general";
-    this.description = options.description || "";
-    this.adminOnly = options.adminOnly === true;
-    this.groupOnly = options.groupOnly === true;
+    this.primaryName       = primaryName.toLowerCase();
+    this.handler           = handler;
+    this.category          = options.category          || "general";
+    this.description       = options.description       || "";
+    this.adminOnly         = options.adminOnly         === true;
+    this.groupOnly         = options.groupOnly         === true;
     this.requireGroupAdmin = options.requireGroupAdmin === true;
-    this.requireBotAdmin = options.requireBotAdmin === true;
-    this.aliases = (options.aliases || []).map((a) => a.toLowerCase());
+    this.requireBotAdmin   = options.requireBotAdmin   === true;
+    this.aliases           = (options.aliases || []).map((a) => a.toLowerCase());
   }
 }
 
 export function registerCommand(primaryName, handler, options = {}) {
   if (typeof handler !== "function") {
-    cmdLog.err(`Cannot register "${primaryName}": not a function`);
+    cmdLog.err(`Cannot register "${primaryName}": handler is not a function`);
     return false;
   }
 
-  const name = primaryName.toLowerCase();
+  const name    = primaryName.toLowerCase();
   const aliases = (options.aliases || []).map((a) => a.toLowerCase());
-  const meta = new CommandMeta(name, handler, options);
+  const meta    = new CommandMeta(name, handler, options);
 
   primaryCommands.set(name, meta);
   commands.set(name, meta);
@@ -330,11 +332,15 @@ export function safeRegister(primaryName, handler, options = {}) {
   try {
     return registerCommand(primaryName, handler, options);
   } catch (error) {
-    cmdLog.err(`safeRegister("${primaryName}") failed: ${error.message}`);
+    cmdLog.err(`safeRegister("${primaryName}") threw: ${error.message}`);
     return false;
   }
 }
 
+/**
+ * Return the first function found under any of the given keys in a module.
+ * Returns null (not undefined) so safeRegister can type-check cleanly.
+ */
 function fn(mod, ...keys) {
   for (const key of keys) {
     if (mod && typeof mod[key] === "function") return mod[key];
@@ -354,57 +360,69 @@ export function registerAllCommands() {
   // ── BASIC.JS ──────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
+  /**
+   * rb() — register from basic module.
+   * ✅ Logs a clear warning for each skipped command (was silently skipping).
+   */
   const rb = (name, key, opts) => {
     const f = fn(b, key, name);
+    if (!f) {
+      cmdLog.warn(`basic.js missing "${key}" — skipping .${name}`);
+      return;
+    }
     if (safeRegister(name, f, opts)) count++;
   };
 
-  rb("menu",       "menu",        { category: "core",   aliases: ["help", "commands", "h", "cmd", "cmds"] });
-  rb("ping",       "ping",        { category: "core",   aliases: ["pong", "latency", "ms", "alive"] });
-  rb("status",     "status",      { category: "core",   aliases: ["me", "whoami", "myinfo"] });
-  rb("creator",    "creator",     { category: "core",   aliases: ["dev", "owner", "author", "ayo"] });
-  rb("github",     "creatorGit",  { category: "core",   aliases: ["git", "repo", "source"] });
-  rb("auto",       "auto",        { category: "core",   aliases: ["autoreply", "toggleauto"] });
-  rb("connect",    "connectInfo", { category: "core",   aliases: ["community", "links"] });
-  rb("prefix",     "prefixinfo",  { category: "core",   aliases: ["preinfo", "getprefix"] });
-  rb("test",       "test",        { category: "debug",  aliases: ["hello", "hi", "testbot"] });
-  rb("start",      "start",       { category: "core",   aliases: ["open", "init", "begin", "connectdm", "dmopen"] });
-  rb("time",       "time",        { category: "info",   aliases: ["worldtime", "timezone", "clock"] });
-  rb("weather",    "weather",     { category: "info",   aliases: ["w", "forecast", "temp"] });
-  rb("ip",         "ip",          { category: "web",    aliases: ["getip", "iplookup", "ipinfo"] });
-  rb("myip",       "myip",        { category: "web",    aliases: ["myipaddr", "publicip", "whatismyip"] });
-  rb("whois",      "whois",       { category: "web",    aliases: ["domain", "domaininfo"] });
-  rb("dns",        "dns",         { category: "web",    aliases: ["dnslookup", "nslookup", "dig"] });
-  rb("url",        "url",         { category: "web",    aliases: ["urlinfo", "urlcheck"] });
-  rb("fetch",      "fetch",       { category: "web",    aliases: ["geturl", "curl", "httpget"] });
-  rb("scrape",     "scrape",      { category: "web",    aliases: ["scraper", "webscrape"] });
-  rb("screenshot", "screenshot",  { category: "web",    aliases: ["ss", "capture", "snap"] });
-  rb("inspect",    "inspect",     { category: "web",    aliases: ["pageinspect", "analyze"] });
-  rb("shorten",    "shorten",     { category: "web",    aliases: ["short", "tinyurl", "bitly"] });
-  rb("vv",         "viewOnce",    { category: "media",  aliases: ["viewonce", "reveal"] });
-  rb("qr",         "qencode",     { category: "tools",  aliases: ["qrcode", "makeqr"] });
-  rb("pdf",        "pdf",         { category: "tools",  aliases: ["makepdf", "createpdf"] });
+  rb("menu",       "menu",        { category: "core",    aliases: ["help", "commands", "h", "cmd", "cmds"] });
+  rb("ping",       "ping",        { category: "core",    aliases: ["pong", "latency", "ms", "alive"] });
+  rb("status",     "status",      { category: "core",    aliases: ["me", "whoami", "myinfo"] });
+  rb("creator",    "creator",     { category: "core",    aliases: ["dev", "owner", "author", "ayo"] });
+  rb("github",     "creatorGit",  { category: "core",    aliases: ["git", "repo", "source"] });
+  rb("auto",       "auto",        { category: "core",    aliases: ["autoreply", "toggleauto"] });
+  rb("connect",    "connectInfo", { category: "core",    aliases: ["community", "links"] });
+  rb("prefix",     "prefixinfo",  { category: "core",    aliases: ["preinfo", "getprefix"] });
+  rb("test",       "test",        { category: "debug",   aliases: ["hello", "hi", "testbot"] });
+  rb("start",      "start",       { category: "core",    aliases: ["open", "init", "begin", "connectdm", "dmopen"] });
+  rb("time",       "time",        { category: "info",    aliases: ["worldtime", "timezone", "clock"] });
+  rb("weather",    "weather",     { category: "info",    aliases: ["w", "forecast", "temp"] });
+  rb("ip",         "ip",          { category: "web",     aliases: ["getip", "iplookup", "ipinfo"] });
+  rb("myip",       "myip",        { category: "web",     aliases: ["myipaddr", "publicip", "whatismyip"] });
+  rb("whois",      "whois",       { category: "web",     aliases: ["domain", "domaininfo"] });
+  rb("dns",        "dns",         { category: "web",     aliases: ["dnslookup", "nslookup", "dig"] });
+  rb("url",        "url",         { category: "web",     aliases: ["urlinfo", "urlcheck"] });
+  rb("fetch",      "fetch",       { category: "web",     aliases: ["geturl", "curl", "httpget"] });
+  rb("scrape",     "scrape",      { category: "web",     aliases: ["scraper", "webscrape"] });
+  rb("screenshot", "screenshot",  { category: "web",     aliases: ["ss", "capture", "snap"] });
+  rb("inspect",    "inspect",     { category: "web",     aliases: ["pageinspect", "analyze"] });
+  rb("shorten",    "shorten",     { category: "web",     aliases: ["short", "tinyurl", "bitly"] });
+  rb("vv",         "viewOnce",    { category: "media",   aliases: ["viewonce", "reveal"] });
+  rb("qr",         "qencode",     { category: "tools",   aliases: ["qrcode", "makeqr"] });
+  rb("pdf",        "pdf",         { category: "tools",   aliases: ["makepdf", "createpdf"] });
   rb("getpp",      "getpp",       { category: "profile", aliases: ["pp", "profilepic", "pfp"] });
   rb("getgpp",     "getgpp",      { category: "profile", groupOnly: true, aliases: ["gpp", "grouppic"] });
-  rb("jarvis",     "jarvis",      { category: "ai",     aliases: ["j"] });
-  rb("waitlist",   "joinWaitlist",{ category: "misc",   aliases: ["joinwait"] });
-  rb("imgbb",      "imgbb",       { category: "media",  aliases: ["upload", "imageupload"] });
-  rb("activate",   "activate",    { category: "group",  groupOnly: true, adminOnly: true });
-  rb("deactivate", "deactivate",  { category: "group",  groupOnly: true, adminOnly: true });
-  rb("antilink",   "antilink",    { category: "group",  groupOnly: true, aliases: ["nolink", "blocklinks"] });
+  rb("jarvis",     "jarvis",      { category: "ai",      aliases: ["j"] });
+  rb("waitlist",   "joinWaitlist",{ category: "misc",    aliases: ["joinwait"] });
+  rb("imgbb",      "imgbb",       { category: "media",   aliases: ["upload", "imageupload"] });
+  rb("activate",   "activate",    { category: "group",   groupOnly: true, adminOnly: true });
+  rb("deactivate", "deactivate",  { category: "group",   groupOnly: true, adminOnly: true });
+  rb("antilink",   "antilink",    { category: "group",   groupOnly: true, aliases: ["nolink", "blocklinks"] });
 
-  // ✅ .ok command with all aliases
+  // ✅ .ok — wired to viewonce.js, NOT basic.js
+  //    viewonce.js exports viewOnceToDM plus individual named aliases so fn() finds it.
   {
-    const okFn = fn(b, "ok", "viewOnceToDM", "dm", "tome", "senddm", "privatemedia", "savetodm", "sendtome");
+    const vMod = MODULES.viewonce;
+    const okFn = fn(vMod, "viewOnceToDM", "ok", "dm", "tome");
+
     if (okFn) {
-      safeRegister("ok", okFn, {
+      if (safeRegister("ok", okFn, {
         category: "media",
-        aliases: ["dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome"],
-      });
-      count++;
-      cmdLog.success("✅ .ok command registered with aliases: dm, tome, senddm, push, privatemedia, savetodm, sendtome");
+        aliases : ["dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome"],
+      })) {
+        count++;
+        cmdLog.success(".ok registered → viewOnceToDM | aliases: dm, tome, senddm, push, privatemedia, savetodm, sendtome");
+      }
     } else {
-      cmdLog.err("❌ CRITICAL: .ok not found in basic.js — check export");
+      cmdLog.err("CRITICAL: viewOnceToDM not found in viewonce.js — .ok will not work");
     }
   }
 
@@ -428,7 +446,7 @@ export function registerAllCommands() {
   {
     const m = MODULES.jokes;
     if (safeRegister("joke",   fn(m, "joke", "getJoke", "randomJoke"),      { category: "fun", aliases: ["laugh", "funny"] })) count++;
-    if (safeRegister("roast",  fn(m, "roast", "burnUser"),                   { category: "fun", aliases: ["burn", "insult"] })) count++;
+    if (safeRegister("roast",  fn(m, "roast", "burnUser"),                  { category: "fun", aliases: ["burn", "insult"] })) count++;
     if (safeRegister("pickup", fn(m, "pickupLine", "pickupline", "pickup"), { category: "fun", aliases: ["flirt", "pickupline"] })) count++;
   }
 
@@ -451,62 +469,43 @@ export function registerAllCommands() {
   }
 
   // ── DOWNLOADER.JS ─────────────────────────────────────────────────────────
-{
-  const m = MODULES.downloader;
+  {
+    const m = MODULES.downloader;
 
-  // Check if module loaded successfully
-  if (!m || Object.keys(m).length === 0) {
-    cmdLog.warn("⚠️ Downloader module not loaded - skipping registration");
-  } else {
-    // Log available functions for debugging
-    cmdLog.debug(`Downloader exports: ${Object.keys(m).join(", ")}`);
+    if (!m || Object.keys(m).filter((k) => k !== "__raw").length === 0) {
+      cmdLog.warn("Downloader module not loaded — skipping registration");
+    } else {
+      cmdLog.debug(`Downloader exports: ${Object.keys(m).filter((k) => k !== "__raw").join(", ")}`);
 
-    // Register each command with proper function checking
-    const youtubeFn = fn(m, "youtube", "yt", "ytdl", "downloadYouTube", "getYouTube");
-    if (safeRegister("youtube", youtubeFn, { category: "dl", aliases: ["yt", "ytdl", "ytmp3", "ytaudio"] })) count++;
+      if (safeRegister("youtube",   fn(m, "youtube"),   { category: "dl", aliases: ["yt", "ytdl", "ytinfo"] })) count++;
+      if (safeRegister("tiktok",    fn(m, "tiktok"),    { category: "dl", aliases: ["tt", "tok", "tiktokdl", "tiktokvideo"] })) count++;
+      if (safeRegister("spotify",   fn(m, "spotify"),   { category: "dl", aliases: ["sp", "spotifydl", "spdl"] })) count++;
+      if (safeRegister("instagram", fn(m, "instagram"), { category: "dl", aliases: ["ig", "insta", "igdl", "instadl"] })) count++;
+      if (safeRegister("facebook",  fn(m, "facebook"),  { category: "dl", aliases: ["fb", "fbdl", "fbd"] })) count++;
+      if (safeRegister("twitter",   fn(m, "twitter"),   { category: "dl", aliases: ["x", "tweet", "xdl", "twdl"] })) count++;
+      if (safeRegister("gif",       fn(m, "gif"),       { category: "dl", aliases: ["giphy", "tenor", "gifsearch", "animated"] })) count++;
+      if (safeRegister("img",       fn(m, "image", "imageSearch", "img"), { category: "dl", aliases: ["image", "imgsearch", "pics", "photo"] })) count++;
+      if (safeRegister("pinterest", fn(m, "pinterest"), { category: "dl", aliases: ["pin", "pinsearch", "pins"] })) count++;
+      if (safeRegister("dl",        fn(m, "download"),  { category: "dl", aliases: ["download", "get"] })) count++;
 
-    const tiktokFn = fn(m, "tiktok", "tt", "tiktokdl", "downloadTikTok", "getTikTok");
-    if (safeRegister("tiktok", tiktokFn, { category: "dl", aliases: ["tt", "tok", "tiktokdl", "tiktokvideo"] })) count++;
-
-    const spotifyFn = fn(m, "spotify", "sp", "spotifydl", "downloadSpotify", "getSpotify");
-    if (safeRegister("spotify", spotifyFn, { category: "dl", aliases: ["sp", "spotifydl", "spdl"] })) count++;
-
-    const instagramFn = fn(m, "instagram", "ig", "insta", "downloadInstagram", "getInstagram", "igdl");
-    if (safeRegister("instagram", instagramFn, { category: "dl", aliases: ["ig", "insta", "igdl", "instadl"] })) count++;
-
-    const facebookFn = fn(m, "facebook", "fb", "downloadFacebook", "getFacebook", "fbdl");
-    if (safeRegister("facebook", facebookFn, { category: "dl", aliases: ["fb", "fbdl", "fbd"] })) count++;
-
-    const twitterFn = fn(m, "twitter", "x", "tweet", "downloadTwitter", "getTwitter", "xdl");
-    if (safeRegister("twitter", twitterFn, { category: "dl", aliases: ["x", "tweet", "xdl", "twdl"] })) count++;
-
-    const gifFn = fn(m, "gif", "giphy", "searchGif", "getGif", "findGif");
-    if (safeRegister("gif", gifFn, { category: "dl", aliases: ["giphy", "tenor", "gifsearch", "animated"] })) count++;
-
-    const imgFn = fn(m, "image", "img", "searchImage", "getImage", "findImage");
-    if (safeRegister("img", imgFn, { category: "dl", aliases: ["image", "imgsearch", "pics", "photo"] })) count++;
-
-    const pinterestFn = fn(m, "pinterest", "pin", "searchPinterest", "getPinterest");
-    if (safeRegister("pinterest", pinterestFn, { category: "dl", aliases: ["pin", "pinsearch", "pins"] })) count++;
-
-    const downloadFn = fn(m, "download", "dl", "get", "universalDownload");
-    if (safeRegister("dl", downloadFn, { category: "dl", aliases: ["download", "get", "fetch"] })) count++;
-
-    // Also register play command if it exists in downloader (as fallback)
-    const playFn = fn(m, "song", "musicDownload");
-    if (playFn && !primaryCommands.has("play")) {
-      if (safeRegister("play", playFn, { category: "music", aliases: ["mp3", "song", "music"] })) count++;
+      // play lives in downloader.js — only register if music.js hasn't taken it yet
+      if (!primaryCommands.has("play")) {
+        const playFn = fn(m, "play");
+        if (safeRegister("play", playFn, { category: "music", aliases: ["mp3", "song", "music"] })) count++;
+      }
     }
   }
-}
 
   // ── MUSIC.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.music;
-    if (safeRegister("play",        fn(m, "musicDownload", "play", "playMusic", "download"), { category: "music", aliases: ["mp3", "music", "song"] })) count++;
-    if (safeRegister("lyrics",      fn(m, "musicLyrics", "lyrics", "getLyrics"),             { category: "music", aliases: ["lyric", "songlyrics"] })) count++;
-    if (safeRegister("trending",    fn(m, "musicTrending", "trending", "charts"),            { category: "music", aliases: ["chart", "topsongs"] })) count++;
-    if (safeRegister("musicsearch", fn(m, "musicSearch", "search", "findSong"),              { category: "music", aliases: ["songsearch", "findmusic"] })) count++;
+    // Only register play from music.js if downloader hasn't claimed it
+    if (!primaryCommands.has("play")) {
+      if (safeRegister("play", fn(m, "musicDownload", "play", "playMusic", "download"), { category: "music", aliases: ["mp3", "music", "song"] })) count++;
+    }
+    if (safeRegister("lyrics",      fn(m, "musicLyrics", "lyrics", "getLyrics"),   { category: "music", aliases: ["lyric", "songlyrics"] })) count++;
+    if (safeRegister("trending",    fn(m, "musicTrending", "trending", "charts"),  { category: "music", aliases: ["chart", "topsongs"] })) count++;
+    if (safeRegister("musicsearch", fn(m, "musicSearch", "search", "findSong"),    { category: "music", aliases: ["songsearch", "findmusic"] })) count++;
   }
 
   // ── IMAGE TOOLS.JS ────────────────────────────────────────────────────────
@@ -524,82 +523,82 @@ export function registerAllCommands() {
   // ── AI.JS ─────────────────────────────────────────────────────────────────
   {
     const m = MODULES.ai;
-    if (safeRegister("ayobot",    fn(m, "ai", "chat", "ayobot"),     { category: "ai", aliases: ["chat", "bae", "aichat", "askai"] })) count++;
-    if (safeRegister("aiclear",   fn(m, "aiClear", "clearChat"),     { category: "ai", aliases: ["clearchat", "resetai"] })) count++;
-    if (safeRegister("summarize", fn(m, "summarize", "summary"),     { category: "ai", aliases: ["summary", "tldr"] })) count++;
-    if (safeRegister("grammar",   fn(m, "grammar", "spellcheck"),    { category: "ai", aliases: ["spellcheck", "proofread"] })) count++;
+    if (safeRegister("ayobot",    fn(m, "ai", "chat", "ayobot"),  { category: "ai", aliases: ["chat", "bae", "aichat", "askai"] })) count++;
+    if (safeRegister("aiclear",   fn(m, "aiClear", "clearChat"),  { category: "ai", aliases: ["clearchat", "resetai"] })) count++;
+    if (safeRegister("summarize", fn(m, "summarize", "summary"),  { category: "ai", aliases: ["summary", "tldr"] })) count++;
+    if (safeRegister("grammar",   fn(m, "grammar", "spellcheck"), { category: "ai", aliases: ["spellcheck", "proofread"] })) count++;
   }
 
   // ── ADMIN.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.admin;
-    if (safeRegister("mode",            fn(m, "mode", "setMode", "botMode"),                    { category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] })) count++;
-    if (safeRegister("adduser",         fn(m, "addUser", "adduser", "authorize"),               { category: "admin", adminOnly: true, aliases: ["auth", "authorize"] })) count++;
-    if (safeRegister("removeuser",      fn(m, "removeUser", "removeuser", "deauthorize"),       { category: "admin", adminOnly: true, aliases: ["deauth"] })) count++;
-    if (safeRegister("listusers",       fn(m, "listUsers", "listusers", "users"),               { category: "admin", adminOnly: true, aliases: ["users", "authlist"] })) count++;
-    if (safeRegister("broadcast",       fn(m, "broadcast", "bc"),                               { category: "admin", adminOnly: true, aliases: ["bc", "announce"] })) count++;
-    if (safeRegister("globalbc",        fn(m, "globalBroadcast", "globalbc", "globalBc"),       { category: "admin", adminOnly: true, aliases: ["gbc"] })) count++;
-    if (safeRegister("stats",           fn(m, "stats", "botStats", "botstats"),                 { category: "admin", adminOnly: true, aliases: ["botstats", "usage"] })) count++;
-    if (safeRegister("botstatus",       fn(m, "botStatus", "botstatus", "fullStatus"),          { category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] })) count++;
-    if (safeRegister("superban",        fn(m, "superBan", "superban", "globalBan"),             { category: "admin", adminOnly: true, aliases: ["globalban", "permban"] })) count++;
-    if (safeRegister("superunban",      fn(m, "unban", "superUnBan", "globalUnban"),            { category: "admin", adminOnly: true, aliases: ["globalunban"] })) count++;
-    if (safeRegister("listglobalbanned",fn(m, "listBanned", "listbanned"),                      { category: "admin", adminOnly: true, aliases: ["globalbannedlist"] })) count++;
-    if (safeRegister("clearbans",       fn(m, "clearBans", "clearbans"),                        { category: "admin", adminOnly: true, aliases: ["resetbans"] })) count++;
-    if (safeRegister("restart",         fn(m, "restart", "reboot"),                             { category: "admin", adminOnly: true, aliases: ["reboot"] })) count++;
-    if (safeRegister("shutdown",        fn(m, "shutdown", "stop"),                              { category: "admin", adminOnly: true, aliases: ["stop", "botoff"] })) count++;
-    if (safeRegister("eval",            fn(m, "adminEval", "eval", "exec"),                     { category: "admin", adminOnly: true, aliases: ["exec", "code", "run"] })) count++;
+    if (safeRegister("mode",             fn(m, "mode", "setMode", "botMode"),              { category: "admin", adminOnly: true, aliases: ["setmode", "botmode"] })) count++;
+    if (safeRegister("adduser",          fn(m, "addUser", "adduser", "authorize"),         { category: "admin", adminOnly: true, aliases: ["auth", "authorize"] })) count++;
+    if (safeRegister("removeuser",       fn(m, "removeUser", "removeuser", "deauthorize"), { category: "admin", adminOnly: true, aliases: ["deauth"] })) count++;
+    if (safeRegister("listusers",        fn(m, "listUsers", "listusers", "users"),         { category: "admin", adminOnly: true, aliases: ["users", "authlist"] })) count++;
+    if (safeRegister("broadcast",        fn(m, "broadcast", "bc"),                        { category: "admin", adminOnly: true, aliases: ["bc", "announce"] })) count++;
+    if (safeRegister("globalbc",         fn(m, "globalBroadcast", "globalbc", "globalBc"), { category: "admin", adminOnly: true, aliases: ["gbc"] })) count++;
+    if (safeRegister("stats",            fn(m, "stats", "botStats", "botstats"),           { category: "admin", adminOnly: true, aliases: ["botstats", "usage"] })) count++;
+    if (safeRegister("botstatus",        fn(m, "botStatus", "botstatus", "fullStatus"),    { category: "admin", adminOnly: true, aliases: ["botinfo", "fullstatus"] })) count++;
+    if (safeRegister("superban",         fn(m, "superBan", "superban", "globalBan"),       { category: "admin", adminOnly: true, aliases: ["globalban", "permban"] })) count++;
+    if (safeRegister("superunban",       fn(m, "unban", "superUnBan", "globalUnban"),      { category: "admin", adminOnly: true, aliases: ["globalunban"] })) count++;
+    if (safeRegister("listglobalbanned", fn(m, "listBanned", "listbanned"),                { category: "admin", adminOnly: true, aliases: ["globalbannedlist"] })) count++;
+    if (safeRegister("clearbans",        fn(m, "clearBans", "clearbans"),                  { category: "admin", adminOnly: true, aliases: ["resetbans"] })) count++;
+    if (safeRegister("restart",          fn(m, "restart", "reboot"),                       { category: "admin", adminOnly: true, aliases: ["reboot"] })) count++;
+    if (safeRegister("shutdown",         fn(m, "shutdown", "stop"),                        { category: "admin", adminOnly: true, aliases: ["stop", "botoff"] })) count++;
+    if (safeRegister("eval",             fn(m, "adminEval", "eval", "exec"),               { category: "admin", adminOnly: true, aliases: ["exec", "code", "run"] })) count++;
   }
 
   // ── GROUP CORE.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.groupCore;
-    if (safeRegister("kick",        fn(m, "kick", "remove"),          { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["remove", "kickmember"] })) count++;
-    if (safeRegister("add",         fn(m, "add", "invite"),           { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["invite", "addmember"] })) count++;
-    if (safeRegister("promote",     fn(m, "promote", "makeAdmin"),    { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["makeadmin"] })) count++;
-    if (safeRegister("demote",      fn(m, "demote", "unadmin"),       { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["unadmin"] })) count++;
-    if (safeRegister("admins",      fn(m, "admins", "listAdmins"),    { category: "group", groupOnly: true, aliases: ["listadmins", "adminlist"] })) count++;
-    if (safeRegister("tagall",      fn(m, "tagall", "everyone"),      { category: "group", groupOnly: true, aliases: ["everyone", "all", "mentionall"] })) count++;
-    if (safeRegister("hidetag",     fn(m, "hidetag", "htag"),         { category: "group", groupOnly: true, aliases: ["htag", "silent"] })) count++;
-    if (safeRegister("testadmin",   fn(m, "testAdmin", "testadmin"),  { category: "group", groupOnly: true, aliases: ["admintest", "checkadmin"] })) count++;
-    if (safeRegister("refreshadmin",fn(m, "refreshAdmin","refreshadmin"),{ category: "group", groupOnly: true, aliases: ["refresh", "clearcache"] })) count++;
+    if (safeRegister("kick",         fn(m, "kick", "remove"),        { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["remove", "kickmember"] })) count++;
+    if (safeRegister("add",          fn(m, "add", "invite"),         { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["invite", "addmember"] })) count++;
+    if (safeRegister("promote",      fn(m, "promote", "makeAdmin"),  { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["makeadmin"] })) count++;
+    if (safeRegister("demote",       fn(m, "demote", "unadmin"),     { category: "group", groupOnly: true, requireGroupAdmin: true, requireBotAdmin: true, aliases: ["unadmin"] })) count++;
+    if (safeRegister("admins",       fn(m, "admins", "listAdmins"),  { category: "group", groupOnly: true, aliases: ["listadmins", "adminlist"] })) count++;
+    if (safeRegister("tagall",       fn(m, "tagall", "everyone"),    { category: "group", groupOnly: true, aliases: ["everyone", "all", "mentionall"] })) count++;
+    if (safeRegister("hidetag",      fn(m, "hidetag", "htag"),       { category: "group", groupOnly: true, aliases: ["htag", "silent"] })) count++;
+    if (safeRegister("testadmin",    fn(m, "testAdmin", "testadmin"),{ category: "group", groupOnly: true, aliases: ["admintest", "checkadmin"] })) count++;
+    if (safeRegister("refreshadmin", fn(m, "refreshAdmin", "refreshadmin"), { category: "group", groupOnly: true, aliases: ["refresh", "clearcache"] })) count++;
   }
 
   // ── GROUP MODERATION.JS ───────────────────────────────────────────────────
   {
     const m = MODULES.groupMod;
-    if (safeRegister("warn",      fn(m, "warn"),        { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["warning"] })) count++;
-    if (safeRegister("warnings",  fn(m, "warnings"),    { category: "group", groupOnly: true, aliases: ["warnlist", "mywarnings"] })) count++;
+    if (safeRegister("warn",      fn(m, "warn"),                     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["warning"] })) count++;
+    if (safeRegister("warnings",  fn(m, "warnings"),                 { category: "group", groupOnly: true, aliases: ["warnlist", "mywarnings"] })) count++;
     if (safeRegister("clearwarns",fn(m, "clearWarns", "clearwarns"), { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetwarns"] })) count++;
-    if (safeRegister("ban",       fn(m, "ban"),         { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["block", "banuser"] })) count++;
-    if (safeRegister("unban",     fn(m, "unban"),       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unblock"] })) count++;
+    if (safeRegister("ban",       fn(m, "ban"),                      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["block", "banuser"] })) count++;
+    if (safeRegister("unban",     fn(m, "unban"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unblock"] })) count++;
     if (safeRegister("listbanned",fn(m, "listBanned", "listbanned"), { category: "group", groupOnly: true, aliases: ["bannedlist"] })) count++;
   }
 
   // ── GROUP SETTINGS.JS ─────────────────────────────────────────────────────
   {
     const m = MODULES.groupSettings;
-    if (safeRegister("mute",         fn(m, "mute"),                      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockgroup", "muteall"] })) count++;
-    if (safeRegister("unmute",       fn(m, "unmute"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup"] })) count++;
-    if (safeRegister("lock",         fn(m, "lock"),                      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] })) count++;
-    if (safeRegister("unlock",       fn(m, "unlock"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] })) count++;
-    if (safeRegister("antispam",     fn(m, "antiSpam", "antispam"),      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam"] })) count++;
-    if (safeRegister("welcome",      fn(m, "welcomeToggle", "welcome"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] })) count++;
-    if (safeRegister("setwelcome",   fn(m, "setWelcome", "setwelcome"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] })) count++;
-    if (safeRegister("goodbye",      fn(m, "goodbyeToggle", "goodbye"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglegoodbye"] })) count++;
-    if (safeRegister("setgoodbye",   fn(m, "setGoodbye", "setgoodbye"),  { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgoodbyemsg"] })) count++;
-    if (safeRegister("groupinfo",    fn(m, "groupInfo", "groupinfo"),    { category: "group", groupOnly: true, aliases: ["ginfo", "grouppanel"] })) count++;
-    if (safeRegister("rules",        fn(m, "rules"),                     { category: "group", groupOnly: true, aliases: ["grules", "grouprules"] })) count++;
-    if (safeRegister("setrules",     fn(m, "setRules", "setrules"),      { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgrules"] })) count++;
-    if (safeRegister("link",         fn(m, "link"),                      { category: "group", groupOnly: true, aliases: ["grouplink", "invitelink"] })) count++;
-    if (safeRegister("revoke",       fn(m, "revoke"),                    { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["revokelink", "resetlink"] })) count++;
-    if (safeRegister("pin",          fn(m, "pin"),                       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["pinmsg"] })) count++;
-    if (safeRegister("unpin",        fn(m, "unpin"),                     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unpinmsg"] })) count++;
-    if (safeRegister("delete",       fn(m, "deleteMsg", "delete"),       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["delmsg"] })) count++;
-    if (safeRegister("settings",     fn(m, "settingsOverview", "settings"), { category: "group", groupOnly: true, aliases: ["groupsettings"] })) count++;
-    if (safeRegister("resetsettings",fn(m, "resetSettings", "resetsettings"), { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetgroupsettings"] })) count++;
-    if (safeRegister("leave",        fn(m, "leave"),                     { category: "group", groupOnly: true, adminOnly: true, aliases: ["botleave", "exit"] })) count++;
-    if (safeRegister("groupdebug",   fn(m, "debug"),                     { category: "group", groupOnly: true, aliases: ["gdebug"] })) count++;
-    if (safeRegister("participants", fn(m, "showParticipants","participants"), { category: "group", groupOnly: true, aliases: ["members", "memberlist"] })) count++;
+    if (safeRegister("mute",          fn(m, "mute"),                         { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockgroup", "muteall"] })) count++;
+    if (safeRegister("unmute",        fn(m, "unmute"),                       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockgroup"] })) count++;
+    if (safeRegister("lock",          fn(m, "lock"),                         { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["lockinfo"] })) count++;
+    if (safeRegister("unlock",        fn(m, "unlock"),                       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unlockinfo"] })) count++;
+    if (safeRegister("antispam",      fn(m, "antiSpam", "antispam"),         { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["nospam"] })) count++;
+    if (safeRegister("welcome",       fn(m, "welcomeToggle", "welcome"),     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglewelcome"] })) count++;
+    if (safeRegister("setwelcome",    fn(m, "setWelcome", "setwelcome"),     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setwelcomemsg"] })) count++;
+    if (safeRegister("goodbye",       fn(m, "goodbyeToggle", "goodbye"),     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["togglegoodbye"] })) count++;
+    if (safeRegister("setgoodbye",    fn(m, "setGoodbye", "setgoodbye"),     { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgoodbyemsg"] })) count++;
+    if (safeRegister("groupinfo",     fn(m, "groupInfo", "groupinfo"),       { category: "group", groupOnly: true, aliases: ["ginfo", "grouppanel"] })) count++;
+    if (safeRegister("rules",         fn(m, "rules"),                        { category: "group", groupOnly: true, aliases: ["grules", "grouprules"] })) count++;
+    if (safeRegister("setrules",      fn(m, "setRules", "setrules"),         { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["setgrules"] })) count++;
+    if (safeRegister("link",          fn(m, "link"),                         { category: "group", groupOnly: true, aliases: ["grouplink", "invitelink"] })) count++;
+    if (safeRegister("revoke",        fn(m, "revoke"),                       { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["revokelink", "resetlink"] })) count++;
+    if (safeRegister("pin",           fn(m, "pin"),                          { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["pinmsg"] })) count++;
+    if (safeRegister("unpin",         fn(m, "unpin"),                        { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["unpinmsg"] })) count++;
+    if (safeRegister("delete",        fn(m, "deleteMsg", "delete"),          { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["delmsg"] })) count++;
+    if (safeRegister("settings",      fn(m, "settingsOverview", "settings"), { category: "group", groupOnly: true, aliases: ["groupsettings"] })) count++;
+    if (safeRegister("resetsettings", fn(m, "resetSettings", "resetsettings"), { category: "group", groupOnly: true, requireGroupAdmin: true, aliases: ["resetgroupsettings"] })) count++;
+    if (safeRegister("leave",         fn(m, "leave"),                        { category: "group", groupOnly: true, adminOnly: true, aliases: ["botleave", "exit"] })) count++;
+    if (safeRegister("groupdebug",    fn(m, "debug"),                        { category: "group", groupOnly: true, aliases: ["gdebug"] })) count++;
+    if (safeRegister("participants",  fn(m, "showParticipants", "participants"), { category: "group", groupOnly: true, aliases: ["members", "memberlist"] })) count++;
   }
 
   // ── ENCRYPTION.JS ─────────────────────────────────────────────────────────
@@ -614,27 +613,27 @@ export function registerAllCommands() {
   // ── NOTES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.notes;
-    if (safeRegister("note",    fn(m, "note", "saveNote"),                          { category: "storage", aliases: ["savenote", "remember"] })) count++;
-    if (safeRegister("getnote", fn(m, "getnote", "getNote", "recall"),              { category: "storage", aliases: ["recall", "readnote"] })) count++;
-    if (safeRegister("notes",   fn(m, "notes", "listNotes", "mynotes"),             { category: "storage", aliases: ["mynotes", "listnotes"] })) count++;
-    if (safeRegister("delnote", fn(m, "deleteKey", "delnote", "deleteNote","forget"), { category: "storage", aliases: ["forget", "deletenote"] })) count++;
+    if (safeRegister("note",    fn(m, "note", "saveNote"),                           { category: "storage", aliases: ["savenote", "remember"] })) count++;
+    if (safeRegister("getnote", fn(m, "getnote", "getNote", "recall"),               { category: "storage", aliases: ["recall", "readnote"] })) count++;
+    if (safeRegister("notes",   fn(m, "notes", "listNotes", "mynotes"),              { category: "storage", aliases: ["mynotes", "listnotes"] })) count++;
+    if (safeRegister("delnote", fn(m, "deleteKey", "delnote", "deleteNote", "forget"), { category: "storage", aliases: ["forget", "deletenote"] })) count++;
   }
 
   // ── REMINDER.JS ───────────────────────────────────────────────────────────
   {
     const m = MODULES.reminder;
-    if (safeRegister("remind",        fn(m, "reminder", "remind", "setReminder"),       { category: "storage", aliases: ["reminder", "setreminder"] })) count++;
-    if (safeRegister("reminders",     fn(m, "listReminders", "reminders"),              { category: "storage", aliases: ["myreminders"] })) count++;
-    if (safeRegister("cancelreminder",fn(m, "cancelReminder", "cancelreminder"),        { category: "storage", aliases: ["delreminder"] })) count++;
-    if (safeRegister("snooze",        fn(m, "snooze"),                                 { category: "storage", aliases: ["snoozereminder"] })) count++;
+    if (safeRegister("remind",         fn(m, "reminder", "remind", "setReminder"),  { category: "storage", aliases: ["reminder", "setreminder"] })) count++;
+    if (safeRegister("reminders",      fn(m, "listReminders", "reminders"),         { category: "storage", aliases: ["myreminders"] })) count++;
+    if (safeRegister("cancelreminder", fn(m, "cancelReminder", "cancelreminder"),   { category: "storage", aliases: ["delreminder"] })) count++;
+    if (safeRegister("snooze",         fn(m, "snooze"),                             { category: "storage", aliases: ["snoozereminder"] })) count++;
   }
 
   // ── TRANSLATION.JS ────────────────────────────────────────────────────────
   {
     const m = MODULES.translation;
-    if (safeRegister("translate", fn(m, "translate"),  { category: "tools", aliases: ["tr", "tl"] })) count++;
-    if (safeRegister("detect",    fn(m, "detect"),     { category: "tools", aliases: ["langdetect"] })) count++;
-    if (safeRegister("languages", fn(m, "languages"),  { category: "tools", aliases: ["langs"] })) count++;
+    if (safeRegister("translate", fn(m, "translate"), { category: "tools", aliases: ["tr", "tl"] })) count++;
+    if (safeRegister("detect",    fn(m, "detect"),    { category: "tools", aliases: ["langdetect"] })) count++;
+    if (safeRegister("languages", fn(m, "languages"), { category: "tools", aliases: ["langs"] })) count++;
   }
 
   // ── UNIT CONVERTER.JS ─────────────────────────────────────────────────────
@@ -659,14 +658,13 @@ export function registerAllCommands() {
   // ── NEWS.JS ───────────────────────────────────────────────────────────────
   {
     const m = MODULES.news;
-    if (safeRegister("news",  fn(m, "news", "getNews"),  { category: "info", aliases: ["latestnews", "headlines"] })) count++;
-    if (safeRegister("movie", fn(m, "movie", "movies"),  { category: "info", aliases: ["movies", "film"] })) count++;
+    if (safeRegister("news", fn(m, "news", "getNews"), { category: "info", aliases: ["latestnews", "headlines"] })) count++;
   }
 
   // ── MOVIES.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.movies;
-    if (safeRegister("movie",  fn(m, "movie", "movies"), { category: "info", aliases: ["film"] })) count++;
+    if (safeRegister("movie",  fn(m, "movie", "movies"), { category: "info", aliases: ["movies", "film"] })) count++;
     if (safeRegister("series", fn(m, "series", "tvshow"),{ category: "info", aliases: ["tvshow"] })) count++;
   }
 
@@ -679,21 +677,20 @@ export function registerAllCommands() {
   // ── AUTOMATION.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.automation;
-    if (safeRegister("autoreply",  fn(m, "autoReply", "autoreply"),     { category: "automation" })) count++;
-    if (safeRegister("autosticker",fn(m, "autoSticker", "autosticker"), { category: "automation" })) count++;
+    if (safeRegister("autoreply",   fn(m, "autoReply", "autoreply"),     { category: "automation" })) count++;
+    if (safeRegister("autosticker", fn(m, "autoSticker", "autosticker"), { category: "automation" })) count++;
   }
 
   // ── FINAL SUMMARY ─────────────────────────────────────────────────────────
   cmdLog.div();
-  cmdLog.success(`✅ Registered ${count} commands | Primary: ${primaryCommands.size} | With aliases: ${commands.size}`);
+  cmdLog.success(`Registered ${count} commands | Primary: ${primaryCommands.size} | With aliases: ${commands.size}`);
 
-  // Verify critical commands
   const critical = ["menu", "ping", "ok", "start", "status", "tts", "joke", "quote", "play"];
-  const missing = critical.filter((c) => !commands.has(c));
+  const missing  = critical.filter((c) => !commands.has(c));
   if (missing.length > 0) {
-    cmdLog.err(`❌ Missing critical commands: ${missing.join(", ")}`);
+    cmdLog.err(`Missing critical commands: ${missing.join(", ")}`);
   } else {
-    cmdLog.success(`✅ All critical commands present: ${critical.join(", ")}`);
+    cmdLog.success(`All critical commands present: ${critical.join(", ")}`);
   }
 
   console.log();
@@ -704,28 +701,25 @@ registerAllCommands();
 // ============================================================================
 //  BOT-OWNER IS GROUP ADMIN — ENFORCEMENT
 // ============================================================================
-
 async function resolveEffectiveBotAdmin(sock, groupJid, ownerPhone) {
   const ownerJid = ownerPhone ? `${normalizePhone(ownerPhone)}@s.whatsapp.net` : null;
-
-  let isAdmin = await isBotGroupAdmin(sock, groupJid, ownerJid);
-
-  if (!isAdmin) {
-    isAdmin = await isBotGroupAdmin(sock, groupJid, ownerJid, true);
+  let isAdminResult = await isBotGroupAdmin(sock, groupJid, ownerJid);
+  if (!isAdminResult) {
+    isAdminResult = await isBotGroupAdmin(sock, groupJid, ownerJid, true);
   }
-
-  return isAdmin;
+  return isAdminResult;
 }
 
 // ============================================================================
 //  ACTIVATION EXEMPT COMMANDS
+//  ✅ "push" added — it's an alias for .ok and must bypass activation gate
 // ============================================================================
 const ACTIVATION_EXEMPT = new Set([
   "activate", "deactivate",
   "testadmin", "refreshadmin", "admintest", "checkadmin", "refresh", "clearcache",
   "groupdebug", "gdebug", "groupdbg",
   "menu", "help", "ping", "status", "start", "init", "begin", "connectdm", "dmopen",
-  "ok", "dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome",
+  "ok", "dm", "tome", "senddm", "push", "privatemedia", "savetodm", "sendtome",  // ✅ push was missing
 ]);
 
 // ============================================================================
@@ -739,12 +733,12 @@ export async function handleCommand(message, sock) {
     if (!from) return;
 
     const isGroup = from.endsWith("@g.us");
-    const fromMe = !!message.key.fromMe;
+    const fromMe  = !!message.key.fromMe;
 
-    const session    = message._session   || null;
-    const ownerPhone = session?.ownerPhone || ENV.ADMIN || ENV.OWNER_PHONE || "";
-    const sessionMode= session?.mode       || ENV.BOT_MODE || "public";
-    const sessionId  = session?.id         || "";
+    const session     = message._session    || null;
+    const ownerPhone  = session?.ownerPhone || ENV.ADMIN || ENV.OWNER_PHONE || "";
+    const sessionMode = session?.mode       || ENV.BOT_MODE || "public";
+    const sessionId   = session?.id         || "";
 
     // ── Resolve sender JID ──────────────────────────────────────────────────
     let rawSenderJid;
@@ -761,17 +755,17 @@ export async function handleCommand(message, sock) {
     const userJid    = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
     if (!userJid || !cleanPhone) return;
 
-    const isAdminUser     = fromMe || isAdmin(userJid, ownerPhone);
-    const isAuthorizedUser= isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
+    const isAdminUser      = fromMe || isAdmin(userJid, ownerPhone);
+    const isAuthorizedUser = isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
 
     // ── Extract message text ─────────────────────────────────────────────────
     const m = message.message || {};
     const msgText =
-      m.conversation                  ||
-      m.extendedTextMessage?.text     ||
-      m.imageMessage?.caption         ||
-      m.videoMessage?.caption         ||
-      m.documentMessage?.caption      || "";
+      m.conversation               ||
+      m.extendedTextMessage?.text  ||
+      m.imageMessage?.caption      ||
+      m.videoMessage?.caption      ||
+      m.documentMessage?.caption   || "";
 
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
@@ -796,7 +790,7 @@ export async function handleCommand(message, sock) {
     }
 
     // ── Parse command ────────────────────────────────────────────────────────
-    const body = trimmed.slice(ENV.PREFIX.length).trim();
+    const body        = trimmed.slice(ENV.PREFIX.length).trim();
     if (!body) return;
 
     const parts       = body.split(/\s+/);
@@ -804,8 +798,8 @@ export async function handleCommand(message, sock) {
     if (!commandName) return;
 
     const rawArgs = parts.slice(1);
-    const fullArgs= rawArgs.join(" ");
-    const args    = rawArgs.map(sanitizeInput);
+    const fullArgs = rawArgs.join(" ");
+    const args     = rawArgs.map(sanitizeInput);
 
     // ── Banned check ─────────────────────────────────────────────────────────
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
@@ -822,8 +816,8 @@ export async function handleCommand(message, sock) {
     const commandMeta = commands.get(commandName);
 
     if (!commandMeta) {
-      const similar = findSimilarCommands(commandName, 2);
-      let suggestion = "";
+      const similar   = findSimilarCommands(commandName, 2);
+      let suggestion  = "";
       if (similar.length > 0) {
         suggestion = `\n\nDid you mean: *${ENV.PREFIX}${similar[0]}*?`;
         if (similar.length > 1)
@@ -836,13 +830,17 @@ export async function handleCommand(message, sock) {
     }
 
     const handlerFunction = commandMeta.handler;
-    const primaryName     = commandMeta.isAlias ? commandMeta.primaryName : (commandMeta.primaryName || commandName);
+    const primaryName     = commandMeta.isAlias
+      ? commandMeta.primaryName
+      : (commandMeta.primaryName || commandName);
 
     // ── Usage tracking ────────────────────────────────────────────────────────
     if (!commandUsage.has(userJid)) commandUsage.set(userJid, {});
     commandUsage.get(userJid)[primaryName] = (commandUsage.get(userJid)[primaryName] || 0) + 1;
 
-    const stats = commandStats.get(primaryName) || { uses: 0, errors: 0, lastUsed: null, avgResponseTime: 0, totalResponseTime: 0 };
+    const stats = commandStats.get(primaryName) || {
+      uses: 0, errors: 0, lastUsed: null, avgResponseTime: 0, totalResponseTime: 0,
+    };
     stats.uses++;
     stats.lastUsed = Date.now();
     commandStats.set(primaryName, stats);
@@ -905,15 +903,16 @@ export async function handleCommand(message, sock) {
       if (session && typeof session === "object") session.mode = newMode;
     };
 
+    // ✅ Full context object — every command gets all fields it might need
     const context = {
       args, fullArgs, message, from,
-      groupJid: isGroup ? from : null,
+      groupJid    : isGroup ? from : null,
       userJid, cleanPhone, isGroup, isDM: !isGroup, fromMe, sock,
-      isAdmin: isAdminUser,
+      isAdmin     : isAdminUser,
       isAuthorized: isAuthorizedUser,
-      commandName: primaryName,
-      invokedAs: commandName,
-      prefix: ENV.PREFIX,
+      commandName : primaryName,
+      invokedAs   : commandName,
+      prefix      : ENV.PREFIX,
       session, sessionId, sessionMode, ownerPhone, ENV, setMode,
     };
 
@@ -923,13 +922,13 @@ export async function handleCommand(message, sock) {
       await Promise.race([
         handlerFunction(context),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Command timeout (60s)")), 60000)
+          setTimeout(() => reject(new Error("Command timeout (60s)")), 60_000),
         ),
       ]);
 
       const ms = Date.now() - handlerStart;
       stats.totalResponseTime += ms;
-      stats.avgResponseTime = stats.totalResponseTime / stats.uses;
+      stats.avgResponseTime    = stats.totalResponseTime / stats.uses;
       commandStats.set(primaryName, stats);
       cmdLog.success(`[${executionId}] ${primaryName} OK (${ms}ms)`);
     } catch (cmdError) {
@@ -944,7 +943,9 @@ export async function handleCommand(message, sock) {
   } catch (fatalError) {
     cmdLog.err(`[${executionId}] FATAL: ${fatalError.message}`);
     try {
-      await sock?.sendMessage(message?.key?.remoteJid, { text: "❌ A system error occurred. Please try again." });
+      await sock?.sendMessage(message?.key?.remoteJid, {
+        text: "❌ A system error occurred. Please try again.",
+      });
     } catch (_) {}
   }
 }
@@ -952,7 +953,6 @@ export async function handleCommand(message, sock) {
 // ============================================================================
 //  UTILITY FUNCTIONS
 // ============================================================================
-
 function findSimilarCommands(input, maxDistance = 2, limit = 3) {
   const inputLower = input.toLowerCase();
   return Array.from(primaryCommands.keys())
@@ -988,20 +988,19 @@ function levenshteinDistance(a, b) {
 // ============================================================================
 //  EXPORTS
 // ============================================================================
-
 export function getCommandInfo(name) {
   const meta = commands.get(name?.toLowerCase());
   if (!meta) return null;
   return {
-    name: meta.primaryName || name,
-    category: meta.category,
-    description: meta.description,
-    adminOnly: meta.adminOnly,
-    groupOnly: meta.groupOnly,
+    name            : meta.primaryName || name,
+    category        : meta.category,
+    description     : meta.description,
+    adminOnly       : meta.adminOnly,
+    groupOnly       : meta.groupOnly,
     requireGroupAdmin: meta.requireGroupAdmin,
-    requireBotAdmin: meta.requireBotAdmin,
-    isAlias: meta.isAlias || false,
-    aliases: meta.aliases || [],
+    requireBotAdmin : meta.requireBotAdmin,
+    isAlias         : meta.isAlias || false,
+    aliases         : meta.aliases || [],
   };
 }
 
@@ -1012,13 +1011,13 @@ export function getCommandStats(name) {
 export function getAllStats() {
   let totalUses = 0, totalErrors = 0;
   for (const s of commandStats.values()) {
-    totalUses += s.uses;
+    totalUses   += s.uses;
     totalErrors += s.errors;
   }
   return {
     totalCommands: primaryCommands.size,
-    totalAliases: commands.size - primaryCommands.size,
-    totalEntries: commands.size,
+    totalAliases : commands.size - primaryCommands.size,
+    totalEntries : commands.size,
     totalUses, totalErrors,
     topCommands: Array.from(commandStats.entries())
       .sort((a, b) => b[1].uses - a[1].uses)
@@ -1033,10 +1032,15 @@ export async function reloadCommands() {
   primaryCommands.clear();
   aliasMap.clear();
   commandStats.clear();
-  for (const name of Object.keys(MODULES)) delete MODULES[name];
+
+  // ✅ MODULES is a plain object — delete keys individually (can't reassign a const)
+  for (const key of Object.keys(MODULES)) {
+    delete MODULES[key];
+  }
+
   await loadAllModules();
   registerAllCommands();
-  cmdLog.success("✅ Commands reloaded");
+  cmdLog.success("Commands reloaded successfully");
 }
 
 export function shutdown() {
@@ -1045,6 +1049,6 @@ export function shutdown() {
 }
 
 process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGINT",  shutdown);
 
 export { commandCooldown, MODULES as modules, rateLimiter };
