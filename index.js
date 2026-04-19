@@ -14,7 +14,6 @@
 //   8. All original features preserved
 //   9. Enhanced error handling, circuit breakers, backups, security, monitoring
 // ============================================================
-
 import makeWASocket, {
   Browsers,
   DisconnectReason,
