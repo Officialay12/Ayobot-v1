@@ -201,8 +201,8 @@ function sanitizeInput(input) {
   if (!input || typeof input !== "string") return "";
   return input
     .slice(0, 2000)
-    .replace(/[<>\"'&]/g, "")
-    .trim(); // Stricter escaping
+    .replace(/[<>"'&]/g, "")
+    .trim();
 }
 
 // Resilient API call with retries
@@ -212,7 +212,7 @@ async function resilientApiCall(apiFunction, retries = 3) {
       return await apiFunction();
     } catch (error) {
       if (i === retries - 1) throw error;
-      await delay(Math.pow(2, i) * 1000); // Exponential backoff
+      await delay(Math.pow(2, i) * 1000);
     }
   }
 }
@@ -222,16 +222,12 @@ function cleanupOldData() {
   const MAX_AGE = 24 * 60 * 60 * 1000;
   const now = Date.now();
 
-  // Clean commandUsage
   for (const [user, cmds] of commandUsage.entries()) {
     for (const [cmd, data] of Object.entries(cmds)) {
       if (now - (data.timestamp || 0) > MAX_AGE) delete cmds[cmd];
     }
     if (Object.keys(cmds).length === 0) commandUsage.delete(user);
   }
-
-  // Similar for bannedUsers, etc.
-  // ...existing code...
 }
 
 // Periodic cleanup
@@ -240,31 +236,56 @@ setInterval(cleanupOldData, 60 * 60 * 1000); // Every hour
 // ============================================================================
 //  MODULE LOADER — CORRECT PATHS
 // ============================================================================
-
 const MODULES = {};
+
+function normalizeExportName(name) {
+  return typeof name === "string" ? name.toLowerCase() : "";
+}
+
+function getFunctionFromModule(mod, ...keys) {
+  if (!mod || typeof mod !== "object") return null;
+
+  const tryFind = (target) => {
+    if (!target || typeof target !== "object") return null;
+
+    for (const key of keys) {
+      const lowerKey = normalizeExportName(key);
+      if (typeof target[key] === "function") return target[key];
+
+      for (const [exportKey, exportValue] of Object.entries(target)) {
+        if (
+          typeof exportValue === "function" &&
+          normalizeExportName(exportKey) === lowerKey
+        ) {
+          return exportValue;
+        }
+      }
+    }
+    return null;
+  };
+
+  return tryFind(mod) || tryFind(mod.default);
+}
 
 async function safeImport(moduleName, specifier) {
   try {
     const mod = await import(specifier);
 
-    const defaultFns =
-      mod.default && typeof mod.default === "object"
-        ? Object.fromEntries(
-            Object.entries(mod.default).filter(
-              ([, v]) => typeof v === "function",
-            ),
-          )
-        : {};
+    const merged = {};
+    if (mod.default && typeof mod.default === "object") {
+      for (const [k, v] of Object.entries(mod.default)) {
+        if (typeof v === "function") merged[k] = v;
+      }
+    }
+    if (mod.default && typeof mod.default === "function") {
+      merged.default = mod.default;
+    }
+    for (const [k, v] of Object.entries(mod)) {
+      if (k === "default") continue;
+      if (typeof v === "function") merged[k] = v;
+    }
 
-    const namedFns = Object.fromEntries(
-      Object.entries(mod).filter(
-        ([k, v]) => k !== "default" && typeof v === "function",
-      ),
-    );
-
-    const merged = { ...defaultFns, ...namedFns, __raw: mod };
-    const count = Object.keys(merged).filter((k) => k !== "__raw").length;
-
+    const count = Object.keys(merged).length;
     if (count === 0) {
       cmdLog.warn(
         `${moduleName.padEnd(16)} ➜ loaded but NO functions exported`,
@@ -273,7 +294,7 @@ async function safeImport(moduleName, specifier) {
       cmdLog.ok(`${moduleName.padEnd(16)} ➜ ${count} functions`);
     }
 
-    return merged;
+    return { ...merged, __raw: mod };
   } catch (error) {
     cmdLog.err(`${moduleName.padEnd(16)} ➜ FAILED: ${error.message}`);
     return {};
@@ -285,7 +306,6 @@ async function loadAllModules() {
   cmdLog.div();
 
   const moduleMap = {
-    // Group command modules
     basic: "../commands/group/basic.js",
     admin: "../commands/group/admin.js",
     viewonce: "../commands/group/viewonce.js",
@@ -293,8 +313,6 @@ async function loadAllModules() {
     groupMod: "../commands/group/moderation.js",
     groupSettings: "../commands/group/settings.js",
     automation: "../commands/group/automation.js",
-
-    // Feature modules
     downloader: "../features/downloader.js",
     ai: "../features/ai.js",
     calculator: "../features/calculator.js",
@@ -402,10 +420,7 @@ export function safeRegister(primaryName, handler, options = {}) {
 }
 
 function fn(mod, ...keys) {
-  for (const key of keys) {
-    if (mod && typeof mod[key] === "function") return mod[key];
-  }
-  return null;
+  return getFunctionFromModule(mod, ...keys);
 }
 
 // ============================================================================
@@ -416,8 +431,6 @@ export function registerAllCommands() {
   cmdLog.div();
 
   let count = 0;
-
-  // ── BASIC.JS ──────────────────────────────────────────────────────────────
   const b = MODULES.basic;
 
   const rb = (name, key, opts) => {
@@ -542,11 +555,9 @@ export function registerAllCommands() {
     aliases: ["nolink", "blocklinks"],
   });
 
-  // ✅ .ok from basic.js (now has proper functions)
   {
     const bMod = MODULES.basic;
     const okFn = fn(bMod, "ok", "viewOnceToDM", "dm", "tome");
-
     if (okFn) {
       if (
         safeRegister("ok", okFn, {
@@ -570,7 +581,6 @@ export function registerAllCommands() {
     }
   }
 
-  // ── TTS.JS ────────────────────────────────────────────────────────────────
   {
     const m = MODULES.tts;
     const f = fn(m, "tts", "textToSpeech", "speak");
@@ -583,7 +593,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── GAMES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.games;
     if (
@@ -616,7 +625,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── JOKES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.jokes;
     if (
@@ -642,7 +650,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── QUOTES.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.quotes;
     if (
@@ -655,7 +662,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── CALCULATOR.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.calculator;
     if (
@@ -667,7 +673,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── DICTIONARY.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.dictionary;
     if (
@@ -679,10 +684,8 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── DOWNLOADER.JS (features folder) ───────────────────────────────────────
   {
     const m = MODULES.downloader;
-
     if (!m || Object.keys(m).filter((k) => k !== "__raw").length === 0) {
       cmdLog.warn(
         "⚠️ Downloader module not loaded — check ../features/downloader.js",
@@ -739,17 +742,21 @@ export function registerAllCommands() {
       )
         count++;
       if (
-        safeRegister("gif", fn(m, "gif", "giphy", "searchGif"), {
+        safeRegister("gif", fn(m, "gif", "giphy", "searchGif", "searchgif"), {
           category: "dl",
           aliases: ["giphy", "tenor", "gifsearch"],
         })
       )
         count++;
       if (
-        safeRegister("img", fn(m, "image", "img", "searchImage"), {
-          category: "dl",
-          aliases: ["image", "imgsearch", "pics"],
-        })
+        safeRegister(
+          "img",
+          fn(m, "image", "img", "searchImage", "searchimage"),
+          {
+            category: "dl",
+            aliases: ["image", "imgsearch", "pics"],
+          },
+        )
       )
         count++;
       if (
@@ -768,7 +775,7 @@ export function registerAllCommands() {
       )
         count++;
       if (
-        safeRegister("play", fn(m, "play", "musicDownload"), {
+        safeRegister("play", fn(m, "play", "musicDownload", "playMusic"), {
           category: "music",
           aliases: ["mp3", "song", "music"],
         })
@@ -777,7 +784,6 @@ export function registerAllCommands() {
     }
   }
 
-  // ── MUSIC.JS (fallback if downloader doesn't have play) ────────────────────
   {
     const m = MODULES.music;
     if (!primaryCommands.has("play")) {
@@ -812,7 +818,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── IMAGE TOOLS.JS ────────────────────────────────────────────────────────
   {
     const m = MODULES.imageTools;
     if (
@@ -867,7 +872,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── AI.JS ─────────────────────────────────────────────────────────────────
   {
     const m = MODULES.ai;
     if (
@@ -900,7 +904,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── ADMIN.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.admin;
     if (
@@ -1025,7 +1028,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── GROUP CORE.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.groupCore;
     if (
@@ -1110,7 +1112,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── GROUP MODERATION.JS ───────────────────────────────────────────────────
   {
     const m = MODULES.groupMod;
     if (
@@ -1152,7 +1153,6 @@ export function registerAllCommands() {
       safeRegister("unban", fn(m, "unban"), {
         category: "group",
         groupOnly: true,
-        requireGroupAdmin: true,
         aliases: ["unblock"],
       })
     )
@@ -1167,7 +1167,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── GROUP SETTINGS.JS ─────────────────────────────────────────────────────
   {
     const m = MODULES.groupSettings;
     if (
@@ -1364,7 +1363,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── ENCRYPTION.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.encryption;
     if (
@@ -1397,7 +1395,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── NOTES.JS ──────────────────────────────────────────────────────────────
   {
     const m = MODULES.notes;
     if (
@@ -1431,7 +1428,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── REMINDER.JS ───────────────────────────────────────────────────────────
   {
     const m = MODULES.reminder;
     if (
@@ -1465,7 +1461,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── TRANSLATION.JS ────────────────────────────────────────────────────────
   {
     const m = MODULES.translation;
     if (
@@ -1491,7 +1486,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── UNIT CONVERTER.JS ─────────────────────────────────────────────────────
   {
     const m = MODULES.unitConverter;
     if (
@@ -1510,7 +1504,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── SECURITY.JS ───────────────────────────────────────────────────────────
   {
     const m = MODULES.security;
     if (
@@ -1522,7 +1515,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── STOCKS.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.stocks;
     if (
@@ -1534,7 +1526,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── NEWS.JS ───────────────────────────────────────────────────────────────
   {
     const m = MODULES.news;
     if (
@@ -1546,7 +1537,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── MOVIES.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.movies;
     if (
@@ -1565,7 +1555,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── CRYPTO.JS ─────────────────────────────────────────────────────────────
   {
     const m = MODULES.crypto;
     if (
@@ -1577,7 +1566,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── AUTOMATION.JS ─────────────────────────────────────────────────────────
   {
     const m = MODULES.automation;
     if (
@@ -1594,7 +1582,6 @@ export function registerAllCommands() {
       count++;
   }
 
-  // ── FINAL SUMMARY ─────────────────────────────────────────────────────────
   cmdLog.div();
   cmdLog.success(
     `✅ Registered ${count} commands | Primary: ${primaryCommands.size} | With aliases: ${commands.size}`,
@@ -1621,9 +1608,17 @@ export function registerAllCommands() {
   }
 
   console.log();
+  rebuildAllowedCommands();
+}
+
+function rebuildAllowedCommands() {
+  ALLOWED_COMMANDS.clear();
+  for (const key of commands.keys()) ALLOWED_COMMANDS.add(key);
 }
 
 registerAllCommands();
+
+const ALLOWED_COMMANDS = new Set();
 
 // ============================================================================
 //  BOT-OWNER IS GROUP ADMIN — ENFORCEMENT
@@ -1672,11 +1667,6 @@ const ACTIVATION_EXEMPT = new Set([
   "savetodm",
   "sendtome",
 ]);
-
-// ============================================================================
-//  COMMAND WHITELIST FOR SECURITY
-// ============================================================================
-const ALLOWED_COMMANDS = new Set(commands.keys());
 
 // ============================================================================
 //  MAIN COMMAND HANDLER
@@ -1754,7 +1744,6 @@ export async function handleCommand(message, sock) {
     const commandName = parts[0].toLowerCase();
     if (!commandName) return;
 
-    // Command whitelist check
     if (!ALLOWED_COMMANDS.has(commandName)) {
       const similar = findSimilarCommands(commandName, 2);
       let suggestion = "";
@@ -1825,26 +1814,11 @@ export async function handleCommand(message, sock) {
     if (session) session.commandCount = (session.commandCount || 0) + 1;
 
     if (!isAdminUser && !rateLimiter.isAllowed(userJid, primaryName)) {
-      const seconds = Math.ceil(
-        rateLimiter.remaining(userJid, primaryName) / 1000,
-      );
-      const msgs = [
-        `⏳ *Slow down!* Wait *${seconds}s*.`,
-        `🧘 *Take a breath!* Wait ${seconds}s.`,
-        `⚡ *Rate limited!* Try again in ${seconds}s.`,
-      ];
-      return sock.sendMessage(from, {
-        text: msgs[Math.floor(Math.random() * msgs.length)],
-      });
+      return;
     }
 
     if (!isAdminUser && commandCooldown.isOnCooldown(userJid, primaryName)) {
-      const seconds = Math.ceil(
-        commandCooldown.getRemaining(userJid, primaryName) / 1000,
-      );
-      return sock.sendMessage(from, {
-        text: `⏳ *Cooldown!* Wait *${seconds}s* before using *${ENV.PREFIX}${primaryName}* again.`,
-      });
+      return;
     }
 
     if (commandMeta.adminOnly && !isAdminUser) {
@@ -1908,7 +1882,6 @@ export async function handleCommand(message, sock) {
       setMode,
     };
 
-    // Progress indicator for long commands
     if (commandMeta.category === "dl" || commandMeta.category === "ai") {
       await sock.sendMessage(from, { text: "⏳ Processing... Please wait." });
     }
@@ -1959,7 +1932,7 @@ export async function handleCommand(message, sock) {
 // ============================================================================
 function findSimilarCommands(input, maxDistance = 2, limit = 3) {
   const inputLower = input.toLowerCase();
-  return Array.from(primaryCommands.keys())
+  return Array.from(commands.keys())
     .map((cmd) => ({ cmd, distance: levenshteinDistance(inputLower, cmd) }))
     .filter((item) => item.distance <= maxDistance && item.distance > 0)
     .sort((a, b) => a.distance - b.distance)
@@ -2000,7 +1973,6 @@ async function backupToFile(data, filename) {
   }
 }
 
-// Example: Backup bannedUsers periodically
 setInterval(
   () => backupToFile(Array.from(bannedUsers.entries()), "bannedUsers.json"),
   60 * 60 * 1000,
@@ -2058,6 +2030,7 @@ export async function reloadCommands() {
   for (const key of Object.keys(MODULES)) delete MODULES[key];
   await loadAllModules();
   registerAllCommands();
+  rebuildAllowedCommands();
   cmdLog.success("✅ Commands reloaded");
 }
 

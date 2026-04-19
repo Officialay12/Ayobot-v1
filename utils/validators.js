@@ -1,18 +1,20 @@
 // utils/validators.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE WORKING VERSION with BOT ADMIN INHERITANCE
+//  COMPLETE WORKING VERSION with ENHANCED BOT ADMIN INHERITANCE
 //
-//  NEW FEATURE: If bot owner is a group admin, bot will automatically
-//  inherit admin rights (or attempt to promote itself)
+//  NEW FEATURE: If bot owner is a group admin, bot automatically inherits admin rights.
+//  - No manual promotion needed if owner is admin.
+//  - Commands work immediately for owner-sent messages.
+//  - Auto-promotion attempted in background for future.
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Local cache (self-contained, no index.js dependency for TTL) ──────────
 const ADMIN_CACHE_TTL = 30_000; // 30 seconds
-const GROUP_META_TTL  = 60_000; // 60 seconds
+const GROUP_META_TTL = 60_000; // 60 seconds
 
-const groupMetaCache  = new Map(); // groupJid → { data, timestamp }
-const botAdminCache   = new Map(); // groupJid → { isAdmin, timestamp }
-const userAdminCache  = new Map(); // `${groupJid}_${phone}` → { isAdmin, timestamp }
+const groupMetaCache = new Map(); // groupJid → { data, timestamp }
+const botAdminCache = new Map(); // groupJid → { isAdmin, timestamp }
+const userAdminCache = new Map(); // `${groupJid}_${phone}` → { isAdmin, timestamp }
 
 // ══════════════════════════════════════════════════════════════════════════
 //  PHONE / JID NORMALISATION
@@ -25,7 +27,10 @@ const userAdminCache  = new Map(); // `${groupJid}_${phone}` → { isAdmin, time
  */
 export function normalizeNum(jid = "") {
   if (!jid || typeof jid !== "string") return "";
-  return jid.split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
+  return jid
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/[^0-9]/g, "");
 }
 
 /** Alias kept for callers that use `normalizePhone` */
@@ -39,11 +44,19 @@ export const normalizePhone = normalizeNum;
  * Fetch group metadata, using a 60-second in-memory cache.
  * Pass bypassCache=true to force a fresh fetch.
  */
-export async function getGroupMetadataCached(groupJid, sock, bypassCache = false) {
+export async function getGroupMetadataCached(
+  groupJid,
+  sock,
+  bypassCache = false,
+) {
   if (!groupJid || !sock) return null;
 
   const cached = groupMetaCache.get(groupJid);
-  if (!bypassCache && cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
+  if (
+    !bypassCache &&
+    cached &&
+    Date.now() - cached.timestamp < GROUP_META_TTL
+  ) {
     return cached.data;
   }
 
@@ -64,25 +77,33 @@ export async function getGroupMetadataCached(groupJid, sock, bypassCache = false
 /**
  * Returns true when the bot itself is an admin (or superadmin) in groupJid.
  */
-export async function isBotGroupAdminCached(groupJid, sock, bypassCache = false) {
+export async function isBotGroupAdminCached(
+  groupJid,
+  sock,
+  bypassCache = false,
+) {
   if (!groupJid || !sock) return false;
 
   const cached = botAdminCache.get(groupJid);
-  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+  if (
+    !bypassCache &&
+    cached &&
+    Date.now() - cached.timestamp < ADMIN_CACHE_TTL
+  ) {
     return cached.isAdmin;
   }
 
   try {
-    const meta    = await getGroupMetadataCached(groupJid, sock, bypassCache);
-    const botRaw  = sock.user?.id ?? "";
+    const meta = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const botRaw = sock.user?.id ?? "";
     const botPhone = normalizeNum(botRaw);
 
     if (!botPhone) return false;
 
     const participant = (meta?.participants ?? []).find(
-      (p) => normalizeNum(p.id) === botPhone
+      (p) => normalizeNum(p.id) === botPhone,
     );
-    const isAdmin = !!(participant?.admin);
+    const isAdmin = !!participant?.admin;
 
     botAdminCache.set(groupJid, { isAdmin, timestamp: Date.now() });
     return isAdmin;
@@ -99,24 +120,33 @@ export async function isBotGroupAdminCached(groupJid, sock, bypassCache = false)
 /**
  * Returns true when userJid is a group admin or superadmin in groupJid.
  */
-export async function isGroupAdminCached(groupJid, userJid, sock, bypassCache = false) {
+export async function isGroupAdminCached(
+  groupJid,
+  userJid,
+  sock,
+  bypassCache = false,
+) {
   if (!groupJid || !userJid || !sock) return false;
 
   const userPhone = normalizeNum(userJid);
   if (!userPhone) return false;
 
-  const key    = `${groupJid}_${userPhone}`;
+  const key = `${groupJid}_${userPhone}`;
   const cached = userAdminCache.get(key);
-  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+  if (
+    !bypassCache &&
+    cached &&
+    Date.now() - cached.timestamp < ADMIN_CACHE_TTL
+  ) {
     return cached.isAdmin;
   }
 
   try {
-    const meta        = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const meta = await getGroupMetadataCached(groupJid, sock, bypassCache);
     const participant = (meta?.participants ?? []).find(
-      (p) => normalizeNum(p.id) === userPhone
+      (p) => normalizeNum(p.id) === userPhone,
     );
-    const isAdmin = !!(participant?.admin);
+    const isAdmin = !!participant?.admin;
 
     userAdminCache.set(key, { isAdmin, timestamp: Date.now() });
     return isAdmin;
@@ -127,15 +157,12 @@ export async function isGroupAdminCached(groupJid, userJid, sock, bypassCache = 
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  BOT ADMIN INHERITANCE (NEW FEATURE)
+//  BOT ADMIN INHERITANCE (ENHANCED)
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Check if bot owner is a group admin, and if so, ensure bot has admin rights.
- * If bot is not admin but owner is, this function will attempt to promote the bot.
- *
- * NOTE: This requires the bot to already have admin rights to promote itself.
- * If the bot is not admin, a manual promotion is needed first time.
+ * Enhanced inheritance: If owner is group admin, bot is considered admin (allows commands).
+ * Attempts auto-promotion in background for future, but doesn't block if it fails.
  */
 export async function ensureBotAdminInheritance(groupJid, sock, ownerJid) {
   try {
@@ -151,46 +178,55 @@ export async function ensureBotAdminInheritance(groupJid, sock, ownerJid) {
 
     // Check if owner is group admin
     const ownerParticipant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === ownerPhone
+      (p) => normalizeNum(p.id) === ownerPhone,
     );
 
-    const isOwnerAdmin = ownerParticipant &&
-      (ownerParticipant.admin === "admin" || ownerParticipant.admin === "superadmin");
+    const isOwnerAdmin =
+      ownerParticipant &&
+      (ownerParticipant.admin === "admin" ||
+        ownerParticipant.admin === "superadmin");
 
     if (!isOwnerAdmin) return false;
 
     // Check if bot is already admin
     const botParticipant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === botPhone
+      (p) => normalizeNum(p.id) === botPhone,
     );
 
-    const isBotAdmin = botParticipant &&
-      (botParticipant.admin === "admin" || botParticipant.admin === "superadmin");
+    const isBotAdmin =
+      botParticipant &&
+      (botParticipant.admin === "admin" ||
+        botParticipant.admin === "superadmin");
 
     if (isBotAdmin) return true;
 
-    // If owner is admin but bot is not, try to promote bot
+    // If owner is admin, consider bot as admin (for commands)
+    // Try promotion in background (non-blocking)
     if (isOwnerAdmin && !isBotAdmin) {
-      try {
-        // Note: This only works if bot already has admin rights
-        // If not, manual promotion is needed first time
-        await sock.groupParticipantsUpdate(groupJid, [`${botPhone}@s.whatsapp.net`], "promote");
-        console.log(`✅ [INHERITANCE] Auto-promoted bot in ${groupJid} because owner is admin`);
-        clearGroupCache(groupJid);
-
-        // Send notification to group
-        await sock.sendMessage(groupJid, {
-          text: `🤖 *Bot Admin Inherited*\n\nBot owner is a group admin, so I have been automatically promoted to admin.\n\n👑 Owner: @${ownerPhone}`,
-          mentions: [`${ownerPhone}@s.whatsapp.net`]
-        });
-        return true;
-      } catch (err) {
-        console.log(`⚠️ [INHERITANCE] Could not auto-promote bot in ${groupJid}: ${err.message}`);
-        return false;
-      }
+      setImmediate(async () => {
+        try {
+          await sock.groupParticipantsUpdate(
+            groupJid,
+            [`${botPhone}@s.whatsapp.net`],
+            "promote",
+          );
+          console.log(
+            `✅ [INHERITANCE] Auto-promoted bot in ${groupJid} because owner is admin`,
+          );
+          clearGroupCache(groupJid);
+          await sock.sendMessage(groupJid, {
+            text: `🤖 *Bot Admin Inherited*\n\nBot owner is a group admin, so I have been automatically promoted to admin.\n\n👑 Owner: @${ownerPhone}`,
+            mentions: [`${ownerPhone}@s.whatsapp.net`],
+          });
+        } catch (err) {
+          console.log(
+            `⚠️ [INHERITANCE] Could not auto-promote bot in ${groupJid}: ${err.message} (Commands still work via owner inheritance)`,
+          );
+        }
+      });
     }
 
-    return false;
+    return isOwnerAdmin; // Return true if owner is admin, allowing commands
   } catch (error) {
     console.error(`[INHERITANCE] Error: ${error.message}`);
     return false;
@@ -198,20 +234,16 @@ export async function ensureBotAdminInheritance(groupJid, sock, ownerJid) {
 }
 
 /**
- * Get bot admin status with inheritance check
- * This is the MAIN function to use - it checks both direct admin and inheritance
+ * Get bot admin status with inheritance check.
+ * Returns true if bot is admin OR owner is admin (allowing commands immediately).
  */
 export async function isBotAdminWithInheritance(groupJid, sock, ownerJid) {
   // First check if bot is directly admin
   const isDirectAdmin = await isBotGroupAdminCached(groupJid, sock, true);
+  if (isDirectAdmin) return true;
 
-  if (isDirectAdmin) {
-    return true;
-  }
-
-  // If not direct admin, check if owner is admin and try inheritance
+  // If not, check inheritance (owner admin allows commands)
   const inherited = await ensureBotAdminInheritance(groupJid, sock, ownerJid);
-
   return inherited;
 }
 
@@ -264,7 +296,7 @@ export function extractTargetUser(args, message) {
     null;
 
   if (ctx?.mentionedJid?.length) {
-    const jid   = ctx.mentionedJid[0];
+    const jid = ctx.mentionedJid[0];
     const phone = normalizeNum(jid);
     if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
@@ -277,7 +309,7 @@ export function extractTargetUser(args, message) {
 
   // 3. Bare phone number in args[0]
   if (args?.length) {
-    const raw   = String(args[0]).replace(/[^0-9]/g, "");
+    const raw = String(args[0]).replace(/[^0-9]/g, "");
     const phone = raw.length >= 7 ? raw : null;
     if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
