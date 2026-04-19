@@ -1048,19 +1048,16 @@ export async function ok({ message, from, sock, session, ownerPhone }) {
       message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
-      return sock.sendMessage(from, {
-        text: formatInfo(
-          "VIEW ONCE TO DM",
-          `Reply to a view-once message with: ${ENV.PREFIX}ok`,
-        ),
-      });
+      return;
     }
 
-    let mediaMsg = null,
-      type = null;
+    let mediaMsg = null;
+    let type = null;
+
     for (const container of [
       quotedMsg.viewOnceMessageV2?.message,
       quotedMsg.viewOnceMessageV2Extension?.message,
+      quotedMsg.viewOnceMessage?.message,
       quotedMsg,
     ]) {
       if (!container) continue;
@@ -1083,20 +1080,36 @@ export async function ok({ message, from, sock, session, ownerPhone }) {
 
     if (!mediaMsg || !type) {
       await sendReaction(sock, message, "❌");
-      return sock.sendMessage(from, {
-        text: formatError("NOT VIEW ONCE", "This is not a view-once message."),
-      });
+      return;
     }
 
-    const stream = await downloadContentFromMessage(mediaMsg, type);
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+    if (!mediaMsg.mediaKey && !mediaMsg.url && !mediaMsg.directPath) {
+      await sendReaction(sock, message, "❌");
+      return;
+    }
 
-    const caption = `📊 *Type:* ${type.toUpperCase()}\n📦 *Size:* ${(buffer.length / 1024).toFixed(2)} KB\n✅ *Saved Successfully*\n👑 AYOBOT`;
+    let buffer = null;
+
+    try {
+      const stream = await downloadContentFromMessage(mediaMsg, type);
+      const chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      buffer = Buffer.concat(chunks);
+    } catch (downloadErr) {
+      if (mediaMsg.url) {
+        const response = await fetch(mediaMsg.url);
+        buffer = Buffer.from(await response.arrayBuffer());
+      } else {
+        throw downloadErr;
+      }
+    }
+
+    if (!buffer || buffer.length === 0) {
+      throw new Error("Empty media");
+    }
 
     await sendReaction(sock, message, "✅");
 
-    // Determine where to send: owner's DM or current chat
     let targetJid = from;
     if (session?.ownerJid && session.ownerConfirmed) {
       targetJid = session.ownerJid;
@@ -1104,26 +1117,20 @@ export async function ok({ message, from, sock, session, ownerPhone }) {
       targetJid = `${ownerPhone}@s.whatsapp.net`;
     }
 
-    if (type === "image")
-      await sock.sendMessage(targetJid, { image: buffer, caption });
-    else if (type === "video")
-      await sock.sendMessage(targetJid, { video: buffer, caption });
-    else
+    if (type === "image") {
+      await sock.sendMessage(targetJid, { image: buffer });
+    } else if (type === "video") {
+      await sock.sendMessage(targetJid, { video: buffer });
+    } else {
       await sock.sendMessage(targetJid, {
         audio: buffer,
         mimetype: "audio/mp4",
         ptt: true,
       });
-
-    // Confirm in original chat
-    if (targetJid !== from) {
-      await sock.sendMessage(from, {});
     }
   } catch (err) {
+    console.error("View-once error:", err);
     await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not process: ${err.message}`),
-    });
   }
 }
 
