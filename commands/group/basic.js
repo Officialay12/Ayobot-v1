@@ -1117,9 +1117,7 @@ export async function ok({ message, from, sock, session, ownerPhone }) {
 
     // Confirm in original chat
     if (targetJid !== from) {
-      await sock.sendMessage(from, {
-        text: "✅ View-once media sent to your DM!",
-      });
+      await sock.sendMessage(from, {});
     }
   } catch (err) {
     await sendReaction(sock, message, "🔴");
