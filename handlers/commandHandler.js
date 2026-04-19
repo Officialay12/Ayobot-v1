@@ -2,12 +2,17 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  COMMAND HANDLER — COMPLETE PRODUCTION VERSION
 //  Author: AYOCODES
-//  Version: v1.0.1 (Improved for Stability, Resilience, and Performance)
 //
-//  ALL COMMANDS REGISTERED PROPERLY
-//  ALL MODULES LOADED CORRECTLY
-//  NO MISSING EXPORTS
-//  ENHANCED: Error handling, per-command rate limits, memory cleanup, security, monitoring, backups
+//  FIXES IN THIS VERSION:
+//  1.  ALLOWED_COMMANDS declared BEFORE registerAllCommands() — was always empty
+//  2.  resilientApiCall removed from command handlers — only API calls should retry
+//      Commands now run once; a separate apiRetry() is available for actual API calls
+//  3.  isAdmin() called with sessionId — temp-ID mapping now respected
+//  4.  fromMe guard restricted to !isGroup — multi-device bot echoes excluded
+//  5.  Levenshtein runs on primaryCommands only (not full alias map) + result cache
+//  6.  safeImport has 10s per-module timeout — slow imports don't hang startup
+//  7.  fullArgs is sanitized (not raw) before being passed to handlers
+//  8.  All original commands and aliases fully preserved
 // ════════════════════════════════════════════════════════════════════════════
 
 import {
@@ -76,14 +81,13 @@ if (!OWNER_PHONE) {
 }
 
 // ============================================================================
-//  RATE LIMITER (Enhanced: Per-Command Support)
+//  RATE LIMITER (per-command support)
 // ============================================================================
 class RateLimiter {
   constructor(maxRequests = 15, windowMs = 60_000) {
     this.max = maxRequests;
     this.window = windowMs;
     this.map = new Map();
-    this.perCommandLimits = new Map(); // Per-command tracking
     this.cleanupInterval = null;
   }
 
@@ -182,12 +186,12 @@ const commandCooldown = new CommandCooldown();
 if (!global.activeTrivia) global.activeTrivia = new Map();
 
 // ============================================================================
-//  METRICS FOR MONITORING
+//  METRICS
 // ============================================================================
 const metrics = { totalCommands: 0, errors: 0, avgResponseTime: 0 };
 
 // ============================================================================
-//  HELPERS (Enhanced: Security and Resilience)
+//  HELPERS
 // ============================================================================
 function normalizeJid(jid = "") {
   if (!jid || typeof jid !== "string") return "";
@@ -205,8 +209,12 @@ function sanitizeInput(input) {
     .trim();
 }
 
-// Resilient API call with retries
-async function resilientApiCall(apiFunction, retries = 3) {
+/**
+ * FIX: removed resilientApiCall wrapping all command handlers.
+ * Retrying failed commands (kick, ban, etc.) 3× is wrong behavior.
+ * apiRetry() is available for actual external API calls inside handlers.
+ */
+export async function apiRetry(apiFunction, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       return await apiFunction();
@@ -217,7 +225,6 @@ async function resilientApiCall(apiFunction, retries = 3) {
   }
 }
 
-// Memory cleanup for maps
 function cleanupOldData() {
   const MAX_AGE = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -230,11 +237,12 @@ function cleanupOldData() {
   }
 }
 
-// Periodic cleanup
-setInterval(cleanupOldData, 60 * 60 * 1000); // Every hour
+setInterval(cleanupOldData, 60 * 60 * 1000);
 
 // ============================================================================
-//  MODULE LOADER — CORRECT PATHS
+//  MODULE LOADER
+//  FIX: each import has a 10s timeout so a single slow module
+//  doesn't block the entire commandHandler.js startup indefinitely.
 // ============================================================================
 const MODULES = {};
 
@@ -247,11 +255,9 @@ function getFunctionFromModule(mod, ...keys) {
 
   const tryFind = (target) => {
     if (!target || typeof target !== "object") return null;
-
     for (const key of keys) {
       const lowerKey = normalizeExportName(key);
       if (typeof target[key] === "function") return target[key];
-
       for (const [exportKey, exportValue] of Object.entries(target)) {
         if (
           typeof exportValue === "function" &&
@@ -269,7 +275,13 @@ function getFunctionFromModule(mod, ...keys) {
 
 async function safeImport(moduleName, specifier) {
   try {
-    const mod = await import(specifier);
+    // FIX: 10s per-module import timeout
+    const mod = await Promise.race([
+      import(specifier),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`import timeout (10s)`)), 10_000),
+      ),
+    ]);
 
     const merged = {};
     if (mod.default && typeof mod.default === "object") {
@@ -696,7 +708,6 @@ export function registerAllCommands() {
           .filter((k) => k !== "__raw")
           .join(", ")}`,
       );
-
       if (
         safeRegister(
           "youtube",
@@ -752,10 +763,7 @@ export function registerAllCommands() {
         safeRegister(
           "img",
           fn(m, "image", "img", "searchImage", "searchimage"),
-          {
-            category: "dl",
-            aliases: ["image", "imgsearch", "pics"],
-          },
+          { category: "dl", aliases: ["image", "imgsearch", "pics"] },
         )
       )
         count++;
@@ -1608,8 +1616,17 @@ export function registerAllCommands() {
   }
 
   console.log();
+
+  // FIX: rebuild AFTER all commands are registered (ALLOWED_COMMANDS is declared above)
   rebuildAllowedCommands();
 }
+
+// ============================================================================
+//  ALLOWED COMMANDS SET
+//  FIX: declared BEFORE registerAllCommands() is called so
+//       rebuildAllowedCommands() fills it correctly on first run.
+// ============================================================================
+const ALLOWED_COMMANDS = new Set();
 
 function rebuildAllowedCommands() {
   ALLOWED_COMMANDS.clear();
@@ -1618,7 +1635,54 @@ function rebuildAllowedCommands() {
 
 registerAllCommands();
 
-const ALLOWED_COMMANDS = new Set();
+// ============================================================================
+//  LEVENSHTEIN / SIMILAR-COMMAND LOOKUP
+//  FIX: runs against primaryCommands only (not the full alias map) — halves
+//       the search space.  Results are cached so repeated mistypes of the
+//       same word don't recompute the distance matrix.
+// ============================================================================
+const _similarCache = new Map();
+
+function findSimilarCommands(input, maxDistance = 2, limit = 3) {
+  const inputLower = input.toLowerCase();
+
+  if (_similarCache.has(inputLower)) return _similarCache.get(inputLower);
+
+  const result = Array.from(primaryCommands.keys())
+    .map((cmd) => ({ cmd, distance: levenshteinDistance(inputLower, cmd) }))
+    .filter((item) => item.distance <= maxDistance && item.distance > 0)
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, limit)
+    .map((item) => item.cmd);
+
+  _similarCache.set(inputLower, result);
+  // Keep cache from growing unboundedly
+  if (_similarCache.size > 500) _similarCache.clear();
+
+  return result;
+}
+
+function levenshteinDistance(a, b) {
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b[i - 1] === a[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1,
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
 
 // ============================================================================
 //  BOT-OWNER IS GROUP ADMIN — ENFORCEMENT
@@ -1685,12 +1749,14 @@ export async function handleCommand(message, sock) {
     const ownerPhone =
       session?.ownerPhone || ENV.ADMIN || ENV.OWNER_PHONE || "";
     const sessionMode = session?.mode || ENV.BOT_MODE || "public";
-    const sessionId = session?.id || "";
+    const sessionId = session?.id || null;
 
     let rawSenderJid;
     if (isGroup) {
       rawSenderJid = message.key.participant || from;
     } else if (fromMe) {
+      // FIX: fromMe in DM = the owner typed this from their device.
+      // fromMe in GROUP = bot echo — handled above (isGroup branch never reaches here).
       const phone = (sock?.user?.id || "").split(":")[0].replace(/[^0-9]/g, "");
       rawSenderJid = phone ? `${phone}@s.whatsapp.net` : from;
     } else {
@@ -1701,9 +1767,11 @@ export async function handleCommand(message, sock) {
     const userJid = cleanPhone ? `${cleanPhone}@s.whatsapp.net` : rawSenderJid;
     if (!userJid || !cleanPhone) return;
 
-    const isAdminUser = fromMe || isAdmin(userJid, ownerPhone);
+    // FIX: pass sessionId so temp-ID → real-phone mapping is used in isAdmin()
+    const isAdminUser =
+      (fromMe && !isGroup) || isAdmin(userJid, ownerPhone, sessionId);
     const isAuthorizedUser =
-      isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode);
+      isAdminUser || isAuthorized(userJid, ownerPhone, sessionMode, sessionId);
 
     const m = message.message || {};
     const msgText =
@@ -1717,7 +1785,7 @@ export async function handleCommand(message, sock) {
     if (!msgText?.trim()) return;
     const trimmed = msgText.trim();
 
-    // Trivia handler
+    // Trivia handler (non-prefix)
     if (!trimmed.startsWith(ENV.PREFIX)) {
       if (global.activeTrivia instanceof Map && global.activeTrivia.has(from)) {
         const upper = trimmed.toUpperCase();
@@ -1762,8 +1830,10 @@ export async function handleCommand(message, sock) {
     }
 
     const rawArgs = parts.slice(1);
-    const fullArgs = rawArgs.join(" ");
+
+    // FIX: sanitize fullArgs too, not just args[]
     const args = rawArgs.map(sanitizeInput);
+    const fullArgs = args.join(" ");
 
     if (bannedUsers.has(userJid) || bannedUsers.has(cleanPhone)) return;
 
@@ -1774,7 +1844,6 @@ export async function handleCommand(message, sock) {
     if (sessionMode === "private" && !isAdminUser) return;
 
     const commandMeta = commands.get(commandName);
-
     if (!commandMeta) {
       const similar = findSimilarCommands(commandName, 2);
       let suggestion = "";
@@ -1813,13 +1882,9 @@ export async function handleCommand(message, sock) {
     commandStats.set(primaryName, stats);
     if (session) session.commandCount = (session.commandCount || 0) + 1;
 
-    if (!isAdminUser && !rateLimiter.isAllowed(userJid, primaryName)) {
+    if (!isAdminUser && !rateLimiter.isAllowed(userJid, primaryName)) return;
+    if (!isAdminUser && commandCooldown.isOnCooldown(userJid, primaryName))
       return;
-    }
-
-    if (!isAdminUser && commandCooldown.isOnCooldown(userJid, primaryName)) {
-      return;
-    }
 
     if (commandMeta.adminOnly && !isAdminUser) {
       return sock.sendMessage(from, {
@@ -1880,6 +1945,8 @@ export async function handleCommand(message, sock) {
       ownerPhone,
       ENV,
       setMode,
+      // expose apiRetry for handlers that make external API calls
+      apiRetry,
     };
 
     if (commandMeta.category === "dl" || commandMeta.category === "ai") {
@@ -1889,8 +1956,10 @@ export async function handleCommand(message, sock) {
     const handlerStart = Date.now();
 
     try {
+      // FIX: NO resilientApiCall here — commands run exactly once.
+      // Handlers that call external APIs should use context.apiRetry().
       await Promise.race([
-        resilientApiCall(() => handlerFunction(context)),
+        handlerFunction(context),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Command timeout (60s)")), 60_000),
         ),
@@ -1928,41 +1997,6 @@ export async function handleCommand(message, sock) {
 }
 
 // ============================================================================
-//  UTILITY FUNCTIONS
-// ============================================================================
-function findSimilarCommands(input, maxDistance = 2, limit = 3) {
-  const inputLower = input.toLowerCase();
-  return Array.from(commands.keys())
-    .map((cmd) => ({ cmd, distance: levenshteinDistance(inputLower, cmd) }))
-    .filter((item) => item.distance <= maxDistance && item.distance > 0)
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, limit)
-    .map((item) => item.cmd);
-}
-
-function levenshteinDistance(a, b) {
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b[i - 1] === a[j - 1]) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1,
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-}
-
-// ============================================================================
 //  DATABASE BACKUP
 // ============================================================================
 async function backupToFile(data, filename) {
@@ -1973,10 +2007,11 @@ async function backupToFile(data, filename) {
   }
 }
 
+// Only backup banned users hourly (lightweight)
 setInterval(
   () => backupToFile(Array.from(bannedUsers.entries()), "bannedUsers.json"),
   60 * 60 * 1000,
-); // Hourly
+);
 
 // ============================================================================
 //  EXPORTS
@@ -2027,10 +2062,10 @@ export async function reloadCommands() {
   primaryCommands.clear();
   aliasMap.clear();
   commandStats.clear();
+  _similarCache.clear();
   for (const key of Object.keys(MODULES)) delete MODULES[key];
   await loadAllModules();
   registerAllCommands();
-  rebuildAllowedCommands();
   cmdLog.success("✅ Commands reloaded");
 }
 
