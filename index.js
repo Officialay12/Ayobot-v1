@@ -3,16 +3,17 @@
 //   COMPLETE PRODUCTION-READY VERSION — FULLY FIXED & ENHANCED
 //   Author: AYOCODES
 //
-//   ENHANCEMENTS IN THIS VERSION:
-//   1. Per-session owner isolation — NO cross-session owner pollution
-//   2. Enhanced Dashboard with real-time updates, WebSocket support
-//   3. Mobile-responsive design with dark/light theme toggle
-//   4. Command usage analytics and charts
-//   5. Session management with live status indicators
-//   6. Group management dashboard
-//   7. API key management interface
-//   8. All original features preserved
-//   9. Enhanced error handling, circuit breakers, backups, security, monitoring
+//   FIXES IN THIS VERSION:
+//   1. commandStats declared (was referenced but never defined — crash fix)
+//   2. Listener leak fixed — old sock listeners removed before reattaching
+//   3. Reconnect loop protection — _startSocket guards against concurrent starts
+//   4. Jitter added to reconnect backoff — prevents thundering herd on Render
+//   5. keepAliveIntervalMs raised 8s→25s — reduces WA ban risk
+//   6. setSessionOwner race fixed — not called until after handlers loaded
+//   7. Session restore owner isolation hardened
+//   8. conflict/replaced disconnect now forces a longer delay before reconnect
+//   9. attachListeners() made idempotent via session flag
+//   10. All original features fully preserved
 // ============================================================
 import makeWASocket, {
   Browsers,
@@ -97,7 +98,7 @@ function broadcastToSession(sessionId, data) {
 }
 
 // ============================================================
-//   TERMINAL COLORS & LOGGER (Enhanced with timestamps)
+//   TERMINAL COLORS & LOGGER
 // ============================================================
 const C = {
   reset: "\x1b[0m",
@@ -285,7 +286,6 @@ function checkEnvVars() {
 // ============================================================
 //   PER-SESSION TEMP ID MAPPING
 // ============================================================
-
 const sessionTempIdMaps = new Map();
 
 function getSessionTempMap(sessionId) {
@@ -369,7 +369,6 @@ export function clearSessionTempMaps(sessionId) {
 // ============================================================
 //   CORE NORMALIZATION
 // ============================================================
-
 function _bareNormalize(jid = "") {
   if (!jid) return "";
   if (typeof jid === "object") {
@@ -457,7 +456,6 @@ export const normalizePhone = normalizeToPhone;
 // ============================================================
 //   ADMIN & PERMISSION HELPERS
 // ============================================================
-
 const adminStatusCache = new Map();
 const ADMIN_CACHE_TTL = 30000;
 let globalBotNumber = null;
@@ -877,14 +875,13 @@ export const apiCircuitBreakers = {
 // ============================================================
 //   PERSISTENCE FUNCTIONS WITH CIRCUIT BREAKERS
 // ============================================================
-
 let mongoClient = null;
 let authCollection = null;
 let sessionMetaCollection = null;
 let userLogCollection = null;
 let commandStatsCollection = null;
 
-const mongoCircuitBreaker = new CircuitBreaker(5, 60000); // 5 failures, 60s timeout
+const mongoCircuitBreaker = new CircuitBreaker(5, 60000);
 
 export async function saveBannedUsers() {
   if (!ENV.PERSIST_STATE || !sessionMetaCollection) return;
@@ -1052,6 +1049,9 @@ export const groupActivations = new Map();
 export const authorizedUsers = new Set();
 const adminTokens = new Set();
 
+// FIX: commandStats was referenced in API routes but never declared — caused runtime crashes
+export const commandStats = new Map();
+
 if (!global.activeTrivia) {
   global.activeTrivia = new Map();
 }
@@ -1061,8 +1061,11 @@ const messageQueues = new Map();
 const sessions = new Map();
 const sessionCreationLocks = new Map();
 
+// FIX: Track which sessions are currently starting a socket to prevent concurrent _startSocket calls
+const socketStartingFlags = new Set();
+
 // ============================================================
-//   CLEANUP MECHANISMS (Enhanced)
+//   CLEANUP MECHANISMS
 // ============================================================
 function cleanupOldData() {
   const MAX_AGE = 24 * 60 * 60 * 1000;
@@ -1308,6 +1311,8 @@ function createSessionObject(sessionId) {
     authorizedUsers: new Set(),
     lastActivity: Date.now(),
     ownerConfirmed: false,
+    // FIX: track whether listeners have been attached to this sock instance
+    listenersAttached: false,
   };
 }
 
@@ -1556,10 +1561,7 @@ async function runOwnerMigration() {
         );
         cleanedCount++;
         log.info(
-          `[Migration] Cleared owner for disconnected session: ${sessionDoc.sessionId.slice(
-            0,
-            8,
-          )}`,
+          `[Migration] Cleared owner for disconnected session: ${sessionDoc.sessionId.slice(0, 8)}`,
         );
       } else if (
         storedOwner !== deployerPhone &&
@@ -1571,10 +1573,7 @@ async function runOwnerMigration() {
         );
         cleanedCount++;
         log.info(
-          `[Migration] Cleared mismatched owner for session: ${sessionDoc.sessionId.slice(
-            0,
-            8,
-          )}`,
+          `[Migration] Cleared mismatched owner for session: ${sessionDoc.sessionId.slice(0, 8)}`,
         );
       }
     }
@@ -1593,10 +1592,23 @@ async function runOwnerMigration() {
 
 // ============================================================
 //   ATTACH MESSAGE LISTENERS
+//   FIX: Guard against double-attachment on reconnect.
+//   Each call to _startSocket creates a new sock object. We must
+//   only attach listeners once per sock instance. The old sock's
+//   listeners die with it since we do sock.removeAllListeners()
+//   before reconnecting. session.listenersAttached is reset each
+//   time we create a new sock in _startSocket.
 // ============================================================
 function attachListeners(session) {
   const { sock } = session;
   const sid = session.id.slice(0, 8);
+
+  // FIX: prevent double-attaching on the same sock instance
+  if (session.listenersAttached) {
+    log.warn(`[${sid}] Listeners already attached, skipping`);
+    return;
+  }
+  session.listenersAttached = true;
 
   sock.ev.on("group-participants.update", async (update) => {
     try {
@@ -1885,11 +1897,42 @@ async function startSession(sessionId, isNew = true) {
 }
 
 // ============================================================
-//   _startSocket — FULLY FIXED WITH ENHANCEMENTS
+//   _startSocket — FULLY FIXED
+//
+//   Key fixes:
+//   1. socketStartingFlags prevents concurrent _startSocket calls
+//      for the same session — the #1 cause of conflict/replaced errors
+//   2. Old sock is fully torn down (removeAllListeners + end) before
+//      creating a new one — prevents listener leaks
+//   3. session.listenersAttached reset per new sock instance
+//   4. keepAliveIntervalMs raised to 25s (8s was too aggressive)
+//   5. Reconnect jitter added — staggers reconnects across sessions
+//   6. conflict/replaced gets a longer delay (15-20s) before retry
+//   7. Owner assignment deferred until after handlers are loaded
 // ============================================================
 async function _startSocket(session) {
   if (session.destroyed) return;
+
   const sid = session.id.slice(0, 8);
+
+  // FIX: Prevent concurrent _startSocket calls for the same session
+  if (socketStartingFlags.has(session.id)) {
+    log.warn(`[${sid}] Socket already starting, skipping duplicate call`);
+    return;
+  }
+  socketStartingFlags.add(session.id);
+
+  // FIX: Tear down previous sock fully before creating a new one
+  if (session.sock) {
+    try {
+      session.sock.removeAllListeners();
+      session.sock.end();
+    } catch (_) {}
+    session.sock = null;
+  }
+
+  // FIX: reset listener guard for fresh sock instance
+  session.listenersAttached = false;
 
   try {
     await ensureMongoConnection();
@@ -1915,7 +1958,9 @@ async function _startSocket(session) {
       markOnlineOnConnect: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 30000,
-      keepAliveIntervalMs: 8000,
+      // FIX: Raised from 8000ms to 25000ms — 8s keepalive is too aggressive
+      // and contributes to WA detecting bot-like behaviour
+      keepAliveIntervalMs: 25000,
       maxMsgRetryCount: 3,
       retryRequestDelayMs: 500,
       emitOwnEvents: true,
@@ -1939,8 +1984,13 @@ async function _startSocket(session) {
     });
 
     session.sock = sock;
+    socketStartingFlags.delete(session.id);
 
-    if (session.pingInterval) clearInterval(session.pingInterval);
+    if (session.pingInterval) {
+      clearInterval(session.pingInterval);
+      session.pingInterval = null;
+    }
+
     session.pingInterval = setInterval(async () => {
       if (!session.connected || session.destroyed) {
         clearInterval(session.pingInterval);
@@ -1950,7 +2000,7 @@ async function _startSocket(session) {
       try {
         await sock.sendPresenceUpdate("available");
       } catch (_) {}
-    }, 12000);
+    }, 30000);
 
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -1987,6 +2037,13 @@ async function _startSocket(session) {
 
         if (!globalBotNumber) setGlobalBotNumber(botNumber);
 
+        // FIX: Load handlers FIRST, then set owner so the first DM
+        // command is processed correctly and not dropped into the queue
+        await saveCreds();
+        await loadHandlersForSession(session);
+        attachListeners(session);
+
+        // FIX: Owner assignment moved after handlers are ready
         if (!session.ownerConfirmed) {
           const adminPhone = ENV.ADMIN ? _bareNormalize(ENV.ADMIN) : "";
 
@@ -2024,9 +2081,6 @@ async function _startSocket(session) {
             .catch(() => {});
         }
 
-        await saveCreds();
-        await loadHandlersForSession(session);
-        attachListeners(session);
         log.ok(`[${sid}] CONNECTED — +${botNumber} (${userName || "Unknown"})`);
         await processMessageQueue(session);
 
@@ -2044,17 +2098,46 @@ async function _startSocket(session) {
       if (connection === "close" && !session.destroyed) {
         session.connected = false;
         session.qr = null;
-        const code = lastDisconnect?.error?.output?.statusCode;
-        log.err(`[${sid}] Disconnected — code: ${code || 0}`);
-
-        broadcastToSession(session.id, { type: "disconnected", code });
 
         if (session.pingInterval) {
           clearInterval(session.pingInterval);
           session.pingInterval = null;
         }
 
-        if (code === DisconnectReason.loggedOut) {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const errorMessage = lastDisconnect?.error?.message || "";
+        log.err(
+          `[${sid}] Disconnected — code: ${statusCode || 0} msg: ${errorMessage}`,
+        );
+
+        broadcastToSession(session.id, {
+          type: "disconnected",
+          code: statusCode,
+        });
+
+        // FIX: conflict/replaced means another instance connected with same credentials.
+        // Apply a much longer delay to let the other instance stabilise, rather than
+        // immediately reconnecting and causing a loop.
+        const isConflict =
+          errorMessage.includes("conflict") ||
+          errorMessage.includes("replaced") ||
+          statusCode === 440;
+
+        if (isConflict) {
+          const conflictDelay = 15000 + Math.floor(Math.random() * 5000);
+          log.warn(
+            `[${sid}] conflict/replaced detected — waiting ${conflictDelay}ms before reconnect`,
+          );
+          session.reconnectAttempts = 0;
+          if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+          session.reconnectTimeout = setTimeout(
+            () => _startSocket(session),
+            conflictDelay,
+          );
+          return;
+        }
+
+        if (statusCode === DisconnectReason.loggedOut) {
           await clearSessionAuth(session.id);
           session.ownerPhone = null;
           session.ownerJid = null;
@@ -2063,17 +2146,35 @@ async function _startSocket(session) {
           session.ownerConfirmed = false;
           session.reconnectAttempts = 0;
           clearSessionTempMaps(session.id);
-          setTimeout(() => _startSocket(session), 3000);
+          if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+          // FIX: add jitter so multiple sessions don't all reconnect simultaneously
+          const jitter = Math.floor(Math.random() * 2000);
+          session.reconnectTimeout = setTimeout(
+            () => _startSocket(session),
+            3000 + jitter,
+          );
           return;
         }
 
-        if (code === DisconnectReason.restartRequired) {
-          setTimeout(() => _startSocket(session), 3000);
+        if (statusCode === DisconnectReason.restartRequired) {
+          if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+          const jitter = Math.floor(Math.random() * 2000);
+          session.reconnectTimeout = setTimeout(
+            () => _startSocket(session),
+            3000 + jitter,
+          );
           return;
         }
 
+        // FIX: exponential backoff with jitter — prevents thundering herd
         session.reconnectAttempts++;
-        const backoff = Math.min(5000 * session.reconnectAttempts, 30000);
+        const baseDelay = Math.min(5000 * session.reconnectAttempts, 60000);
+        const jitter = Math.floor(Math.random() * 3000);
+        const backoff = baseDelay + jitter;
+        log.info(
+          `[${sid}] Reconnecting in ${backoff}ms (attempt ${session.reconnectAttempts})`,
+        );
+
         if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
         session.reconnectTimeout = setTimeout(
           () => _startSocket(session),
@@ -2084,8 +2185,12 @@ async function _startSocket(session) {
 
     sock.ev.on("creds.update", saveCreds);
   } catch (e) {
+    socketStartingFlags.delete(session.id);
     log.err(`[${sid}] Socket startup error: ${e.message}`);
-    if (!session.destroyed) setTimeout(() => _startSocket(session), 10000);
+    if (!session.destroyed) {
+      const jitter = Math.floor(Math.random() * 3000);
+      setTimeout(() => _startSocket(session), 10000 + jitter);
+    }
   }
 }
 
@@ -2097,6 +2202,7 @@ async function destroySession(sessionId) {
   if (!session) return;
 
   session.destroyed = true;
+  socketStartingFlags.delete(sessionId);
 
   if (session.ownerPhone) sessionOwnerMap.delete(session.ownerPhone);
   if (session.pingInterval) clearInterval(session.pingInterval);
@@ -2106,8 +2212,8 @@ async function destroySession(sessionId) {
 
   if (session.sock) {
     try {
-      session.sock.end();
       session.sock.removeAllListeners();
+      session.sock.end();
     } catch (_) {}
   }
 
@@ -2264,14 +2370,11 @@ function connectedHTML(session) {
       <p style="color:#9ca3af;">Manage your WhatsApp bot from anywhere</p>
     </div>
 
-    <!-- Owner Card -->
     <div class="card gradient-border" style="padding:24px;margin-bottom:32px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
       <div style="display:flex;align-items:center;gap:16px;">
         <div style="width:56px;height:56px;background:linear-gradient(135deg,#ff3366,#ff6b3d);border-radius:50%;display:flex;align-items:center;justify-content:center;"><i class="fas fa-crown" style="font-size:24px;color:white;"></i></div>
         <div>
-          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(
-            session.ownerName || "Owner",
-          )}</div>
+          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
           <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">${
             session.ownerPhone
               ? `+${escapeHtml(session.ownerPhone)}`
@@ -2282,19 +2385,13 @@ function connectedHTML(session) {
       <div class="status-badge status-online"><i class="fas fa-shield-alt"></i> BOT OWNER</div>
     </div>
 
-    <!-- Stats Grid -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-comments" style="font-size:28px;color:#ff3366;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statMsg">${session.messageCount}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Total Messages</div></div>
-      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-terminal" style="font-size:28px;color:#ff6b3d;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statCmd">${
-        session.commandCount || 0
-      }</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Commands Run</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-terminal" style="font-size:28px;color:#ff6b3d;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statCmd">${session.commandCount || 0}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Commands Run</div></div>
       <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-clock" style="font-size:28px;color:#ffb347;margin-bottom:12px;display:block;"></i><div style="font-size:28px;font-weight:800;" id="statUptime">${h}h ${m}m ${s}s</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Uptime</div></div>
-      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-globe" style="font-size:28px;color:#22c55e;margin-bottom:12px;display:block;"></i><div style="font-size:20px;font-weight:800;">${escapeHtml(
-        (session.mode || ENV.BOT_MODE).toUpperCase(),
-      )}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Bot Mode</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-globe" style="font-size:28px;color:#22c55e;margin-bottom:12px;display:block;"></i><div style="font-size:20px;font-weight:800;">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Bot Mode</div></div>
     </div>
 
-    <!-- Charts Row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card" style="padding:24px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;"><i class="fas fa-chart-line"></i> Command Usage</h3>
@@ -2306,23 +2403,14 @@ function connectedHTML(session) {
       </div>
     </div>
 
-    <!-- Bot Info & System Status -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:40px;">
       <div class="card" style="padding:24px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i class="fas fa-robot" style="color:#ff3366;"></i> Bot Information</h3>
         <div style="display:flex;flex-direction:column;gap:12px;">
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">📱 Number</span><span style="font-family:monospace;" id="botNumber">+${escapeHtml(
-            session.botNumber || "—",
-          )}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">👤 Name</span><span id="botName">${escapeHtml(
-            session.botName || "—",
-          )}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">⚡ Prefix</span><span>${escapeHtml(
-            ENV.PREFIX,
-          )}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔐 Auth Method</span><span id="authMethod">${escapeHtml(
-            session.authMethod || "session",
-          )}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">📱 Number</span><span style="font-family:monospace;" id="botNumber">+${escapeHtml(session.botNumber || "—")}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">👤 Name</span><span id="botName">${escapeHtml(session.botName || "—")}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">⚡ Prefix</span><span>${escapeHtml(ENV.PREFIX)}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔐 Auth Method</span><span id="authMethod">${escapeHtml(session.authMethod || "session")}</span></div>
         </div>
       </div>
       <div class="card" style="padding:24px;">
@@ -2331,16 +2419,11 @@ function connectedHTML(session) {
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🟢 Connection</span><span style="color:#22c55e;">STABLE</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔧 Handlers</span><span style="color:#22c55e;">READY</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🛡️ Anti-Delete</span><span style="color:#22c55e;">ACTIVE</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">💾 Memory</span><span id="memoryUsage">${(
-            process.memoryUsage().heapUsed /
-            1024 /
-            1024
-          ).toFixed(1)} MB</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">💾 Memory</span><span id="memoryUsage">${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB</span></div>
         </div>
       </div>
     </div>
 
-    <!-- Quick Actions -->
     <div class="card" style="padding:24px;">
       <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;"><i class="fas fa-bolt" style="color:#ffb347;"></i> Quick Actions</h3>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -2361,14 +2444,9 @@ function connectedHTML(session) {
       ws = new WebSocket(\`\${protocol}//\${window.location.host}/ws?sessionId=\${SID}\`);
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === 'connected') {
-          showToast('Bot connected successfully!', 'success');
-          location.reload();
-        } else if (data.type === 'disconnected') {
-          showToast('Bot disconnected!', 'error');
-        } else if (data.type === 'stats_updated') {
-          updateStatsUI(data.stats);
-        }
+        if (data.type === 'connected') { showToast('Bot connected successfully!', 'success'); location.reload(); }
+        else if (data.type === 'disconnected') { showToast('Bot disconnected!', 'error'); }
+        else if (data.type === 'stats_updated') { updateStatsUI(data.stats); }
       };
       ws.onclose = () => setTimeout(connectWebSocket, 3000);
     }
@@ -2672,9 +2750,7 @@ function adminDashboardHTML() {
       try { const res=await fetch('/ayocodes-admin/api/delete-offline',{method:'POST',credentials:'same-origin'}); const data=await res.json(); alert('Deleted '+data.deleted+' offline sessions'); refreshInstances(); }
       catch(e) { alert('Failed: '+e.message); }
     }
-    async function exportData() {
-      window.open('/ayocodes-admin/api/export-all', '_blank');
-    }
+    async function exportData() { window.open('/ayocodes-admin/api/export-all', '_blank'); }
     async function logoutAdmin() { window.location.href = '/ayocodes-admin/logout'; }
     refreshInstances();
     setInterval(refreshInstances, 10000);
@@ -2701,7 +2777,7 @@ function userTrackingHTML() {
       <table class="data-table">
         <thead><tr><th>Status</th><th>Phone</th><th>Name</th><th>Last Seen</th><th>Messages</th><th>Sessions</th><th>Auth Method</th></tr></thead>
         <tbody id="usersTableBody"><tr><td colspan="7" style="text-align:center;padding:40px;"><div class="spinner" style="margin:0 auto;"></div> Loading users...</td></tr></tbody>
-       </table>
+      </table>
     </div>
     <div id="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:24px;"></div>
   </main>
@@ -2832,6 +2908,7 @@ function setupWebDashboard() {
   app.get("/api/command-stats/:sessionId", (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ topCommands: [] });
+    // FIX: use commandStats (now properly declared) instead of undefined variable
     const stats = Array.from(commandStats.entries())
       .sort((a, b) => b[1].uses - a[1].uses)
       .slice(0, 5)
@@ -3058,9 +3135,10 @@ function setupWebDashboard() {
         onlineSessions: sessions_data.filter((s) => s.connected).length,
         users: users,
         sessions: sessions_data,
-        commandStats: Array.from(commandStats.entries()).map(
-          ([name, stats]) => ({ name, ...stats }),
-        ),
+        commandStats: Array.from(commandStats.entries()).map(([name, s]) => ({
+          name,
+          ...s,
+        })),
       };
 
       res.setHeader("Content-Type", "application/json");
@@ -3285,8 +3363,8 @@ async function gracefulShutdown(sig) {
   for (const session of sessions.values()) {
     if (session.sock) {
       try {
-        session.sock.end();
         session.sock.removeAllListeners();
+        session.sock.end();
       } catch (_) {}
     }
     if (session.pingInterval) clearInterval(session.pingInterval);
