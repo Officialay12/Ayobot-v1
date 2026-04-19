@@ -1,12 +1,13 @@
 // commands/group/basic.js — AYOBOT v1.0.0
 // ════════════════════════════════════════════════════════════════════════════
-//  COMPLETE BASIC COMMANDS MODULE — FULLY FIXED
+//  COMPLETE BASIC COMMANDS MODULE — ENHANCED & OPTIMIZED
 //  Author: AYOCODES
-//  Version: v1.0.0
+//  Version: v1.0.1 (Enhanced)
 //
 //  ALL FUNCTIONS EXPORTED CORRECTLY
 //  ALL ALIASES WORKING
 //  ALL REACTIONS IMPLEMENTED
+//  ADDED: CACHING, ADVANCED ERROR HANDLING, NEW FEATURES
 // ════════════════════════════════════════════════════════════════════════════
 
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
@@ -37,12 +38,27 @@ import {
 } from "../../utils/formatters.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  MODULE SETUP
+//  MODULE SETUP & CACHING
 // ─────────────────────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const tempDir = path.join(__dirname, "../../temp");
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+// Cache for API responses (simple in-memory cache)
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCached(key) {
+  const item = cache.get(key);
+  if (item && Date.now() - item.timestamp < CACHE_TTL) return item.data;
+  cache.delete(key);
+  return null;
+}
+
+function setCached(key, data) {
+  cache.set(key, { data, timestamp: Date.now() });
+}
 
 let _PDFDocument = null;
 async function getPDFDoc() {
@@ -107,7 +123,7 @@ function safeFixed(val, digits = 4) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HTTP HELPERS
+//  HTTP HELPERS — ENHANCED WITH RETRIES
 // ─────────────────────────────────────────────────────────────────────────────
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -118,12 +134,14 @@ const USER_AGENTS = [
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
 ];
-const randomUA = () => USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+const randomUA = () =>
+  USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
 function browserHeaders(ua, referer = "https://www.google.com/") {
   return {
     "User-Agent": ua,
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     Referer: referer,
@@ -137,12 +155,33 @@ function browserHeaders(ua, referer = "https://www.google.com/") {
   };
 }
 
+// Enhanced axios with retry
+async function axiosRetry(url, options = {}, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await axios.get(url, options);
+    } catch (err) {
+      if (i === retries) throw err;
+      await delay(1000 * (i + 1)); // Exponential backoff
+    }
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
-//  TEST COMMAND
+//  TEST COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
-export async function test({ from, sock, userJid, session, sessionId, sessionMode, ownerPhone }) {
+export async function test({
+  from,
+  sock,
+  userJid,
+  session,
+  sessionId,
+  sessionMode,
+  ownerPhone,
+}) {
   const phone = normalizeJid(userJid);
   console.log("🔧 TEST COMMAND EXECUTED!");
+  const uptime = formatUptime(Date.now() - getSafeStartTime());
   await sock.sendMessage(from, {
     text:
       `✅ *TEST COMMAND WORKING!*\n\n` +
@@ -150,8 +189,8 @@ export async function test({ from, sock, userJid, session, sessionId, sessionMod
       `🆔 Session ID: ${sessionId || "none"}\n` +
       `⚙️ Mode: ${sessionMode || "public"}\n` +
       `👑 Owner: ${ownerPhone || "none"}\n` +
-      `⏰ Time: ${new Date().toLocaleString()}\n` +
-      `🌍 Bot Version: v1.0.0\n\n` +
+      `⏰ Uptime: ${uptime}\n` +
+      `🌍 Bot Version: v1.0.1 (Enhanced)\n\n` +
       `👑 Created by AYOCODES`,
   });
   return { text: "✅ Test completed" };
@@ -166,20 +205,21 @@ export async function start({ from, sock, session, ownerPhone }) {
   const prefix = ENV.PREFIX;
 
   await sock.sendMessage(from, {
-    text: `🚀 *${botName} Started!*\n\n` +
-          `✅ Bot is now active and ready to use!\n` +
-          `📋 Type *${prefix}menu* to see all commands\n` +
-          `👑 Owner: ${ownerPhone ? `+${ownerPhone}` : "You"}\n\n` +
-          `⚡ *Quick Commands:*\n` +
-          `   ${prefix}ping — Check bot status\n` +
-          `   ${prefix}status — Your info\n` +
-          `   ${prefix}creator — About creator\n\n` +
-          `_AYOBOT v1 | Created by AYOCODES_`
+    text:
+      `🚀 *${botName} Started!*\n\n` +
+      `✅ Bot is now active and ready to use!\n` +
+      `📋 Type *${prefix}menu* to see all commands\n` +
+      `👑 Owner: ${ownerPhone ? `+${ownerPhone}` : "You"}\n\n` +
+      `⚡ *Quick Commands:*\n` +
+      `   ${prefix}ping — Check bot status\n` +
+      `   ${prefix}status — Your info\n` +
+      `   ${prefix}creator — About creator\n\n` +
+      `_AYOBOT v1.0.1 | Enhanced by AYOCODES_`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MENU COMMAND
+//  MENU COMMAND — ENHANCED WITH CATEGORIES & CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function menu({ from, sock, isAdmin, ENV }) {
   try {
@@ -400,7 +440,7 @@ export async function menu({ from, sock, isAdmin, ENV }) {
     let totalCmds = 0;
     let menuText =
       `╔════════════════════════════════════════════╗\n` +
-      `║         ⚡ *AYOBOT v1.0.0* ⚡         ║\n` +
+      `║         ⚡ *AYOBOT v1.0.1* ⚡         ║\n` +
       `╚════════════════════════════════════════════╝\n\n` +
       `├ ⏱️ Uptime: ${formatUptime(Date.now() - getSafeStartTime())}\n` +
       `├ 👤 Mode: ${isAdmin ? "ADMIN 👑" : "USER"}\n` +
@@ -418,12 +458,14 @@ export async function menu({ from, sock, isAdmin, ENV }) {
     menuText +=
       `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `⚡ _Total Commands: ${totalCmds}_\n` +
-      `👑 _Created by AYOCODES_`;
+      `👑 _Enhanced by AYOCODES_`;
 
     try {
       await sock.sendMessage(from, {
         image: {
-          url: ENV?.WELCOME_IMAGE_URL || "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
+          url:
+            ENV?.WELCOME_IMAGE_URL ||
+            "https://i.ibb.co/BKq2Cp4g/creator-jack.jpg",
         },
         caption: menuText,
         contextInfo: {
@@ -442,13 +484,13 @@ export async function menu({ from, sock, isAdmin, ENV }) {
   } catch (error) {
     console.error("[MENU ERROR]", error.message);
     await sock.sendMessage(from, {
-      text: `🚀 *AYOBOT v1.0.0*\n👑 *AYOCODES*\nType ${ENV.PREFIX}menu for commands`,
+      text: `🚀 *AYOBOT v1.0.1*\n👑 *AYOCODES*\nType ${ENV.PREFIX}menu for commands`,
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PING COMMAND
+//  PING COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function ping({ from, sock }) {
   const start = Date.now();
@@ -458,21 +500,29 @@ export async function ping({ from, sock }) {
   const h = Math.floor(uptime / 3_600_000),
     min = Math.floor((uptime % 3_600_000) / 60_000),
     s = Math.floor((uptime % 60_000) / 1_000);
-  const uptimeStr = h > 0 ? `${h}h ${min}m ${s}s` : min > 0 ? `${min}m ${s}s` : `${s}s`;
+  const uptimeStr =
+    h > 0 ? `${h}h ${min}m ${s}s` : min > 0 ? `${min}m ${s}s` : `${s}s`;
   await sock.sendMessage(from, {
     text:
       `━━━━━ 🏓 *PONG!* ━━━━━\n\n` +
       `⏱️ *Uptime:* ${uptimeStr}\n` +
       `🟢 *Status:* ONLINE\n` +
-      `🤖 *Version:* 1.0.0\n` +
+      `🤖 *Version:* 1.0.1 (Enhanced)\n` +
       `👑 *AYOBOT v1*\n`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  STATUS COMMAND
+//  STATUS COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
-export async function status({ from, userJid, isAdmin: isAdminUser, isAuthorized: isAuthorizedUser, sock, sessionMode }) {
+export async function status({
+  from,
+  userJid,
+  isAdmin: isAdminUser,
+  isAuthorized: isAuthorizedUser,
+  sock,
+  sessionMode,
+}) {
   const phone = normalizeJid(userJid);
   const usage = commandUsage.get(userJid) || {};
   const total = Object.values(usage).reduce((a, b) => a + b, 0);
@@ -525,12 +575,12 @@ export async function creatorGit({ from, sock }) {
     text:
       `━━━━━ 👑 *AYOCODES GITHUB* ━━━━━\n\n` +
       `🔗 *GitHub Profile:*\n${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
-      `💻 _Check out my projects!_\n\n🤖 *Featured Project:* AYOBOT v1.0.0\n👑 _AYOCODES_`,
+      `💻 _Check out my projects!_\n\n🤖 *Featured Project:* AYOBOT v1.0.1 (Enhanced)\n👑 _AYOCODES_`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  AUTO-REPLY TOGGLE
+//  AUTO-REPLY TOGGLE — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function auto({ args, from, userJid, sock }) {
   const sub = args[0]?.toLowerCase();
@@ -564,7 +614,7 @@ export async function auto({ args, from, userJid, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WEATHER COMMAND — with reactions
+//  WEATHER COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function weather({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -581,47 +631,85 @@ export async function weather({ fullArgs, from, sock, message }) {
     });
   }
 
+  const cacheKey = `weather_${fullArgs}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
   await sendReaction(sock, message, "⏳");
 
   try {
-    const res = await axios.get(
+    const res = await axiosRetry(
       `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(fullArgs)}&appid=${ENV.OPENWEATHER_KEY}&units=metric`,
       { timeout: 10_000 },
     );
     const d = res.data;
-    const windDirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const windDirs = [
+      "N",
+      "NNE",
+      "NE",
+      "ENE",
+      "E",
+      "ESE",
+      "SE",
+      "SSE",
+      "S",
+      "SSW",
+      "SW",
+      "WSW",
+      "W",
+      "WNW",
+      "NW",
+      "NNW",
+    ];
     const windDir = windDirs[Math.round((d.wind?.deg || 0) / 22.5) % 16];
     const humBars = Math.round(d.main.humidity / 10);
     const humBar = "█".repeat(humBars) + "░".repeat(10 - humBars);
     const condId = d.weather[0]?.id || 800;
     const condEmoji =
-      condId >= 800 ? "☀️" : condId >= 700 ? "🌫️" : condId >= 600 ? "❄️" :
-      condId >= 500 ? "🌧️" : condId >= 300 ? "🌦️" : condId >= 200 ? "⛈️" : "🌤️";
+      condId >= 800
+        ? "☀️"
+        : condId >= 700
+          ? "🌫️"
+          : condId >= 600
+            ? "❄️"
+            : condId >= 500
+              ? "🌧️"
+              : condId >= 300
+                ? "🌦️"
+                : condId >= 200
+                  ? "⛈️"
+                  : "🌤️";
 
+    const responseText =
+      `${condEmoji} *WEATHER: ${d.name}, ${d.sys.country}*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `🌡️ *Temperature:* ${d.main.temp}°C\n🤔 *Feels Like:* ${d.main.feels_like}°C\n` +
+      `📊 *Min/Max:* ${d.main.temp_min}°C / ${d.main.temp_max}°C\n💧 *Humidity:* ${d.main.humidity}% [${humBar}]\n` +
+      `🌬️ *Wind:* ${d.wind.speed} m/s ${windDir}\n👁️ *Visibility:* ${d.visibility ? `${(d.visibility / 1000).toFixed(1)} km` : "N/A"}\n` +
+      `⛅ *Clouds:* ${d.clouds?.all || 0}%\n🔷 *Pressure:* ${d.main.pressure ? `${d.main.pressure} hPa` : "N/A"}\n` +
+      `📝 *Conditions:* ${d.weather[0].description}\n🌅 *Sunrise:* ${new Date(d.sys.sunrise * 1000).toLocaleTimeString()}\n` +
+      `🌇 *Sunset:* ${new Date(d.sys.sunset * 1000).toLocaleTimeString()}\n\n👑 _AYOCODES_`;
+
+    setCached(cacheKey, responseText);
     await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text:
-        `${condEmoji} *WEATHER: ${d.name}, ${d.sys.country}*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🌡️ *Temperature:* ${d.main.temp}°C\n🤔 *Feels Like:* ${d.main.feels_like}°C\n` +
-        `📊 *Min/Max:* ${d.main.temp_min}°C / ${d.main.temp_max}°C\n💧 *Humidity:* ${d.main.humidity}% [${humBar}]\n` +
-        `🌬️ *Wind:* ${d.wind.speed} m/s ${windDir}\n👁️ *Visibility:* ${d.visibility ? `${(d.visibility / 1000).toFixed(1)} km` : "N/A"}\n` +
-        `⛅ *Clouds:* ${d.clouds?.all || 0}%\n🔷 *Pressure:* ${d.main.pressure ? `${d.main.pressure} hPa` : "N/A"}\n` +
-        `📝 *Conditions:* ${d.weather[0].description}\n🌅 *Sunrise:* ${new Date(d.sys.sunrise * 1000).toLocaleTimeString()}\n` +
-        `🌇 *Sunset:* ${new Date(d.sys.sunset * 1000).toLocaleTimeString()}\n\n👑 _AYOCODES_`,
-    });
+    await sock.sendMessage(from, { text: responseText });
   } catch (err) {
     await sendReaction(sock, message, "❌");
     await sock.sendMessage(from, {
       text: formatError(
         "ERROR",
-        err.response?.status === 404 ? `City "${fullArgs}" not found.` : err.message,
+        err.response?.status === 404
+          ? `City "${fullArgs}" not found.`
+          : err.message,
       ),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WORLD TIME COMMAND — with reactions
+//  WORLD TIME COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function time({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -633,13 +721,20 @@ export async function time({ fullArgs, from, sock, message }) {
     });
   }
 
+  const cacheKey = `time_${fullArgs}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
   await sendReaction(sock, message, "⏳");
 
   let timeData = null;
   const query = fullArgs.trim();
 
   try {
-    const res = await axios.get(
+    const res = await axiosRetry(
       `https://worldtimeapi.org/api/timezone/${query.replace(/ /g, "_")}`,
       { timeout: 5000 },
     );
@@ -654,7 +749,7 @@ export async function time({ fullArgs, from, sock, message }) {
 
   if (!timeData) {
     try {
-      const res = await axios.get(
+      const res = await axiosRetry(
         `https://www.timeapi.io/api/Time/current/zone?timeZone=${encodeURIComponent(query)}`,
         { timeout: 5000 },
       );
@@ -672,13 +767,13 @@ export async function time({ fullArgs, from, sock, message }) {
 
   if (!timeData) {
     try {
-      const geoRes = await axios.get(
+      const geoRes = await axiosRetry(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1`,
         { timeout: 5000 },
       );
       if (geoRes.data?.results?.[0]) {
         const { latitude, longitude, name, country } = geoRes.data.results[0];
-        const timeRes = await axios.get(
+        const timeRes = await axiosRetry(
           `https://timeapi.io/api/Time/current/coordinate?latitude=${latitude}&longitude=${longitude}`,
           { timeout: 5000 },
         );
@@ -698,20 +793,29 @@ export async function time({ fullArgs, from, sock, message }) {
   if (!timeData) {
     try {
       const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: query, hour12: true,
-        hour: "numeric", minute: "numeric", second: "numeric",
-        year: "numeric", month: "long", day: "numeric",
-        weekday: "long", timeZoneName: "long",
+        timeZone: query,
+        hour12: true,
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+        timeZoneName: "long",
       });
       const now = new Date();
       const parts = formatter.formatToParts(now);
-      let dateStr = "", timeStr = "", tzName = query;
+      let dateStr = "",
+        timeStr = "",
+        tzName = query;
       parts.forEach((p) => {
         if (p.type === "weekday") dateStr += p.value + ", ";
         else if (p.type === "month") dateStr += p.value + " ";
         else if (p.type === "day") dateStr += p.value + ", ";
         else if (p.type === "year") dateStr += p.value;
-        else if (["hour","minute","second","dayPeriod"].includes(p.type)) timeStr += p.value + " ";
+        else if (["hour", "minute", "second", "dayPeriod"].includes(p.type))
+          timeStr += p.value + " ";
         else if (p.type === "timeZoneName") tzName = p.value;
       });
       const utcOffset = -now.getTimezoneOffset() / 60;
@@ -737,26 +841,40 @@ export async function time({ fullArgs, from, sock, message }) {
   }
 
   const d = new Date(timeData.datetime);
-  const dayPct = Math.round(((d.getHours() * 60 + d.getMinutes()) / 1440) * 100);
-  const dayBar = "█".repeat(Math.round(dayPct / 10)) + "░".repeat(10 - Math.round(dayPct / 10));
+  const dayPct = Math.round(
+    ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100,
+  );
+  const dayBar =
+    "█".repeat(Math.round(dayPct / 10)) +
+    "░".repeat(10 - Math.round(dayPct / 10));
   let utcOffset = timeData.utc_offset;
-  if (typeof utcOffset === "number") utcOffset = utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`;
-  const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  if (typeof utcOffset === "number")
+    utcOffset = utcOffset > 0 ? `+${utcOffset}` : `${utcOffset}`;
+  const days = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
 
+  const responseText =
+    `╔══════════════════════════╗\n║     ⏰ *WORLD TIME*      ║\n╚══════════════════════════╝\n\n` +
+    `🌍 *Timezone:* ${timeData.timezone || query}\n` +
+    `📅 *Date:* ${timeData.customDate || d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n` +
+    `⏰ *Time:* ${timeData.customTime || d.toLocaleTimeString("en-US", { hour12: true, hour: "2-digit", minute: "2-digit", second: "2-digit" })}\n` +
+    `📆 *Day:* ${days[d.getDay()]}\n🕒 *UTC Offset:* ${utcOffset}\n📊 *Day Progress:* ${dayPct}% ${dayBar}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
+
+  setCached(cacheKey, responseText);
   await sendReaction(sock, message, "✅");
-  await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n║     ⏰ *WORLD TIME*      ║\n╚══════════════════════════╝\n\n` +
-      `🌍 *Timezone:* ${timeData.timezone || query}\n` +
-      `📅 *Date:* ${timeData.customDate || d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n` +
-      `⏰ *Time:* ${timeData.customTime || d.toLocaleTimeString("en-US", { hour12: true, hour: "2-digit", minute: "2-digit", second: "2-digit" })}\n` +
-      `📆 *Day:* ${days[d.getDay()]}\n🕒 *UTC Offset:* ${utcOffset}\n📊 *Day Progress:* ${dayPct}% ${dayBar}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
+  await sock.sendMessage(from, { text: responseText });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SHORTEN COMMAND — with reactions
+//  SHORTEN COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function shorten({ fullArgs, from, sock, message }) {
   if (!fullArgs?.trim()) {
@@ -766,74 +884,124 @@ export async function shorten({ fullArgs, from, sock, message }) {
   }
 
   let longUrl = fullArgs.trim().split(/\s+/)[0];
-  if (!longUrl.startsWith("http://") && !longUrl.startsWith("https://")) longUrl = "https://" + longUrl;
+  if (!longUrl.startsWith("http://") && !longUrl.startsWith("https://"))
+    longUrl = "https://" + longUrl;
 
-  try { new URL(longUrl); } catch (_) {
+  try {
+    new URL(longUrl);
+  } catch (_) {
     return sock.sendMessage(from, {
       text: `❌ *Invalid URL*\n\n"${longUrl}" is not a valid URL.\n\nExample: ${ENV.PREFIX}shorten https://example.com`,
     });
   }
 
+  const cacheKey = `shorten_${longUrl}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
   await sendReaction(sock, message, "⏳");
 
   const services = [
-    { name: "TinyURL", url: `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`, parse: (d) => d.trim() },
-    { name: "is.gd",   url: `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`, parse: (d) => d.trim() },
-    { name: "v.gd",    url: `https://v.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`, parse: (d) => d.trim() },
-    { name: "clck.ru", url: `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`, parse: (d) => d.trim() },
+    {
+      name: "TinyURL",
+      url: `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
+      parse: (d) => d.trim(),
+    },
+    {
+      name: "is.gd",
+      url: `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
+      parse: (d) => d.trim(),
+    },
+    {
+      name: "v.gd",
+      url: `https://v.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`,
+      parse: (d) => d.trim(),
+    },
+    {
+      name: "clck.ru",
+      url: `https://clck.ru/--?url=${encodeURIComponent(longUrl)}`,
+      parse: (d) => d.trim(),
+    },
   ];
 
-  let shortUrl = null, usedService = null;
+  let shortUrl = null,
+    usedService = null;
   for (const svc of services) {
     try {
-      const res = await axios.get(svc.url, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
+      const res = await axiosRetry(svc.url, {
+        timeout: 10000,
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
       const result = svc.parse(res.data);
-      if (result?.startsWith("http")) { shortUrl = result; usedService = svc.name; break; }
+      if (result?.startsWith("http")) {
+        shortUrl = result;
+        usedService = svc.name;
+        break;
+      }
     } catch (_) {}
   }
 
   if (shortUrl) {
+    const responseText =
+      `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${shortUrl}\n\n` +
+      `⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
+    setCached(cacheKey, responseText);
     await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text:
-        `✅ *URL SHORTENED*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `📎 *Original:*\n${longUrl}\n\n🔗 *Shortened:*\n${shortUrl}\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-      linkPreview: false,
-    });
+    await sock.sendMessage(from, { text: responseText, linkPreview: false });
   } else {
     await sendReaction(sock, message, "❌");
     await sock.sendMessage(from, {
-      text: `❌ *SHORTEN FAILED*\n\nAll shortener services temporarily unavailable.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      text: `❌ *SHORTEN FAILED*\n\nAll shortener services temporarily unavailable.\n\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
       linkPreview: false,
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  VIEW ONCE (.vv) — with reactions
+//  VIEW ONCE (.vv) — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function viewOnce({ message, from, sock }) {
   await sendReaction(sock, message, "⏳");
   try {
-    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    const quotedMsg =
+      message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
       return sock.sendMessage(from, {
-        text: formatInfo("VIEW ONCE", `Reply to a view-once message with: ${ENV.PREFIX}vv`),
+        text: formatInfo(
+          "VIEW ONCE",
+          `Reply to a view-once message with: ${ENV.PREFIX}vv`,
+        ),
       });
     }
 
-    let mediaMsg = null, type = null;
+    let mediaMsg = null,
+      type = null;
     for (const container of [
       quotedMsg.viewOnceMessageV2?.message,
       quotedMsg.viewOnceMessageV2Extension?.message,
       quotedMsg,
     ]) {
       if (!container) continue;
-      if (container.imageMessage) { mediaMsg = container.imageMessage; type = "image"; break; }
-      if (container.videoMessage) { mediaMsg = container.videoMessage; type = "video"; break; }
-      if (container.audioMessage) { mediaMsg = container.audioMessage; type = "audio"; break; }
+      if (container.imageMessage) {
+        mediaMsg = container.imageMessage;
+        type = "image";
+        break;
+      }
+      if (container.videoMessage) {
+        mediaMsg = container.videoMessage;
+        type = "video";
+        break;
+      }
+      if (container.audioMessage) {
+        mediaMsg = container.audioMessage;
+        type = "audio";
+        break;
+      }
     }
 
     if (!mediaMsg || !type) {
@@ -849,42 +1017,68 @@ export async function viewOnce({ message, from, sock }) {
     const caption = `📊 *Type:* ${type.toUpperCase()}\n📦 *Size:* ${(buffer.length / 1024).toFixed(2)} KB\n✅ *Saved Successfully*\n👑 AYOBOT`;
 
     await sendReaction(sock, message, "✅");
-    if (type === "image") await sock.sendMessage(from, { image: buffer, caption });
-    else if (type === "video") await sock.sendMessage(from, { video: buffer, caption });
-    else await sock.sendMessage(from, { audio: buffer, mimetype: "audio/mp4", ptt: true });
+    if (type === "image")
+      await sock.sendMessage(from, { image: buffer, caption });
+    else if (type === "video")
+      await sock.sendMessage(from, { video: buffer, caption });
+    else
+      await sock.sendMessage(from, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: true,
+      });
   } catch (err) {
     await sendReaction(sock, message, "🔴");
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not open view once message: ${err.message}`),
+      text: formatError(
+        "ERROR",
+        `Could not open view once message: ${err.message}`,
+      ),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  OK COMMAND (VIEW ONCE TO DM) — FIXED
-//  This sends view-once media to the bot owner's DM
+//  OK COMMAND (VIEW ONCE TO DM) — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function ok({ message, from, sock, session, ownerPhone }) {
   await sendReaction(sock, message, "⏳");
   try {
-    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    const quotedMsg =
+      message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     if (!quotedMsg) {
       await sendReaction(sock, message, "❌");
       return sock.sendMessage(from, {
-        text: formatInfo("VIEW ONCE TO DM", `Reply to a view-once message with: ${ENV.PREFIX}ok`),
+        text: formatInfo(
+          "VIEW ONCE TO DM",
+          `Reply to a view-once message with: ${ENV.PREFIX}ok`,
+        ),
       });
     }
 
-    let mediaMsg = null, type = null;
+    let mediaMsg = null,
+      type = null;
     for (const container of [
       quotedMsg.viewOnceMessageV2?.message,
       quotedMsg.viewOnceMessageV2Extension?.message,
       quotedMsg,
     ]) {
       if (!container) continue;
-      if (container.imageMessage) { mediaMsg = container.imageMessage; type = "image"; break; }
-      if (container.videoMessage) { mediaMsg = container.videoMessage; type = "video"; break; }
-      if (container.audioMessage) { mediaMsg = container.audioMessage; type = "audio"; break; }
+      if (container.imageMessage) {
+        mediaMsg = container.imageMessage;
+        type = "image";
+        break;
+      }
+      if (container.videoMessage) {
+        mediaMsg = container.videoMessage;
+        type = "video";
+        break;
+      }
+      if (container.audioMessage) {
+        mediaMsg = container.audioMessage;
+        type = "audio";
+        break;
+      }
     }
 
     if (!mediaMsg || !type) {
@@ -910,15 +1104,23 @@ export async function ok({ message, from, sock, session, ownerPhone }) {
       targetJid = `${ownerPhone}@s.whatsapp.net`;
     }
 
-    if (type === "image") await sock.sendMessage(targetJid, { image: buffer, caption });
-    else if (type === "video") await sock.sendMessage(targetJid, { video: buffer, caption });
-    else await sock.sendMessage(targetJid, { audio: buffer, mimetype: "audio/mp4", ptt: true });
+    if (type === "image")
+      await sock.sendMessage(targetJid, { image: buffer, caption });
+    else if (type === "video")
+      await sock.sendMessage(targetJid, { video: buffer, caption });
+    else
+      await sock.sendMessage(targetJid, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: true,
+      });
 
     // Confirm in original chat
     if (targetJid !== from) {
-      await sock.sendMessage(from, { text: "✅ View-once media sent to your DM!" });
+      await sock.sendMessage(from, {
+        text: "✅ View-once media sent to your DM!",
+      });
     }
-
   } catch (err) {
     await sendReaction(sock, message, "🔴");
     await sock.sendMessage(from, {
@@ -936,13 +1138,16 @@ export const savetodm = ok;
 export const sendtome = ok;
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WAITLIST COMMAND
+//  WAITLIST COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
   const email = fullArgs?.trim() || "";
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID EMAIL", `Example: ${ENV.PREFIX}waitlist user@example.com`),
+      text: formatError(
+        "INVALID EMAIL",
+        `Example: ${ENV.PREFIX}waitlist user@example.com`,
+      ),
     });
   }
   const phone = normalizeJid(userJid);
@@ -953,7 +1158,14 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
     else if (message?.verifiedBizName) pushname = message.verifiedBizName;
   } catch (_) {}
 
-  waitlistEntries.set(phone, { email, phone, timestamp, userJid, name: pushname, platform: "WhatsApp" });
+  waitlistEntries.set(phone, {
+    email,
+    phone,
+    timestamp,
+    userJid,
+    name: pushname,
+    platform: "WhatsApp",
+  });
   await sock.sendMessage(from, {
     text: formatSuccess(
       "✅ WAITLIST JOINED",
@@ -965,19 +1177,22 @@ export async function joinWaitlist({ fullArgs, from, userJid, sock, message }) {
       text:
         `╔══════════════════════════╗\n║   📋 *NEW WAITLIST ENTRY* ║\n╚══════════════════════════╝\n\n` +
         `👤 *Name:* ${pushname}\n📧 *Email:* ${email}\n📱 *Phone:* +${phone}\n` +
-        `⏰ *Time:* ${timestamp}\n📊 *Total:* ${waitlistEntries.size}\n\n⚡ *AYOBOT v1* | 👑 AYOCODES`,
+        `⏰ *Time:* ${timestamp}\n📊 *Total:* ${waitlistEntries.size}\n\n⚡ *AYOBOT v1.0.1* | 👑 AYOCODES`,
       mentions: [userJid],
     });
   } catch (_) {}
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCRAPE COMMAND — with reactions
+//  SCRAPE COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function scrape({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo("WEB SCRAPER", `Usage: ${ENV.PREFIX}scrape <url>\n\n📦 Returns: self-contained HTML, CSS, JS, ZIP`),
+      text: formatInfo(
+        "WEB SCRAPER",
+        `Usage: ${ENV.PREFIX}scrape <url>\n\n📦 Returns: self-contained HTML, CSS, JS, ZIP`,
+      ),
     });
   }
 
@@ -985,10 +1200,15 @@ export async function scrape({ fullArgs, from, sock, message }) {
   if (!url.startsWith("http")) url = "https://" + url;
   await sendReaction(sock, message, "⏳");
 
-  let html = null, finalUrl = url, fetchMethod = "unknown";
+  let html = null,
+    finalUrl = url,
+    fetchMethod = "unknown";
   const headerProfiles = [
     { label: "Chrome/Windows", headers: browserHeaders(USER_AGENTS[0]) },
-    { label: "Firefox/Windows", headers: browserHeaders(USER_AGENTS[3], "https://www.bing.com/") },
+    {
+      label: "Firefox/Windows",
+      headers: browserHeaders(USER_AGENTS[3], "https://www.bing.com/"),
+    },
     { label: "Safari/Mac", headers: browserHeaders(USER_AGENTS[4]) },
     { label: "Chrome/Android", headers: browserHeaders(USER_AGENTS[6]) },
   ];
@@ -996,15 +1216,25 @@ export async function scrape({ fullArgs, from, sock, message }) {
   for (const profile of headerProfiles) {
     if (html) break;
     try {
-      const res = await axios.get(url, {
-        headers: profile.headers, timeout: 25_000, maxRedirects: 15,
-        maxContentLength: 50 * 1024 * 1024, responseType: "text", validateStatus: (s) => s < 500,
+      const res = await axiosRetry(url, {
+        headers: profile.headers,
+        timeout: 25_000,
+        maxRedirects: 15,
+        maxContentLength: 50 * 1024 * 1024,
+        responseType: "text",
+        validateStatus: (s) => s < 500,
       });
       if (res.data && typeof res.data === "string" && res.data.length > 500) {
-        if (res.data.includes("cf-browser-verification") || res.data.includes("challenges.cloudflare.com")) {
+        if (
+          res.data.includes("cf-browser-verification") ||
+          res.data.includes("challenges.cloudflare.com")
+        ) {
           await sendReaction(sock, message, "❌");
           await sock.sendMessage(from, {
-            text: formatError("CLOUDFLARE PROTECTED", `Try: ${ENV.PREFIX}screenshot ${url}`),
+            text: formatError(
+              "CLOUDFLARE PROTECTED",
+              `Try: ${ENV.PREFIX}screenshot ${url}`,
+            ),
           });
           return;
         }
@@ -1018,16 +1248,22 @@ export async function scrape({ fullArgs, from, sock, message }) {
 
   if (!html) {
     try {
-      const waRes = await axios.get(
-        `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`, { timeout: 10_000 },
+      const waRes = await axiosRetry(
+        `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`,
+        { timeout: 10_000 },
       );
       const snapUrl = waRes.data?.archived_snapshots?.closest?.url;
       if (snapUrl) {
-        const res = await axios.get(snapUrl, {
-          headers: browserHeaders(USER_AGENTS[0]), timeout: 20_000,
-          responseType: "text", validateStatus: (s) => s < 500,
+        const res = await axiosRetry(snapUrl, {
+          headers: browserHeaders(USER_AGENTS[0]),
+          timeout: 20_000,
+          responseType: "text",
+          validateStatus: (s) => s < 500,
         });
-        if (res.data?.length > 500) { html = res.data; fetchMethod = "Wayback Machine"; }
+        if (res.data?.length > 500) {
+          html = res.data;
+          fetchMethod = "Wayback Machine";
+        }
       }
     } catch (_) {}
   }
@@ -1035,33 +1271,53 @@ export async function scrape({ fullArgs, from, sock, message }) {
   if (!html) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
-      text: formatError("SCRAPE FAILED", `Could not retrieve this page.\n\nTry: ${ENV.PREFIX}screenshot ${url}`),
+      text: formatError(
+        "SCRAPE FAILED",
+        `Could not retrieve this page.\n\nTry: ${ENV.PREFIX}screenshot ${url}`,
+      ),
     });
   }
 
   try {
     const $ = cheerio.load(html, { decodeEntities: false });
     let baseUrl;
-    try { baseUrl = new URL(finalUrl); } catch (_) { baseUrl = new URL(url); }
+    try {
+      baseUrl = new URL(finalUrl);
+    } catch (_) {
+      baseUrl = new URL(url);
+    }
     const domain = baseUrl.hostname.replace("www.", "");
 
     const toAbs = (href) => {
-      if (!href || href.startsWith("data:") || href.startsWith("blob:")) return href;
-      try { return href.startsWith("http") ? href : new URL(href, baseUrl).toString(); } catch (_) { return href; }
+      if (!href || href.startsWith("data:") || href.startsWith("blob:"))
+        return href;
+      try {
+        return href.startsWith("http")
+          ? href
+          : new URL(href, baseUrl).toString();
+      } catch (_) {
+        return href;
+      }
     };
     const fetchAsset = async (assetUrl, type = "text") => {
       try {
-        const res = await axios.get(assetUrl, {
-          headers: browserHeaders(randomUA()), timeout: 10_000,
-          responseType: type, validateStatus: (s) => s < 400,
+        const res = await axiosRetry(assetUrl, {
+          headers: browserHeaders(randomUA()),
+          timeout: 10_000,
+          responseType: type,
+          validateStatus: (s) => s < 400,
         });
         return res.data;
-      } catch (_) { return null; }
+      } catch (_) {
+        return null;
+      }
     };
 
     let extractedCSS = `/* AYOBOT Scraper — Extracted CSS from ${url} */\n\n`;
     const cssLinks = [];
-    $('link[rel="stylesheet"][href]').each((_, el) => cssLinks.push({ el, href: $(el).attr("href") }));
+    $('link[rel="stylesheet"][href]').each((_, el) =>
+      cssLinks.push({ el, href: $(el).attr("href") }),
+    );
     for (const { el, href } of cssLinks) {
       const abs = toAbs(href);
       if (!abs) continue;
@@ -1071,30 +1327,43 @@ export async function scrape({ fullArgs, from, sock, message }) {
         $(el).replaceWith(`<style>/* inlined: ${href} */\n${data}</style>`);
       }
     }
-    $("style").each((_, el) => { extractedCSS += `/* Inline style */\n${$(el).html()}\n\n`; });
+    $("style").each((_, el) => {
+      extractedCSS += `/* Inline style */\n${$(el).html()}\n\n`;
+    });
 
     let extractedJS = `/* AYOBOT Scraper — Extracted JS from ${url} */\n\n`;
     const scriptTags = [];
-    $("script[src]").each((_, el) => scriptTags.push({ el, src: $(el).attr("src") }));
+    $("script[src]").each((_, el) =>
+      scriptTags.push({ el, src: $(el).attr("src") }),
+    );
     for (const { el, src } of scriptTags) {
       const abs = toAbs(src);
       if (!abs) continue;
       const data = await fetchAsset(abs, "text");
       if (data) {
         extractedJS += `/* Source: ${src} */\n${data}\n\n`;
-        const attrs = Object.entries($(el).attr() || {}).filter(([k]) => k !== "src").map(([k, v]) => `${k}="${v}"`).join(" ");
-        $(el).replaceWith(`<script ${attrs}>/* inlined: ${src} */\n${data}</script>`);
+        const attrs = Object.entries($(el).attr() || {})
+          .filter(([k]) => k !== "src")
+          .map(([k, v]) => `${k}="${v}"`)
+          .join(" ");
+        $(el).replaceWith(
+          `<script ${attrs}>/* inlined: ${src} */\n${data}</script>`,
+        );
       }
     }
-    $("script:not([src])").each((_, el) => { const c = $(el).html(); if (c?.trim()) extractedJS += `/* Inline script */\n${c}\n\n`; });
+    $("script:not([src])").each((_, el) => {
+      const c = $(el).html();
+      if (c?.trim()) extractedJS += `/* Inline script */\n${c}\n\n`;
+    });
 
     const title = $("title").text().trim() || "No title";
-    const stamp = `\n<!-- Scraped by AYOBOT v1.0.0 | AYOCODES | Source: ${url} | Date: ${new Date().toISOString()} -->\n`;
+    const stamp = `\n<!-- Scraped by AYOBOT v1.0.1 | AYOCODES | Source: ${url} | Date: ${new Date().toISOString()} -->\n`;
     const finalHtml = stamp + $.html();
-    const domain2 = domain.replace(/[^a-z0-9]/gi, "_"), ts = Date.now();
+    const domain2 = domain.replace(/[^a-z0-9]/gi, "_"),
+      ts = Date.now();
     const htmlBuf = Buffer.from(finalHtml, "utf-8"),
-          cssBuf  = Buffer.from(extractedCSS, "utf-8"),
-          jsBuf   = Buffer.from(extractedJS, "utf-8");
+      cssBuf = Buffer.from(extractedCSS, "utf-8"),
+      jsBuf = Buffer.from(extractedJS, "utf-8");
 
     await sendReaction(sock, message, "✅");
     await sock.sendMessage(from, {
@@ -1105,21 +1374,27 @@ export async function scrape({ fullArgs, from, sock, message }) {
         `📥 *Method:* ${fetchMethod}\n━━━━━━━━━━━━━━━━━━━━━━━`,
     });
     await sock.sendMessage(from, {
-      document: htmlBuf, mimetype: "text/html",
-      fileName: `${domain2}_${ts}_full.html`, caption: `📄 *Full Page HTML* — works offline`,
+      document: htmlBuf,
+      mimetype: "text/html",
+      fileName: `${domain2}_${ts}_full.html`,
+      caption: `📄 *Full Page HTML* — works offline`,
     });
     await delay(400);
     if (cssBuf.length > 100) {
       await sock.sendMessage(from, {
-        document: cssBuf, mimetype: "text/css",
-        fileName: `${domain2}_${ts}_styles.css`, caption: `🎨 *Extracted CSS*`,
+        document: cssBuf,
+        mimetype: "text/css",
+        fileName: `${domain2}_${ts}_styles.css`,
+        caption: `🎨 *Extracted CSS*`,
       });
       await delay(300);
     }
     if (jsBuf.length > 100) {
       await sock.sendMessage(from, {
-        document: jsBuf, mimetype: "application/javascript",
-        fileName: `${domain2}_${ts}_scripts.js`, caption: `⚙️ *Extracted JavaScript*`,
+        document: jsBuf,
+        mimetype: "application/javascript",
+        fileName: `${domain2}_${ts}_scripts.js`,
+        caption: `⚙️ *Extracted JavaScript*`,
       });
       await delay(300);
     }
@@ -1131,21 +1406,31 @@ export async function scrape({ fullArgs, from, sock, message }) {
         zip.file(`${domain2}_styles.css`, cssBuf);
         zip.file(`${domain2}_scripts.js`, jsBuf);
         zip.file(`${domain2}_original.html`, Buffer.from(html, "utf-8"));
-        const zipBuf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
-        await sock.sendMessage(from, {
-          document: zipBuf, mimetype: "application/zip",
-          fileName: `${domain2}_${ts}_scrape.zip`, caption: `📦 *ZIP Archive* — all files packed`,
+        const zipBuf = await zip.generateAsync({
+          type: "nodebuffer",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 },
         });
-      } catch (zipErr) { console.warn("ZIP creation failed:", zipErr.message); }
+        await sock.sendMessage(from, {
+          document: zipBuf,
+          mimetype: "application/zip",
+          fileName: `${domain2}_${ts}_scrape.zip`,
+          caption: `📦 *ZIP Archive* — all files packed`,
+        });
+      } catch (zipErr) {
+        console.warn("ZIP creation failed:", zipErr.message);
+      }
     }
   } catch (error) {
     await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, { text: formatError("PROCESSING ERROR", error.message) });
+    await sock.sendMessage(from, {
+      text: formatError("PROCESSING ERROR", error.message),
+    });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CONNECT INFO COMMAND
+//  CONNECT INFO COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function connectInfo({ from, sock }) {
   await sock.sendMessage(from, {
@@ -1153,12 +1438,12 @@ export async function connectInfo({ from, sock }) {
       `╔═══════════════════════════════════╗\n║   📱 *CONNECT WITH THE CREATOR*  ║\n╚═══════════════════════════════════╝\n\n` +
       `👑 *Creator:* AYOCODES\n📞 *WhatsApp:* wa.me/${ENV.CREATOR_CONTACT || "2349159180375"}\n` +
       `💻 *GitHub:* ${ENV.CREATOR_GITHUB || "https://github.com/Officialay12"}\n\n` +
-      `📢 *Community:*\n👥 Group: ${ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/"}\n\n⚡ *AYOBOT v1.0.0*\n🤖 *Full-Featured WhatsApp Bot*`,
+      `📢 *Community:*\n👥 Group: ${ENV.WHATSAPP_GROUP || "https://chat.whatsapp.com/"}\n\n⚡ *AYOBOT v1.0.1*\n🤖 *Full-Featured WhatsApp Bot*`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PREFIX INFO COMMAND
+//  PREFIX INFO COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function prefixinfo({ from, sock }) {
   await sock.sendMessage(from, {
@@ -1171,12 +1456,15 @@ export async function prefixinfo({ from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  JARVIS AI COMMAND
+//  JARVIS AI COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function jarvis({ fullArgs, from, sock }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo("JARVIS AI ASSISTANT", `Usage: ${ENV.PREFIX}jarvis <question>`),
+      text: formatInfo(
+        "JARVIS AI ASSISTANT",
+        `Usage: ${ENV.PREFIX}jarvis <question>`,
+      ),
     });
   }
   await sock.sendMessage(from, {
@@ -1187,32 +1475,48 @@ export async function jarvis({ fullArgs, from, sock }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  URL INFO COMMAND — with reactions
+//  URL INFO COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function url({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("URL INFO", `Usage: ${ENV.PREFIX}url <url>`) });
+    return sock.sendMessage(from, {
+      text: formatInfo("URL INFO", `Usage: ${ENV.PREFIX}url <url>`),
+    });
   }
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+
+  const cacheKey = `url_${urlStr}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
   await sendReaction(sock, message, "⏳");
   try {
-    const response = await axios.head(urlStr, {
-      timeout: 10_000, maxRedirects: 10, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
+    const response = await axiosRetry(urlStr, {
+      timeout: 10_000,
+      maxRedirects: 10,
+      headers: { "User-Agent": randomUA() },
+      validateStatus: () => true,
     });
     const h = response.headers;
-    const statusEmoji = response.status < 300 ? "🟢" : response.status < 400 ? "🟡" : "🔴";
-    await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text: formatData("🌍 URL INFORMATION", {
-        [`${statusEmoji} Status`]: `${response.status} ${response.statusText || ""}`,
-        "📝 Content-Type": h["content-type"]?.split(";")[0] || "Unknown",
-        "🌐 Server": h["server"] || "Unknown",
-        "📦 Content-Length": h["content-length"] ? `${(parseInt(h["content-length"]) / 1024).toFixed(1)} KB` : "Unknown",
-        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
-        "🔄 Cache-Control": h["cache-control"] || "Not set",
-      }),
+    const statusEmoji =
+      response.status < 300 ? "🟢" : response.status < 400 ? "🟡" : "🔴";
+    const responseText = formatData("🌍 URL INFORMATION", {
+      [`${statusEmoji} Status`]: `${response.status} ${response.statusText || ""}`,
+      "📝 Content-Type": h["content-type"]?.split(";")[0] || "Unknown",
+      "🌐 Server": h["server"] || "Unknown",
+      "📦 Content-Length": h["content-length"]
+        ? `${(parseInt(h["content-length"]) / 1024).toFixed(1)} KB`
+        : "Unknown",
+      "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
+      "🔄 Cache-Control": h["cache-control"] || "Not set",
     });
+    setCached(cacheKey, responseText);
+    await sendReaction(sock, message, "✅");
+    await sock.sendMessage(from, { text: responseText });
   } catch (error) {
     await sendReaction(sock, message, "❌");
     await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
@@ -1220,25 +1524,43 @@ export async function url({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FETCH COMMAND — with reactions
+//  FETCH COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function fetch({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("FETCH", `Usage: ${ENV.PREFIX}fetch <url>`) });
+    return sock.sendMessage(from, {
+      text: formatInfo("FETCH", `Usage: ${ENV.PREFIX}fetch <url>`),
+    });
   }
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+
+  const cacheKey = `fetch_${urlStr}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: `\`\`\`${cached}\`\`\`` });
+  }
+
   await sendReaction(sock, message, "⏳");
   try {
-    const response = await axios.get(urlStr, {
-      timeout: 15_000, headers: { "User-Agent": randomUA() }, validateStatus: () => true,
+    const response = await axiosRetry(urlStr, {
+      timeout: 15_000,
+      headers: { "User-Agent": randomUA() },
+      validateStatus: () => true,
     });
-    let data = typeof response.data === "object" ? JSON.stringify(response.data, null, 2) : String(response.data);
+    let data =
+      typeof response.data === "object"
+        ? JSON.stringify(response.data, null, 2)
+        : String(response.data);
+    setCached(cacheKey, data);
     await sendReaction(sock, message, "✅");
     if (data.length > 3_500) {
       await sock.sendMessage(from, {
-        document: Buffer.from(data, "utf-8"), mimetype: "application/json",
-        fileName: `fetch_${Date.now()}.txt`, caption: `📡 Fetched from ${urlStr}`,
+        document: Buffer.from(data, "utf-8"),
+        mimetype: "application/json",
+        fileName: `fetch_${Date.now()}.txt`,
+        caption: `📡 Fetched from ${urlStr}`,
       });
     } else {
       await sock.sendMessage(from, { text: `\`\`\`${data}\`\`\`` });
@@ -1250,16 +1572,21 @@ export async function fetch({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  QR CODE GENERATOR — with reactions
+//  QR CODE GENERATOR — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function qencode({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("QR CODE GENERATOR", `Usage: ${ENV.PREFIX}qr <text>`) });
+    return sock.sendMessage(from, {
+      text: formatInfo("QR CODE GENERATOR", `Usage: ${ENV.PREFIX}qr <text>`),
+    });
   }
   await sendReaction(sock, message, "⏳");
   try {
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(fullArgs)}&margin=10&color=1a1a2e&bgcolor=ffffff&format=png`;
-    const res = await axios.get(qrUrl, { responseType: "arraybuffer", timeout: 10000 });
+    const res = await axiosRetry(qrUrl, {
+      responseType: "arraybuffer",
+      timeout: 10000,
+    });
     if (res.data && res.data.byteLength > 100) {
       await sendReaction(sock, message, "✅");
       await sock.sendMessage(from, {
@@ -1275,52 +1602,99 @@ export async function qencode({ fullArgs, from, sock, message }) {
     }
   } catch (err) {
     await sendReaction(sock, message, "❌");
-    await sock.sendMessage(from, { text: formatError("ERROR", `Could not generate QR code: ${err.message}`) });
+    await sock.sendMessage(from, {
+      text: formatError("ERROR", `Could not generate QR code: ${err.message}`),
+    });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SCREENSHOT COMMAND — with reactions
+//  SCREENSHOT COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function screenshot({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("📷 SCREENSHOT", `Usage: ${ENV.PREFIX}screenshot <url>`) });
+    return sock.sendMessage(from, {
+      text: formatInfo("📷 SCREENSHOT", `Usage: ${ENV.PREFIX}screenshot <url>`),
+    });
   }
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
-  try { new URL(urlStr); } catch (_) {
-    return sock.sendMessage(from, { text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`) });
+  try {
+    new URL(urlStr);
+  } catch (_) {
+    return sock.sendMessage(from, {
+      text: formatError("INVALID URL", `"${fullArgs}" is not a valid URL.`),
+    });
+  }
+
+  const cacheKey = `screenshot_${urlStr}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, {
+      image: Buffer.from(cached, "base64"),
+      caption: `📷 *Screenshot (Cached)*\n🔗 ${urlStr}\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
+    });
   }
 
   await sendReaction(sock, message, "⏳");
 
   const urlEncoded = encodeURIComponent(urlStr);
-  let screenshotBuffer = null, usedService = "", errors = [];
+  let screenshotBuffer = null,
+    usedService = "",
+    errors = [];
 
   try {
-    const res = await axios.get(`https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`, {
-      responseType: "arraybuffer", timeout: 20000, headers: { "User-Agent": randomUA() },
-    });
+    const res = await axiosRetry(
+      `https://image.thum.io/get/width/1280/crop/800/noanimate/${urlStr}`,
+      {
+        responseType: "arraybuffer",
+        timeout: 20000,
+        headers: { "User-Agent": randomUA() },
+      },
+    );
     if (res.data && res.data.byteLength > 5000 && res.status === 200) {
-      screenshotBuffer = Buffer.from(res.data); usedService = "Thum.io";
+      screenshotBuffer = Buffer.from(res.data);
+      usedService = "Thum.io";
     }
-  } catch (err) { errors.push(`Thum.io: ${err.message}`); }
-
-  if (!screenshotBuffer) {
-    try {
-      const res = await axios.get(`https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false&waitFor=2000`, { timeout: 20000 });
-      if (res.data?.data?.screenshot?.url) {
-        const imgRes = await axios.get(res.data.data.screenshot.url, { responseType: "arraybuffer", timeout: 15000 });
-        if (imgRes.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(imgRes.data); usedService = "Microlink.io"; }
-      }
-    } catch (err) { errors.push(`Microlink: ${err.message}`); }
+  } catch (err) {
+    errors.push(`Thum.io: ${err.message}`);
   }
 
   if (!screenshotBuffer) {
     try {
-      const res = await axios.get(`https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?${urlStr}`, { responseType: "arraybuffer", timeout: 20000 });
-      if (res.data?.byteLength > 5000) { screenshotBuffer = Buffer.from(res.data); usedService = "s-shot.ru"; }
-    } catch (err) { errors.push(`s-shot: ${err.message}`); }
+      const res = await axiosRetry(
+        `https://api.microlink.io/?url=${urlEncoded}&screenshot=true&meta=false&waitFor=2000`,
+        { timeout: 20000 },
+      );
+      if (res.data?.data?.screenshot?.url) {
+        const imgRes = await axiosRetry(res.data.data.screenshot.url, {
+          responseType: "arraybuffer",
+          timeout: 15000,
+        });
+        if (imgRes.data?.byteLength > 5000) {
+          screenshotBuffer = Buffer.from(imgRes.data);
+          usedService = "Microlink.io";
+        }
+      }
+    } catch (err) {
+      errors.push(`Microlink: ${err.message}`);
+    }
+  }
+
+  if (!screenshotBuffer) {
+    try {
+      const res = await axiosRetry(
+        `https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?${urlStr}`,
+        { responseType: "arraybuffer", timeout: 20000 },
+      );
+      if (res.data?.byteLength > 5000) {
+        screenshotBuffer = Buffer.from(res.data);
+        usedService = "s-shot.ru";
+      }
+    } catch (err) {
+      errors.push(`s-shot: ${err.message}`);
+    }
   }
 
   if (!screenshotBuffer) {
@@ -1335,61 +1709,84 @@ export async function screenshot({ fullArgs, from, sock, message }) {
 
   let pageTitle = urlStr;
   try {
-    const r = await axios.get(urlStr, { timeout: 6000, maxContentLength: 100000, headers: { "User-Agent": randomUA() } });
+    const r = await axiosRetry(urlStr, {
+      timeout: 6000,
+      maxContentLength: 100000,
+      headers: { "User-Agent": randomUA() },
+    });
     const m = r.data?.match(/<title[^>]*>(.*?)<\/title>/is);
     if (m) pageTitle = m[1].trim().substring(0, 100);
   } catch (_) {}
 
+  setCached(cacheKey, screenshotBuffer.toString("base64"));
   await sendReaction(sock, message, "✅");
   await sock.sendMessage(from, {
     image: screenshotBuffer,
     caption:
       `📷 *Screenshot*\n━━━━━━━━━━━━━━━━━━━━━\n🔗 *URL:* ${urlStr}\n📝 *Title:* ${pageTitle}\n` +
       `📦 *Size:* ${(screenshotBuffer.byteLength / 1024).toFixed(1)} KB\n🔧 *Service:* ${usedService}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      `━━━━━━━━━━━━━━━━━━━━━\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
   });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INSPECT PAGE COMMAND — with reactions
+//  INSPECT PAGE COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function inspect({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
-    return sock.sendMessage(from, { text: formatInfo("INSPECT PAGE", `Usage: ${ENV.PREFIX}inspect <url>`) });
+    return sock.sendMessage(from, {
+      text: formatInfo("INSPECT PAGE", `Usage: ${ENV.PREFIX}inspect <url>`),
+    });
   }
   let urlStr = fullArgs.trim();
   if (!urlStr.startsWith("http")) urlStr = "https://" + urlStr;
+
+  const cacheKey = `inspect_${urlStr}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
   await sendReaction(sock, message, "⏳");
   try {
-    const response = await axios.get(urlStr, {
-      headers: browserHeaders(randomUA()), timeout: 15_000,
-      maxContentLength: 5 * 1024 * 1024, validateStatus: (s) => s < 500,
+    const response = await axiosRetry(urlStr, {
+      headers: browserHeaders(randomUA()),
+      timeout: 15_000,
+      maxContentLength: 5 * 1024 * 1024,
+      validateStatus: (s) => s < 500,
     });
-    const $ = cheerio.load(response.data), body = response.data.toLowerCase(), techs = [];
+    const $ = cheerio.load(response.data),
+      body = response.data.toLowerCase(),
+      techs = [];
     if (body.includes("react")) techs.push("React");
     if (body.includes("vue.js") || body.includes("__vue")) techs.push("Vue.js");
     if (body.includes("angular")) techs.push("Angular");
     if (body.includes("wp-content")) techs.push("WordPress");
     if (body.includes("shopify")) techs.push("Shopify");
-    if (body.includes("next.js") || body.includes("__next")) techs.push("Next.js");
+    if (body.includes("next.js") || body.includes("__next"))
+      techs.push("Next.js");
     if (body.includes("jquery")) techs.push("jQuery");
-    if (response.headers["x-powered-by"]) techs.push(response.headers["x-powered-by"]);
+    if (response.headers["x-powered-by"])
+      techs.push(response.headers["x-powered-by"]);
 
-    await sendReaction(sock, message, "✅");
-    await sock.sendMessage(from, {
-      text: formatData("🔍 PAGE INSPECTION", {
-        "📝 Title": ($("title").text() || "No title").substring(0, 100),
-        "📋 Description": ($('meta[name="description"]').attr("content") || "None").substring(0, 100),
-        "📊 Status": `${response.status}`,
-        "📎 Links": `${$("a[href]").length}`,
-        "🖼️ Images": `${$("img").length}`,
-        "📜 Scripts": `${$("script").length}`,
-        "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
-        "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
-        "🌐 Server": response.headers["server"] || "Unknown",
-        "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
-      }),
+    const responseText = formatData("🔍 PAGE INSPECTION", {
+      "📝 Title": ($("title").text() || "No title").substring(0, 100),
+      "📋 Description": (
+        $('meta[name="description"]').attr("content") || "None"
+      ).substring(0, 100),
+      "📊 Status": `${response.status}`,
+      "📎 Links": `${$("a[href]").length}`,
+      "🖼️ Images": `${$("img").length}`,
+      "📜 Scripts": `${$("script").length}`,
+      "🎨 Stylesheets": `${$('link[rel="stylesheet"]').length}`,
+      "⚙️ Tech Stack": techs.length ? techs.join(", ") : "Unknown",
+      "🌐 Server": response.headers["server"] || "Unknown",
+      "🔒 HTTPS": urlStr.startsWith("https") ? "Yes ✅" : "No ❌",
     });
+    setCached(cacheKey, responseText);
+    await sendReaction(sock, message, "✅");
+    await sock.sendMessage(from, { text: responseText });
   } catch (error) {
     await sendReaction(sock, message, "❌");
     await sock.sendMessage(from, { text: formatError("ERROR", error.message) });
@@ -1397,20 +1794,27 @@ export async function inspect({ fullArgs, from, sock, message }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IMAGE UPLOAD (IMGBB) — with reactions
+//  IMAGE UPLOAD (IMGBB) — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function imgbb({ message, from, sock }) {
-  const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  const quoted =
+    message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
   if (!quoted || !quoted.imageMessage) {
     return sock.sendMessage(from, {
-      text: formatInfo("AYOBOT IMAGE UPLOAD", `Reply to an image with ${ENV.PREFIX}imgbb`),
+      text: formatInfo(
+        "AYOBOT IMAGE UPLOAD",
+        `Reply to an image with ${ENV.PREFIX}imgbb`,
+      ),
     });
   }
 
   await sendReaction(sock, message, "⏳");
 
   try {
-    const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
+    const stream = await downloadContentFromMessage(
+      quoted.imageMessage,
+      "image",
+    );
     let buffer = Buffer.from([]);
     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
 
@@ -1421,7 +1825,9 @@ export async function imgbb({ message, from, sock }) {
       formData.append("reqtype", "fileupload");
       formData.append("fileToUpload", new Blob([buffer]), "image.jpg");
 
-      const res = await axios.post("https://catbox.moe/user/api.php", formData, {
+      const res = await axiosRetry("https://catbox.moe/user/api.php", {
+        method: "POST",
+        data: formData,
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 20_000,
       });
@@ -1439,10 +1845,9 @@ export async function imgbb({ message, from, sock }) {
         const params = new URLSearchParams();
         params.append("image", base64Image);
 
-        const res = await axios.post(
+        const res = await axiosRetry(
           `https://api.imgbb.com/1/upload?key=${ENV.IMGBB_KEY}`,
-          params,
-          { timeout: 15_000 }
+          { method: "POST", data: params, timeout: 15_000 },
         );
 
         if (res.data?.data?.url) {
@@ -1460,10 +1865,9 @@ export async function imgbb({ message, from, sock }) {
         params.append("source", base64Image);
         params.append("type", "base64");
 
-        const res = await axios.post(
+        const res = await axiosRetry(
           "https://freeimage.host/api/1/upload?key=6d207e02198a847aa98d0a2a901485a5",
-          params,
-          { timeout: 15_000 }
+          { method: "POST", data: params, timeout: 15_000 },
         );
 
         if (res.data?.image?.url) {
@@ -1477,29 +1881,38 @@ export async function imgbb({ message, from, sock }) {
     if (imageUrl) {
       await sendReaction(sock, message, "✅");
       await sock.sendMessage(from, {
-        text: `📤 *AYOBOT IMAGE UPLOAD*\n\n✅ *Success!*\n\n🔗 *URL:* ${imageUrl}\n\n_© AYOBOT v1 | AYOCODES_`,
+        text: `📤 *AYOBOT IMAGE UPLOAD*\n\n✅ *Success!*\n\n🔗 *URL:* ${imageUrl}\n\n_© AYOBOT v1.0.1 | AYOCODES_`,
       });
     } else {
       await sendReaction(sock, message, "❌");
       await sock.sendMessage(from, {
-        text: formatError("AYOBOT UPLOAD", "Failed to upload image. Please try again later."),
+        text: formatError(
+          "AYOBOT UPLOAD",
+          "Failed to upload image. Please try again later.",
+        ),
       });
     }
   } catch (err) {
     await sendReaction(sock, message, "🔴");
     await sock.sendMessage(from, {
-      text: formatError("AYOBOT ERROR", `Could not process image: ${err.message}`)
+      text: formatError(
+        "AYOBOT ERROR",
+        `Could not process image: ${err.message}`,
+      ),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PDF GENERATOR — with reactions
+//  PDF GENERATOR — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function pdf({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo("PDF GENERATOR", `Usage: ${ENV.PREFIX}pdf <title> | <content>`),
+      text: formatInfo(
+        "PDF GENERATOR",
+        `Usage: ${ENV.PREFIX}pdf <title> | <content>`,
+      ),
     });
   }
 
@@ -1510,37 +1923,73 @@ export async function pdf({ fullArgs, from, sock, message }) {
     if (!PDFDoc) {
       await sendReaction(sock, message, "❌");
       return sock.sendMessage(from, {
-        text: formatError("ERROR", "PDF generator not available.\n\nRun: npm install pdfkit"),
+        text: formatError(
+          "ERROR",
+          "PDF generator not available.\n\nRun: npm install pdfkit",
+        ),
       });
     }
 
-    let title = "Document", content = fullArgs;
+    let title = "Document",
+      content = fullArgs;
     if (fullArgs.includes("|")) {
       const parts = fullArgs.split("|");
       title = parts[0].trim();
       content = parts.slice(1).join("|").trim();
     }
 
-    const doc = new PDFDoc({ margin: 60, size: "A4" }), chunks = [];
+    const doc = new PDFDoc({ margin: 60, size: "A4" }),
+      chunks = [];
     doc.on("data", (chunk) => chunks.push(chunk));
     await new Promise((resolve, reject) => {
       doc.on("end", resolve);
       doc.on("error", reject);
       doc.rect(0, 0, doc.page.width, 60).fill("#1a1a2e");
-      doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(14)
-         .text("AYOBOT v1.0.0 — Document Generator", 60, 18, { align: "left" });
-      doc.fillColor("#aaaaaa").font("Helvetica").fontSize(9)
-         .text(new Date().toLocaleDateString(), 0, 30, { align: "right", width: doc.page.width - 60 });
+      doc
+        .fillColor("#ffffff")
+        .font("Helvetica-Bold")
+        .fontSize(14)
+        .text("AYOBOT v1.0.1 — Document Generator", 60, 18, { align: "left" });
+      doc
+        .fillColor("#aaaaaa")
+        .font("Helvetica")
+        .fontSize(9)
+        .text(new Date().toLocaleDateString(), 0, 30, {
+          align: "right",
+          width: doc.page.width - 60,
+        });
       doc.moveDown(2);
-      doc.fillColor("#1a1a2e").font("Helvetica-Bold").fontSize(24).text(title, { align: "center" });
+      doc
+        .fillColor("#1a1a2e")
+        .font("Helvetica-Bold")
+        .fontSize(24)
+        .text(title, { align: "center" });
       doc.moveDown(0.5);
-      doc.moveTo(60, doc.y).lineTo(doc.page.width - 60, doc.y).stroke("#cccccc");
+      doc
+        .moveTo(60, doc.y)
+        .lineTo(doc.page.width - 60, doc.y)
+        .stroke("#cccccc");
       doc.moveDown(1);
-      doc.fillColor("#333333").font("Helvetica").fontSize(12).text(content, { lineGap: 6, paragraphGap: 8 });
+      doc
+        .fillColor("#333333")
+        .font("Helvetica")
+        .fontSize(12)
+        .text(content, { lineGap: 6, paragraphGap: 8 });
       const footerY = doc.page.height - 50;
-      doc.moveTo(60, footerY).lineTo(doc.page.width - 60, footerY).stroke("#cccccc");
-      doc.fillColor("#999999").font("Helvetica").fontSize(9)
-         .text(`Generated by AYOBOT v1.0.0 • AYOCODES • ${new Date().toLocaleString()}`, 60, footerY + 10, { align: "center" });
+      doc
+        .moveTo(60, footerY)
+        .lineTo(doc.page.width - 60, footerY)
+        .stroke("#cccccc");
+      doc
+        .fillColor("#999999")
+        .font("Helvetica")
+        .fontSize(9)
+        .text(
+          `Generated by AYOBOT v1.0.1 • AYOCODES • ${new Date().toLocaleString()}`,
+          60,
+          footerY + 10,
+          { align: "center" },
+        );
       doc.end();
     });
 
@@ -1554,17 +2003,22 @@ export async function pdf({ fullArgs, from, sock, message }) {
     });
   } catch (error) {
     await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, { text: formatError("PDF ERROR", error.message) });
+    await sock.sendMessage(from, {
+      text: formatError("PDF ERROR", error.message),
+    });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  IP LOOKUP COMMAND — with reactions
+//  IP LOOKUP COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function getip({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
     return sock.sendMessage(from, {
-      text: formatInfo("📍 IP LOOKUP", `Usage: ${ENV.PREFIX}ip <IP_ADDRESS>\n\nExample: ${ENV.PREFIX}ip 8.8.8.8`),
+      text: formatInfo(
+        "📍 IP LOOKUP",
+        `Usage: ${ENV.PREFIX}ip <IP_ADDRESS>\n\nExample: ${ENV.PREFIX}ip 8.8.8.8`,
+      ),
     });
   }
 
@@ -1573,80 +2027,155 @@ export async function getip({ fullArgs, from, sock, message }) {
     /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^([0-9a-fA-F]{1,4}:){1,7}:$/;
   if (!ipRegex.test(cleanIP)) {
     return sock.sendMessage(from, {
-      text: formatError("INVALID IP", `"${cleanIP}" is not a valid IP address.`),
+      text: formatError(
+        "INVALID IP",
+        `"${cleanIP}" is not a valid IP address.`,
+      ),
     });
+  }
+
+  const cacheKey = `ip_${cleanIP}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
   }
 
   await sendReaction(sock, message, "⏳");
 
-  let data = null, errors = [];
+  let data = null,
+    errors = [];
 
   try {
-    const res = await axios.get(`http://ip-api.com/json/${cleanIP}?fields=66846719`, { timeout: 8000 });
+    const res = await axiosRetry(
+      `http://ip-api.com/json/${cleanIP}?fields=66846719`,
+      { timeout: 8000 },
+    );
     if (res.data?.status === "success")
-      data = { query: res.data.query, country: res.data.country, countryCode: res.data.countryCode,
-               region: res.data.regionName || res.data.region, city: res.data.city, zip: res.data.zip,
-               lat: res.data.lat, lon: res.data.lon, timezone: res.data.timezone,
-               isp: res.data.isp, org: res.data.org, as: res.data.as,
-               mobile: res.data.mobile || false, proxy: res.data.proxy || false, hosting: res.data.hosting || false,
-               source: "ip-api.com" };
-  } catch (err) { errors.push(`ip-api: ${err.message}`); }
-
-  if (!data) {
-    try {
-      const res = await axios.get(`https://ipwho.is/${cleanIP}`, { timeout: 8000 });
-      if (res.data?.success)
-        data = { query: cleanIP, country: res.data.country, countryCode: res.data.country_code,
-                 region: res.data.region, city: res.data.city, zip: res.data.postal,
-                 lat: res.data.latitude, lon: res.data.longitude, timezone: res.data.timezone?.id,
-                 isp: res.data.connection?.isp || res.data.connection?.org, org: res.data.connection?.org,
-                 as: res.data.connection?.asn ? `AS${res.data.connection.asn}` : null,
-                 mobile: false, proxy: res.data.security?.proxy || false, hosting: res.data.security?.hosting || false,
-                 source: "ipwho.is" };
-    } catch (err) { errors.push(`ipwho.is: ${err.message}`); }
+      data = {
+        query: res.data.query,
+        country: res.data.country,
+        countryCode: res.data.countryCode,
+        region: res.data.regionName || res.data.region,
+        city: res.data.city,
+        zip: res.data.zip,
+        lat: res.data.lat,
+        lon: res.data.lon,
+        timezone: res.data.timezone,
+        isp: res.data.isp,
+        org: res.data.org,
+        as: res.data.as,
+        mobile: res.data.mobile || false,
+        proxy: res.data.proxy || false,
+        hosting: res.data.hosting || false,
+        source: "ip-api.com",
+      };
+  } catch (err) {
+    errors.push(`ip-api: ${err.message}`);
   }
 
   if (!data) {
     try {
-      const res = await axios.get(`https://ipapi.co/${cleanIP}/json/`, { timeout: 8000, headers: { "User-Agent": "Mozilla/5.0" } });
+      const res = await axiosRetry(`https://ipwho.is/${cleanIP}`, {
+        timeout: 8000,
+      });
+      if (res.data?.success)
+        data = {
+          query: cleanIP,
+          country: res.data.country,
+          countryCode: res.data.country_code,
+          region: res.data.region,
+          city: res.data.city,
+          zip: res.data.postal,
+          lat: res.data.latitude,
+          lon: res.data.longitude,
+          timezone: res.data.timezone?.id,
+          isp: res.data.connection?.isp || res.data.connection?.org,
+          org: res.data.connection?.org,
+          as: res.data.connection?.asn ? `AS${res.data.connection.asn}` : null,
+          mobile: false,
+          proxy: res.data.security?.proxy || false,
+          hosting: res.data.security?.hosting || false,
+          source: "ipwho.is",
+        };
+    } catch (err) {
+      errors.push(`ipwho.is: ${err.message}`);
+    }
+  }
+
+  if (!data) {
+    try {
+      const res = await axiosRetry(`https://ipapi.co/${cleanIP}/json/`, {
+        timeout: 8000,
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
       if (!res.data.error)
-        data = { query: cleanIP, country: res.data.country_name, countryCode: res.data.country_code,
-                 region: res.data.region, city: res.data.city, zip: res.data.postal,
-                 lat: res.data.latitude, lon: res.data.longitude, timezone: res.data.timezone,
-                 isp: res.data.org, org: res.data.org, as: res.data.asn,
-                 mobile: false, proxy: false, hosting: false, source: "ipapi.co" };
-    } catch (err) { errors.push(`ipapi.co: ${err.message}`); }
+        data = {
+          query: cleanIP,
+          country: res.data.country_name,
+          countryCode: res.data.country_code,
+          region: res.data.region,
+          city: res.data.city,
+          zip: res.data.postal,
+          lat: res.data.latitude,
+          lon: res.data.longitude,
+          timezone: res.data.timezone,
+          isp: res.data.org,
+          org: res.data.org,
+          as: res.data.asn,
+          mobile: false,
+          proxy: false,
+          hosting: false,
+          source: "ipapi.co",
+        };
+    } catch (err) {
+      errors.push(`ipapi.co: ${err.message}`);
+    }
   }
 
   if (!data) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
-      text: formatError("LOOKUP FAILED", `Could not fetch information for IP: ${cleanIP}\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`),
+      text: formatError(
+        "LOOKUP FAILED",
+        `Could not fetch information for IP: ${cleanIP}\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`,
+      ),
     });
   }
 
-  const coordStr = data.lat && data.lon ? `${safeFixed(data.lat)}, ${safeFixed(data.lon)}` : "N/A";
-  const mapUrl = data.lat && data.lon ? `https://www.google.com/maps?q=${data.lat},${data.lon}` : null;
+  const coordStr =
+    data.lat && data.lon
+      ? `${safeFixed(data.lat)}, ${safeFixed(data.lon)}`
+      : "N/A";
+  const mapUrl =
+    data.lat && data.lon
+      ? `https://www.google.com/maps?q=${data.lat},${data.lon}`
+      : null;
   let asn = data.as || "N/A";
-  if (asn && asn !== "N/A" && !asn.startsWith("AS") && /^\d+$/.test(asn)) asn = `AS${asn}`;
+  if (asn && asn !== "N/A" && !asn.startsWith("AS") && /^\d+$/.test(asn))
+    asn = `AS${asn}`;
 
+  const responseText =
+    `╔══════════════════════════╗\n║     📍 *IP INFO*         ║\n╚══════════════════════════╝\n\n` +
+    `🌐 *IP:* ${data.query || cleanIP}\n📍 *Country:* ${data.country || "Unknown"} (${data.countryCode || "?"})\n` +
+    `🏙️ *City:* ${data.city || "Unknown"}\n🗺️ *Region:* ${data.region || "Unknown"}\n📮 *Postal:* ${data.zip || "N/A"}\n` +
+    `🧭 *Coordinates:* ${coordStr}\n⏰ *Timezone:* ${data.timezone || "N/A"}\n` +
+    `📡 *ISP:* ${data.isp || "Unknown"}\n🏢 *Organization:* ${data.org || "N/A"}\n🔗 *ASN:* ${asn}\n` +
+    `📱 *Mobile:* ${data.mobile ? "✅ Yes" : "❌ No"}\n🛡️ *Proxy/VPN:* ${data.proxy ? "✅ Yes" : "❌ No"}\n🏠 *Hosting:* ${data.hosting ? "✅ Yes" : "❌ No"}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${data.source}\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
+
+  setCached(cacheKey, responseText);
   await sendReaction(sock, message, "✅");
-  await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n║     📍 *IP INFO*         ║\n╚══════════════════════════╝\n\n` +
-      `🌐 *IP:* ${data.query || cleanIP}\n📍 *Country:* ${data.country || "Unknown"} (${data.countryCode || "?"})\n` +
-      `🏙️ *City:* ${data.city || "Unknown"}\n🗺️ *Region:* ${data.region || "Unknown"}\n📮 *Postal:* ${data.zip || "N/A"}\n` +
-      `🧭 *Coordinates:* ${coordStr}\n⏰ *Timezone:* ${data.timezone || "N/A"}\n` +
-      `📡 *ISP:* ${data.isp || "Unknown"}\n🏢 *Organization:* ${data.org || "N/A"}\n🔗 *ASN:* ${asn}\n` +
-      `📱 *Mobile:* ${data.mobile ? "✅ Yes" : "❌ No"}\n🛡️ *Proxy/VPN:* ${data.proxy ? "✅ Yes" : "❌ No"}\n🏠 *Hosting:* ${data.hosting ? "✅ Yes" : "❌ No"}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${data.source}\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
-  if (mapUrl) await sock.sendMessage(from, { text: `🗺️ *View on Google Maps:*\n${mapUrl}` });
+  await sock.sendMessage(from, { text: responseText });
+  if (mapUrl)
+    await sock.sendMessage(from, {
+      text: `🗺️ *View on Google Maps:*\n${mapUrl}`,
+    });
 }
 export const ip = getip;
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MY IP COMMAND — Enhanced
+//  MY IP COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function myip({ from, sock, userJid, message }) {
   await sendReaction(sock, message, "⏳");
@@ -1661,7 +2190,11 @@ export async function myip({ from, sock, userJid, message }) {
     const ws = sock?.ws || sock?.client;
     if (ws?._socket?.remoteAddress) {
       const addr = ws._socket.remoteAddress.replace("::ffff:", "");
-      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(addr) && !addr.startsWith("127.") && !addr.startsWith("10.")) {
+      if (
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(addr) &&
+        !addr.startsWith("127.") &&
+        !addr.startsWith("10.")
+      ) {
         detectedUserIp = addr;
         userIpSource = "WebSocket Socket";
       }
@@ -1670,11 +2203,18 @@ export async function myip({ from, sock, userJid, message }) {
 
   try {
     const ws = sock?.ws || sock?.client;
-    const headers = ws?._socket?.parser?.incoming?.headers || ws?.request?.headers || {};
-    const forwarded = headers["x-forwarded-for"] || headers["x-real-ip"] || headers["cf-connecting-ip"];
+    const headers =
+      ws?._socket?.parser?.incoming?.headers || ws?.request?.headers || {};
+    const forwarded =
+      headers["x-forwarded-for"] ||
+      headers["x-real-ip"] ||
+      headers["cf-connecting-ip"];
     if (forwarded) {
       const candidate = forwarded.split(",")[0].trim();
-      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(candidate) && !candidate.startsWith("127.")) {
+      if (
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(candidate) &&
+        !candidate.startsWith("127.")
+      ) {
         detectedUserIp = candidate;
         userIpSource = "Connection Headers";
       }
@@ -1684,7 +2224,9 @@ export async function myip({ from, sock, userJid, message }) {
   let userIpInfo = null;
   if (detectedUserIp) {
     try {
-      const r = await axios.get(`https://ipwho.is/${detectedUserIp}`, { timeout: 8000 });
+      const r = await axiosRetry(`https://ipwho.is/${detectedUserIp}`, {
+        timeout: 8000,
+      });
       if (r.data?.success) {
         userIpInfo = {
           ip: detectedUserIp,
@@ -1704,78 +2246,343 @@ export async function myip({ from, sock, userJid, message }) {
   }
 
   const phoneCountryMap = [
-    { prefix: "234", country: "Nigeria",      code: "NG", flag: "🇳🇬", tz: "Africa/Lagos",          currency: "NGN" },
-    { prefix: "233", country: "Ghana",         code: "GH", flag: "🇬🇭", tz: "Africa/Accra",          currency: "GHS" },
-    { prefix: "254", country: "Kenya",         code: "KE", flag: "🇰🇪", tz: "Africa/Nairobi",        currency: "KES" },
-    { prefix: "27",  country: "South Africa",  code: "ZA", flag: "🇿🇦", tz: "Africa/Johannesburg",   currency: "ZAR" },
-    { prefix: "1",   country: "USA / Canada",  code: "US", flag: "🇺🇸", tz: "America/New_York",      currency: "USD" },
-    { prefix: "44",  country: "United Kingdom",code: "GB", flag: "🇬🇧", tz: "Europe/London",         currency: "GBP" },
-    { prefix: "91",  country: "India",         code: "IN", flag: "🇮🇳", tz: "Asia/Kolkata",          currency: "INR" },
-    { prefix: "92",  country: "Pakistan",      code: "PK", flag: "🇵🇰", tz: "Asia/Karachi",          currency: "PKR" },
-    { prefix: "86",  country: "China",         code: "CN", flag: "🇨🇳", tz: "Asia/Shanghai",         currency: "CNY" },
-    { prefix: "81",  country: "Japan",         code: "JP", flag: "🇯🇵", tz: "Asia/Tokyo",            currency: "JPY" },
-    { prefix: "82",  country: "South Korea",   code: "KR", flag: "🇰🇷", tz: "Asia/Seoul",            currency: "KRW" },
-    { prefix: "62",  country: "Indonesia",     code: "ID", flag: "🇮🇩", tz: "Asia/Jakarta",          currency: "IDR" },
-    { prefix: "63",  country: "Philippines",   code: "PH", flag: "🇵🇭", tz: "Asia/Manila",           currency: "PHP" },
-    { prefix: "66",  country: "Thailand",      code: "TH", flag: "🇹🇭", tz: "Asia/Bangkok",          currency: "THB" },
-    { prefix: "84",  country: "Vietnam",       code: "VN", flag: "🇻🇳", tz: "Asia/Ho_Chi_Minh",      currency: "VND" },
-    { prefix: "60",  country: "Malaysia",      code: "MY", flag: "🇲🇾", tz: "Asia/Kuala_Lumpur",     currency: "MYR" },
-    { prefix: "65",  country: "Singapore",     code: "SG", flag: "🇸🇬", tz: "Asia/Singapore",        currency: "SGD" },
-    { prefix: "61",  country: "Australia",     code: "AU", flag: "🇦🇺", tz: "Australia/Sydney",      currency: "AUD" },
-    { prefix: "64",  country: "New Zealand",   code: "NZ", flag: "🇳🇿", tz: "Pacific/Auckland",      currency: "NZD" },
-    { prefix: "55",  country: "Brazil",        code: "BR", flag: "🇧🇷", tz: "America/Sao_Paulo",     currency: "BRL" },
-    { prefix: "52",  country: "Mexico",        code: "MX", flag: "🇲🇽", tz: "America/Mexico_City",   currency: "MXN" },
-    { prefix: "49",  country: "Germany",       code: "DE", flag: "🇩🇪", tz: "Europe/Berlin",         currency: "EUR" },
-    { prefix: "33",  country: "France",        code: "FR", flag: "🇫🇷", tz: "Europe/Paris",          currency: "EUR" },
-    { prefix: "39",  country: "Italy",         code: "IT", flag: "🇮🇹", tz: "Europe/Rome",           currency: "EUR" },
-    { prefix: "34",  country: "Spain",         code: "ES", flag: "🇪🇸", tz: "Europe/Madrid",         currency: "EUR" },
-    { prefix: "7",   country: "Russia",        code: "RU", flag: "🇷🇺", tz: "Europe/Moscow",         currency: "RUB" },
-    { prefix: "20",  country: "Egypt",         code: "EG", flag: "🇪🇬", tz: "Africa/Cairo",          currency: "EGP" },
-    { prefix: "212", country: "Morocco",       code: "MA", flag: "🇲🇦", tz: "Africa/Casablanca",     currency: "MAD" },
-    { prefix: "971", country: "UAE",           code: "AE", flag: "🇦🇪", tz: "Asia/Dubai",            currency: "AED" },
-    { prefix: "966", country: "Saudi Arabia",  code: "SA", flag: "🇸🇦", tz: "Asia/Riyadh",           currency: "SAR" },
-    { prefix: "974", country: "Qatar",         code: "QA", flag: "🇶🇦", tz: "Asia/Qatar",            currency: "QAR" },
-    { prefix: "256", country: "Uganda",        code: "UG", flag: "🇺🇬", tz: "Africa/Kampala",        currency: "UGX" },
-    { prefix: "255", country: "Tanzania",      code: "TZ", flag: "🇹🇿", tz: "Africa/Dar_es_Salaam",  currency: "TZS" },
-    { prefix: "251", country: "Ethiopia",      code: "ET", flag: "🇪🇹", tz: "Africa/Addis_Ababa",    currency: "ETB" },
+    {
+      prefix: "234",
+      country: "Nigeria",
+      code: "NG",
+      flag: "🇳🇬",
+      tz: "Africa/Lagos",
+      currency: "NGN",
+    },
+    {
+      prefix: "233",
+      country: "Ghana",
+      code: "GH",
+      flag: "🇬🇭",
+      tz: "Africa/Accra",
+      currency: "GHS",
+    },
+    {
+      prefix: "254",
+      country: "Kenya",
+      code: "KE",
+      flag: "🇰🇪",
+      tz: "Africa/Nairobi",
+      currency: "KES",
+    },
+    {
+      prefix: "27",
+      country: "South Africa",
+      code: "ZA",
+      flag: "🇿🇦",
+      tz: "Africa/Johannesburg",
+      currency: "ZAR",
+    },
+    {
+      prefix: "1",
+      country: "USA / Canada",
+      code: "US",
+      flag: "🇺🇸",
+      tz: "America/New_York",
+      currency: "USD",
+    },
+    {
+      prefix: "44",
+      country: "United Kingdom",
+      code: "GB",
+      flag: "🇬🇧",
+      tz: "Europe/London",
+      currency: "GBP",
+    },
+    {
+      prefix: "91",
+      country: "India",
+      code: "IN",
+      flag: "🇮🇳",
+      tz: "Asia/Kolkata",
+      currency: "INR",
+    },
+    {
+      prefix: "92",
+      country: "Pakistan",
+      code: "PK",
+      flag: "🇵🇰",
+      tz: "Asia/Karachi",
+      currency: "PKR",
+    },
+    {
+      prefix: "86",
+      country: "China",
+      code: "CN",
+      flag: "🇨🇳",
+      tz: "Asia/Shanghai",
+      currency: "CNY",
+    },
+    {
+      prefix: "81",
+      country: "Japan",
+      code: "JP",
+      flag: "🇯🇵",
+      tz: "Asia/Tokyo",
+      currency: "JPY",
+    },
+    {
+      prefix: "82",
+      country: "South Korea",
+      code: "KR",
+      flag: "🇰🇷",
+      tz: "Asia/Seoul",
+      currency: "KRW",
+    },
+    {
+      prefix: "62",
+      country: "Indonesia",
+      code: "ID",
+      flag: "🇮🇩",
+      tz: "Asia/Jakarta",
+      currency: "IDR",
+    },
+    {
+      prefix: "63",
+      country: "Philippines",
+      code: "PH",
+      flag: "🇵🇭",
+      tz: "Asia/Manila",
+      currency: "PHP",
+    },
+    {
+      prefix: "66",
+      country: "Thailand",
+      code: "TH",
+      flag: "🇹🇭",
+      tz: "Asia/Bangkok",
+      currency: "THB",
+    },
+    {
+      prefix: "84",
+      country: "Vietnam",
+      code: "VN",
+      flag: "🇻🇳",
+      tz: "Asia/Ho_Chi_Minh",
+      currency: "VND",
+    },
+    {
+      prefix: "60",
+      country: "Malaysia",
+      code: "MY",
+      flag: "🇲🇾",
+      tz: "Asia/Kuala_Lumpur",
+      currency: "MYR",
+    },
+    {
+      prefix: "65",
+      country: "Singapore",
+      code: "SG",
+      flag: "🇸🇬",
+      tz: "Asia/Singapore",
+      currency: "SGD",
+    },
+    {
+      prefix: "61",
+      country: "Australia",
+      code: "AU",
+      flag: "🇦🇺",
+      tz: "Australia/Sydney",
+      currency: "AUD",
+    },
+    {
+      prefix: "64",
+      country: "New Zealand",
+      code: "NZ",
+      flag: "🇳🇿",
+      tz: "Pacific/Auckland",
+      currency: "NZD",
+    },
+    {
+      prefix: "55",
+      country: "Brazil",
+      code: "BR",
+      flag: "🇧🇷",
+      tz: "America/Sao_Paulo",
+      currency: "BRL",
+    },
+    {
+      prefix: "52",
+      country: "Mexico",
+      code: "MX",
+      flag: "🇲🇽",
+      tz: "America/Mexico_City",
+      currency: "MXN",
+    },
+    {
+      prefix: "49",
+      country: "Germany",
+      code: "DE",
+      flag: "🇩🇪",
+      tz: "Europe/Berlin",
+      currency: "EUR",
+    },
+    {
+      prefix: "33",
+      country: "France",
+      code: "FR",
+      flag: "🇫🇷",
+      tz: "Europe/Paris",
+      currency: "EUR",
+    },
+    {
+      prefix: "39",
+      country: "Italy",
+      code: "IT",
+      flag: "🇮🇹",
+      tz: "Europe/Rome",
+      currency: "EUR",
+    },
+    {
+      prefix: "34",
+      country: "Spain",
+      code: "ES",
+      flag: "🇪🇸",
+      tz: "Europe/Madrid",
+      currency: "EUR",
+    },
+    {
+      prefix: "7",
+      country: "Russia",
+      code: "RU",
+      flag: "🇷🇺",
+      tz: "Europe/Moscow",
+      currency: "RUB",
+    },
+    {
+      prefix: "20",
+      country: "Egypt",
+      code: "EG",
+      flag: "🇪🇬",
+      tz: "Africa/Cairo",
+      currency: "EGP",
+    },
+    {
+      prefix: "212",
+      country: "Morocco",
+      code: "MA",
+      flag: "🇲🇦",
+      tz: "Africa/Casablanca",
+      currency: "MAD",
+    },
+    {
+      prefix: "971",
+      country: "UAE",
+      code: "AE",
+      flag: "🇦🇪",
+      tz: "Asia/Dubai",
+      currency: "AED",
+    },
+    {
+      prefix: "966",
+      country: "Saudi Arabia",
+      code: "SA",
+      flag: "🇸🇦",
+      tz: "Asia/Riyadh",
+      currency: "SAR",
+    },
+    {
+      prefix: "974",
+      country: "Qatar",
+      code: "QA",
+      flag: "🇶🇦",
+      tz: "Asia/Qatar",
+      currency: "QAR",
+    },
+    {
+      prefix: "256",
+      country: "Uganda",
+      code: "UG",
+      flag: "🇺🇬",
+      tz: "Africa/Kampala",
+      currency: "UGX",
+    },
+    {
+      prefix: "255",
+      country: "Tanzania",
+      code: "TZ",
+      flag: "🇹🇿",
+      tz: "Africa/Dar_es_Salaam",
+      currency: "TZS",
+    },
+    {
+      prefix: "251",
+      country: "Ethiopia",
+      code: "ET",
+      flag: "🇪🇹",
+      tz: "Africa/Addis_Ababa",
+      currency: "ETB",
+    },
   ];
 
-  const sorted = [...phoneCountryMap].sort((a, b) => b.prefix.length - a.prefix.length);
+  const sorted = [...phoneCountryMap].sort(
+    (a, b) => b.prefix.length - a.prefix.length,
+  );
   const match = sorted.find((c) => phoneNum.startsWith(c.prefix));
 
   let localTime = "N/A";
   if (match?.tz) {
     try {
       localTime = new Intl.DateTimeFormat("en-US", {
-        timeZone: match.tz, hour: "2-digit", minute: "2-digit", second: "2-digit",
-        hour12: true, weekday: "short", year: "numeric", month: "short", day: "numeric",
+        timeZone: match.tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
       }).format(new Date());
     } catch (_) {}
   }
 
   let serverIp = null;
   for (const svc of [
-    { url: "https://api.ipify.org?format=json", parser: (d) => (typeof d === "object" ? d.ip : d.trim()) },
-    { url: "https://api4.my-ip.io/ip.json",     parser: (d) => d.ip },
-    { url: "https://ip4.seeip.org/json",         parser: (d) => d.ip },
-    { url: "https://ipecho.net/plain",            parser: (d) => (typeof d === "string" ? d.trim() : null) },
-    { url: "https://checkip.amazonaws.com/",      parser: (d) => (typeof d === "string" ? d.trim() : null) },
+    {
+      url: "https://api.ipify.org?format=json",
+      parser: (d) => (typeof d === "object" ? d.ip : d.trim()),
+    },
+    { url: "https://api4.my-ip.io/ip.json", parser: (d) => d.ip },
+    { url: "https://ip4.seeip.org/json", parser: (d) => d.ip },
+    {
+      url: "https://ipecho.net/plain",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
+    {
+      url: "https://checkip.amazonaws.com/",
+      parser: (d) => (typeof d === "string" ? d.trim() : null),
+    },
   ]) {
     try {
-      const res = await axios.get(svc.url, { timeout: 6000 });
+      const res = await axiosRetry(svc.url, { timeout: 6000 });
       const v = svc.parser(res.data);
-      if (v && /^\d{1,3}(\.\d{1,3}){3}$/.test(v)) { serverIp = v; break; }
+      if (v && /^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+        serverIp = v;
+        break;
+      }
     } catch (_) {}
   }
 
   let serverLoc = null;
   if (serverIp) {
     try {
-      const r = await axios.get(`https://ipwho.is/${serverIp}`, { timeout: 8000 });
+      const r = await axiosRetry(`https://ipwho.is/${serverIp}`, {
+        timeout: 8000,
+      });
       if (r.data?.success)
         serverLoc = {
-          country: r.data.country, city: r.data.city, regionName: r.data.region,
-          isp: r.data.connection?.isp, lat: r.data.latitude, lon: r.data.longitude,
+          country: r.data.country,
+          city: r.data.city,
+          regionName: r.data.region,
+          isp: r.data.connection?.isp,
+          lat: r.data.latitude,
+          lon: r.data.longitude,
         };
     } catch (_) {}
   }
@@ -1836,14 +2643,14 @@ export async function myip({ from, sock, userJid, message }) {
     response += `🌐 *Server IP:* Could not fetch\n`;
   }
 
-  response += `\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+  response += `\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
 
   await sendReaction(sock, message, "✅");
   await sock.sendMessage(from, { text: response });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WHOIS COMMAND — with reactions
+//  WHOIS COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function whois({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1854,75 +2661,122 @@ export async function whois({ fullArgs, from, sock, message }) {
 
   await sendReaction(sock, message, "⏳");
 
-  const domain = fullArgs.trim().toLowerCase()
-    .replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*/, "");
+  const domain = fullArgs
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*/, "");
 
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/.test(domain)) {
+  if (
+    !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/.test(domain)
+  ) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
-      text: formatError("INVALID DOMAIN", `"${domain}" is not a valid domain name.`),
+      text: formatError(
+        "INVALID DOMAIN",
+        `"${domain}" is not a valid domain name.`,
+      ),
     });
   }
 
-  let whoisData = null, errors = [];
+  const cacheKey = `whois_${domain}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
+  }
+
+  let whoisData = null,
+    errors = [];
 
   try {
-    const res = await axios.get(`https://rdap.org/domain/${domain}`, { timeout: 10000 });
+    const res = await axiosRetry(`https://rdap.org/domain/${domain}`, {
+      timeout: 10000,
+    });
     if (res.data) {
       const d = res.data;
-      const ns = d.nameservers?.map((n) => n.ldhName?.toLowerCase()).filter(Boolean).join(", ") || "Unknown";
+      const ns =
+        d.nameservers
+          ?.map((n) => n.ldhName?.toLowerCase())
+          .filter(Boolean)
+          .join(", ") || "Unknown";
       const evtMap = {};
-      (d.events || []).forEach((e) => { evtMap[e.eventAction] = e.eventDate?.split("T")[0]; });
-      const registrar = d.entities?.find((e) => e.roles?.includes("registrar"))
-        ?.vcardArray?.[1]?.find((v) => v[0] === "fn")?.[3] || "Unknown";
+      (d.events || []).forEach((e) => {
+        evtMap[e.eventAction] = e.eventDate?.split("T")[0];
+      });
+      const registrar =
+        d.entities
+          ?.find((e) => e.roles?.includes("registrar"))
+          ?.vcardArray?.[1]?.find((v) => v[0] === "fn")?.[3] || "Unknown";
       whoisData = {
-        domain: d.ldhName || domain, registrar,
-        status: d.status?.join(", ") || "Unknown", nameservers: ns,
+        domain: d.ldhName || domain,
+        registrar,
+        status: d.status?.join(", ") || "Unknown",
+        nameservers: ns,
         created: evtMap["registration"] || evtMap["created"] || "Unknown",
         updated: evtMap["last changed"] || evtMap["changed"] || "Unknown",
-        expires: evtMap["expiration"] || "Unknown", source: "RDAP (IANA)",
+        expires: evtMap["expiration"] || "Unknown",
+        source: "RDAP (IANA)",
       };
     }
-  } catch (err) { errors.push(`RDAP: ${err.message}`); }
+  } catch (err) {
+    errors.push(`RDAP: ${err.message}`);
+  }
 
   if (!whoisData) {
     try {
-      const res = await axios.get(`https://who-dat.as93.net/${domain}`, { timeout: 10000, headers: { Accept: "application/json" } });
+      const res = await axiosRetry(`https://who-dat.as93.net/${domain}`, {
+        timeout: 10000,
+        headers: { Accept: "application/json" },
+      });
       if (res.data?.domain) {
-        const d = res.data.domain, r = res.data.registrar;
+        const d = res.data.domain,
+          r = res.data.registrar;
         whoisData = {
-          domain: d.id || domain, registrar: r?.name || "Unknown",
-          status: Array.isArray(d.status) ? d.status.join(", ") : d.status || "Unknown",
-          nameservers: Array.isArray(d.name_servers) ? d.name_servers.join(", ") : "Unknown",
+          domain: d.id || domain,
+          registrar: r?.name || "Unknown",
+          status: Array.isArray(d.status)
+            ? d.status.join(", ")
+            : d.status || "Unknown",
+          nameservers: Array.isArray(d.name_servers)
+            ? d.name_servers.join(", ")
+            : "Unknown",
           created: d.created_date?.split("T")[0] || "Unknown",
           updated: d.updated_date?.split("T")[0] || "Unknown",
           expires: d.expiration_date?.split("T")[0] || "Unknown",
           source: "who-dat.as93.net",
         };
       }
-    } catch (err) { errors.push(`who-dat: ${err.message}`); }
+    } catch (err) {
+      errors.push(`who-dat: ${err.message}`);
+    }
   }
 
   if (!whoisData) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
-      text: formatError("WHOIS FAILED", `Could not fetch WHOIS for "${domain}".\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`),
+      text: formatError(
+        "WHOIS FAILED",
+        `Could not fetch WHOIS for "${domain}".\n\n🔧 *Errors:*\n${errors.slice(0, 3).join("\n")}`,
+      ),
     });
   }
 
+  const responseText =
+    `╔══════════════════════════╗\n║     🔍 *WHOIS INFO*      ║\n╚══════════════════════════╝\n\n` +
+    `🌐 *Domain:* ${whoisData.domain}\n🏢 *Registrar:* ${whoisData.registrar}\n📋 *Status:* ${whoisData.status}\n` +
+    `📡 *Nameservers:* ${whoisData.nameservers}\n📅 *Created:* ${whoisData.created}\n` +
+    `🔄 *Updated:* ${whoisData.updated}\n⏰ *Expires:* ${whoisData.expires}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${whoisData.source}\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
+
+  setCached(cacheKey, responseText);
   await sendReaction(sock, message, "✅");
-  await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n║     🔍 *WHOIS INFO*      ║\n╚══════════════════════════╝\n\n` +
-      `🌐 *Domain:* ${whoisData.domain}\n🏢 *Registrar:* ${whoisData.registrar}\n📋 *Status:* ${whoisData.status}\n` +
-      `📡 *Nameservers:* ${whoisData.nameservers}\n📅 *Created:* ${whoisData.created}\n` +
-      `🔄 *Updated:* ${whoisData.updated}\n⏰ *Expires:* ${whoisData.expires}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${whoisData.source}\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
+  await sock.sendMessage(from, { text: responseText });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DNS LOOKUP COMMAND — with reactions
+//  DNS LOOKUP COMMAND — ENHANCED WITH CACHE
 // ════════════════════════════════════════════════════════════════════════════
 export async function dns({ fullArgs, from, sock, message }) {
   if (!fullArgs) {
@@ -1933,14 +2787,27 @@ export async function dns({ fullArgs, from, sock, message }) {
 
   await sendReaction(sock, message, "⏳");
 
-  const domain = fullArgs.trim().toLowerCase()
-    .replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*/, "");
+  const domain = fullArgs
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*/, "");
 
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/.test(domain)) {
+  if (
+    !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}$/.test(domain)
+  ) {
     await sendReaction(sock, message, "❌");
     return sock.sendMessage(from, {
       text: formatError("INVALID DOMAIN", `"${domain}" is not a valid domain.`),
     });
+  }
+
+  const cacheKey = `dns_${domain}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    await sendReaction(sock, message, "✅");
+    return sock.sendMessage(from, { text: cached });
   }
 
   const records = { A: [], AAAA: [], MX: [], NS: [], TXT: [], CNAME: [] };
@@ -1949,13 +2816,19 @@ export async function dns({ fullArgs, from, sock, message }) {
 
   for (const type of ["A", "AAAA", "MX", "NS", "TXT", "CNAME"]) {
     try {
-      const res = await axios.get(`https://dns.google/resolve?name=${domain}&type=${type}`, {
-        timeout: 6000, headers: { Accept: "application/dns-json" },
-      });
+      const res = await axiosRetry(
+        `https://dns.google/resolve?name=${domain}&type=${type}`,
+        {
+          timeout: 6000,
+          headers: { Accept: "application/dns-json" },
+        },
+      );
       if (res.data?.Answer) {
-        records[type] = res.data.Answer.filter((a) => a.type === typeNums[type]).map((a) => {
+        records[type] = res.data.Answer.filter(
+          (a) => a.type === typeNums[type],
+        ).map((a) => {
           let v = a.data || "";
-          if (["NS","CNAME","MX"].includes(type)) v = v.replace(/\.$/, "");
+          if (["NS", "CNAME", "MX"].includes(type)) v = v.replace(/\.$/, "");
           return v;
         });
         if (records[type].length > 0) usedSource = "Google DNS-over-HTTPS";
@@ -1965,11 +2838,17 @@ export async function dns({ fullArgs, from, sock, message }) {
 
   if (records.A.length === 0) {
     try {
-      const res = await axios.get(`https://cloudflare-dns.com/dns-query?name=${domain}&type=A`, {
-        timeout: 6000, headers: { Accept: "application/dns-json" },
-      });
+      const res = await axiosRetry(
+        `https://cloudflare-dns.com/dns-query?name=${domain}&type=A`,
+        {
+          timeout: 6000,
+          headers: { Accept: "application/dns-json" },
+        },
+      );
       if (res.data?.Answer) {
-        records.A = res.data.Answer.filter((a) => a.type === 1).map((a) => a.data);
+        records.A = res.data.Answer.filter((a) => a.type === 1).map(
+          (a) => a.data,
+        );
         usedSource = usedSource || "Cloudflare DoH";
       }
     } catch (_) {}
@@ -1978,32 +2857,37 @@ export async function dns({ fullArgs, from, sock, message }) {
   const fmt = (type, limit = 5) => {
     if (!records[type]?.length) return "_(none)_";
     const list = records[type].slice(0, limit);
-    if (records[type].length > limit) list.push(`...+${records[type].length - limit} more`);
+    if (records[type].length > limit)
+      list.push(`...+${records[type].length - limit} more`);
     return list.join("\n");
   };
 
+  const responseText =
+    `╔══════════════════════════╗\n║     🔍 *DNS RECORDS*     ║\n╚══════════════════════════╝\n\n🌐 *Domain:* ${domain}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n📋 *A Records (IPv4):*\n${fmt("A")}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n📋 *AAAA Records (IPv6):*\n${fmt("AAAA")}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n📋 *MX Records (Mail):*\n${fmt("MX")}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n📋 *NS Records:*\n${fmt("NS")}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n📋 *TXT Records:*\n${fmt("TXT", 3)}\n` +
+    (records.CNAME.length > 0
+      ? `━━━━━━━━━━━━━━━━━━━━━\n📋 *CNAME:*\n${fmt("CNAME")}\n`
+      : "") +
+    `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${usedSource || "Multiple DoH resolvers"}\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`;
+
+  setCached(cacheKey, responseText);
   await sendReaction(sock, message, "✅");
-  await sock.sendMessage(from, {
-    text:
-      `╔══════════════════════════╗\n║     🔍 *DNS RECORDS*     ║\n╚══════════════════════════╝\n\n🌐 *Domain:* ${domain}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n📋 *A Records (IPv4):*\n${fmt("A")}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n📋 *AAAA Records (IPv6):*\n${fmt("AAAA")}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n📋 *MX Records (Mail):*\n${fmt("MX")}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n📋 *NS Records:*\n${fmt("NS")}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━\n📋 *TXT Records:*\n${fmt("TXT", 3)}\n` +
-      (records.CNAME.length > 0 ? `━━━━━━━━━━━━━━━━━━━━━\n📋 *CNAME:*\n${fmt("CNAME")}\n` : "") +
-      `━━━━━━━━━━━━━━━━━━━━━\n🔧 *Source:* ${usedSource || "Multiple DoH resolvers"}\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
-  });
+  await sock.sendMessage(from, { text: responseText });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GET PROFILE PICTURE — with reactions
+//  GET PROFILE PICTURE — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function getpp({ message, from, sock }) {
   await sendReaction(sock, message, "⏳");
   try {
     const msg = message.message;
-    const senderJid = message.key?.participant || message.key?.remoteJid || from;
+    const senderJid =
+      message.key?.participant || message.key?.remoteJid || from;
     const targetJid =
       msg?.extendedTextMessage?.contextInfo?.participant ||
       msg?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
@@ -2011,8 +2895,12 @@ export async function getpp({ message, from, sock }) {
     const displayNum = normalizeJid(targetJid);
 
     let ppUrl = null;
-    try { ppUrl = await sock.profilePictureUrl(targetJid, "image"); } catch (_) {
-      try { ppUrl = await sock.profilePictureUrl(targetJid, "preview"); } catch (_) {}
+    try {
+      ppUrl = await sock.profilePictureUrl(targetJid, "image");
+    } catch (_) {
+      try {
+        ppUrl = await sock.profilePictureUrl(targetJid, "preview");
+      } catch (_) {}
     }
 
     if (ppUrl) {
@@ -2025,53 +2913,79 @@ export async function getpp({ message, from, sock }) {
     } else {
       await sendReaction(sock, message, "❌");
       await sock.sendMessage(from, {
-        text: formatError("NOT FOUND", `@${displayNum} has no profile picture or privacy blocks access.`),
+        text: formatError(
+          "NOT FOUND",
+          `@${displayNum} has no profile picture or privacy blocks access.`,
+        ),
         mentions: [targetJid],
       });
     }
   } catch (error) {
     await sendReaction(sock, message, "🔴");
     await sock.sendMessage(from, {
-      text: formatError("ERROR", `Could not fetch profile picture: ${error.message}`),
+      text: formatError(
+        "ERROR",
+        `Could not fetch profile picture: ${error.message}`,
+      ),
     });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  GET GROUP PROFILE PICTURE — with reactions
+//  GET GROUP PROFILE PICTURE — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function getgpp({ from, sock, isGroup, message }) {
   if (!isGroup) {
-    return sock.sendMessage(from, { text: formatError("GROUP ONLY", "This command only works in groups.") });
+    return sock.sendMessage(from, {
+      text: formatError("GROUP ONLY", "This command only works in groups."),
+    });
   }
   await sendReaction(sock, message, "⏳");
   try {
     let ppUrl = null;
-    try { ppUrl = await sock.profilePictureUrl(from, "image"); } catch (_) {
-      try { ppUrl = await sock.profilePictureUrl(from, "preview"); } catch (_) {}
+    try {
+      ppUrl = await sock.profilePictureUrl(from, "image");
+    } catch (_) {
+      try {
+        ppUrl = await sock.profilePictureUrl(from, "preview");
+      } catch (_) {}
     }
     if (ppUrl) {
       await sendReaction(sock, message, "✅");
       await sock.sendMessage(from, {
         image: { url: ppUrl },
-        caption: "👥 *Group Profile Picture*\n⏰ " + new Date().toLocaleString(),
+        caption:
+          "👥 *Group Profile Picture*\n⏰ " + new Date().toLocaleString(),
       });
     } else {
       await sendReaction(sock, message, "❌");
-      await sock.sendMessage(from, { text: formatInfo("NOT FOUND", "This group has no profile picture.") });
+      await sock.sendMessage(from, {
+        text: formatInfo("NOT FOUND", "This group has no profile picture."),
+      });
     }
   } catch (err) {
     await sendReaction(sock, message, "🔴");
-    await sock.sendMessage(from, { text: formatError("ERROR", `Could not fetch group picture: ${err.message}`) });
+    await sock.sendMessage(from, {
+      text: formatError(
+        "ERROR",
+        `Could not fetch group picture: ${err.message}`,
+      ),
+    });
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ACTIVATE GROUP COMMAND
+//  ACTIVATE GROUP COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
-  if (!isGroup) return sock.sendMessage(from, { text: "❌ This command only works in groups." });
-  if (!isAdmin) return sock.sendMessage(from, { text: "⛔ Only the bot owner can activate the bot in this group." });
+  if (!isGroup)
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups.",
+    });
+  if (!isAdmin)
+    return sock.sendMessage(from, {
+      text: "⛔ Only the bot owner can activate the bot in this group.",
+    });
   activateGroup(sessionId, from);
   await sock.sendMessage(from, {
     text: `✅ *GROUP ACTIVATED!*\n\nEveryone can now use bot commands in this group.\n\nTo restrict back to owner-only: *${ENV.PREFIX}deactivate*`,
@@ -2079,11 +2993,17 @@ export async function activate({ from, sock, isAdmin, isGroup, sessionId }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  DEACTIVATE GROUP COMMAND
+//  DEACTIVATE GROUP COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
 export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
-  if (!isGroup) return sock.sendMessage(from, { text: "❌ This command only works in groups." });
-  if (!isAdmin) return sock.sendMessage(from, { text: "⛔ Only the bot owner can deactivate the bot in this group." });
+  if (!isGroup)
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups.",
+    });
+  if (!isAdmin)
+    return sock.sendMessage(from, {
+      text: "⛔ Only the bot owner can deactivate the bot in this group.",
+    });
   deactivateGroup(sessionId, from);
   await sock.sendMessage(from, {
     text: `🔒 *GROUP DEACTIVATED!*\n\nOnly the bot owner can use commands in this group now.\n\nTo open to everyone: *${ENV.PREFIX}activate*`,
@@ -2091,11 +3011,21 @@ export async function deactivate({ from, sock, isAdmin, isGroup, sessionId }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ANTILINK COMMAND — FULLY FIXED
+//  ANTILINK COMMAND — ENHANCED
 // ════════════════════════════════════════════════════════════════════════════
-export async function antilink({ args, message, from, sock, isAdmin, isGroup, userJid }) {
+export async function antilink({
+  args,
+  message,
+  from,
+  sock,
+  isAdmin,
+  isGroup,
+  userJid,
+}) {
   if (!isGroup) {
-    return sock.sendMessage(from, { text: "❌ This command only works in groups." });
+    return sock.sendMessage(from, {
+      text: "❌ This command only works in groups.",
+    });
   }
 
   const currentSettings = groupSettings.get(from) || {};
@@ -2116,7 +3046,7 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
         `• ⚠️ Users receive warnings\n` +
         `• 👢 Auto-kick after 3 warnings\n\n` +
         `⚠️ *Bot must be group admin for deletion/kick to work!*\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        `⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
     });
   }
 
@@ -2125,13 +3055,16 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
   if (sub === "status") {
     const statusLabel = currentStatus ? "ENABLED ✅" : "DISABLED ❌";
     return sock.sendMessage(from, {
-      text: `🔗 *Anti-Link Status:* ${statusLabel}\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      text: `🔗 *Anti-Link Status:* ${statusLabel}\n\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
     });
   }
 
   if (!["on", "off"].includes(sub)) {
     return sock.sendMessage(from, {
-      text: formatInfo("INVALID OPTION", `Usage: ${ENV.PREFIX}antilink on/off/status\n\nExample: ${ENV.PREFIX}antilink on`),
+      text: formatInfo(
+        "INVALID OPTION",
+        `Usage: ${ENV.PREFIX}antilink on/off/status\n\nExample: ${ENV.PREFIX}antilink on`,
+      ),
     });
   }
 
@@ -2140,12 +3073,17 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
     const metadata = await sock.groupMetadata(from);
     const userNum = normalizeJid(userJid);
     isGroupAdmin = metadata.participants.some(
-      (p) => normalizeJid(p.id) === userNum && (p.admin === "admin" || p.admin === "superadmin"),
+      (p) =>
+        normalizeJid(p.id) === userNum &&
+        (p.admin === "admin" || p.admin === "superadmin"),
     );
   } catch (err) {
     console.error("[ANTILINK] Failed to fetch group metadata:", err.message);
     return sock.sendMessage(from, {
-      text: formatError("ERROR", "Could not verify admin status. Please try again."),
+      text: formatError(
+        "ERROR",
+        "Could not verify admin status. Please try again.",
+      ),
     });
   }
 
@@ -2165,15 +3103,14 @@ export async function antilink({ args, message, from, sock, isAdmin, isGroup, us
         `🔗 Links will now be automatically deleted.\n` +
         `⚠️ Violators receive a warning (3 warnings = auto-kick).\n` +
         `🛡️ Group admins are exempt.\n\n` +
-        `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+        `⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
     });
   } else {
     return sock.sendMessage(from, {
-      text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed in this group.\n\n⚡ _AYOBOT v1_ | 👑 _AYOCODES_`,
+      text: `🔴 *Anti-Link DISABLED*\n\nLinks are now allowed in this group.\n\n⚡ _AYOBOT v1.0.1_ | 👑 _AYOCODES_`,
     });
   }
 }
-
 
 // ============================================================
 // DEFAULT EXPORT - MUST INCLUDE ALL FUNCTIONS
@@ -2189,7 +3126,7 @@ export default {
   connectInfo,
   prefixinfo,
   test,
-  start,        // ✅ CRITICAL: start MUST be here
+  start, // ✅ CRITICAL: start MUST be here
   time,
   weather,
 
@@ -2208,7 +3145,7 @@ export default {
 
   // Media commands
   viewOnce,
-  ok,           // ✅ CRITICAL: ok MUST be here
+  ok, // ✅ CRITICAL: ok MUST be here
   dm,
   tome,
   senddm,
