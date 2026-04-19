@@ -45,6 +45,14 @@ import fs from "fs";
 
 dotenv.config();
 
+validateConfig();
+
+const originalConsoleError = console.error;
+const logger = pino({
+  level: ENV.DEBUG ? "debug" : "info",
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
 // ============================================================
 //   EXPRESS APP SETUP WITH WEB SOCKET
 // ============================================================
