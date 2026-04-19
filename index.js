@@ -46,6 +46,50 @@ import fs from "fs";
 dotenv.config();
 
 // ============================================================
+//   CIRCUIT BREAKER CLASS — MOVED TO TOP TO FIX INITIALIZATION ERROR
+// ============================================================
+class CircuitBreaker {
+  constructor(failureThreshold = 5, timeout = 60000) {
+    this.failures = 0;
+    this.failureThreshold = failureThreshold;
+    this.timeout = timeout;
+    this.lastFailureTime = null;
+    this.state = "CLOSED";
+  }
+
+  async call(fn) {
+    if (this.state === "OPEN") {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = "HALF_OPEN";
+      } else {
+        throw new Error(
+          "Circuit breaker is OPEN - service temporarily unavailable",
+        );
+      }
+    }
+    try {
+      const result = await fn();
+      if (this.state === "HALF_OPEN") {
+        this.state = "CLOSED";
+        this.failures = 0;
+      }
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+      if (this.failures >= this.failureThreshold) this.state = "OPEN";
+      throw error;
+    }
+  }
+
+  reset() {
+    this.failures = 0;
+    this.state = "CLOSED";
+    this.lastFailureTime = null;
+  }
+}
+
+// ============================================================
 //   EXPRESS APP SETUP WITH WEB SOCKET
 // ============================================================
 const app = express();
@@ -1139,57 +1183,6 @@ export function isAuthorized(
 }
 
 // ============================================================
-//   CIRCUIT BREAKER
-// ============================================================
-class CircuitBreaker {
-  constructor(failureThreshold = 5, timeout = 60000) {
-    this.failures = 0;
-    this.failureThreshold = failureThreshold;
-    this.timeout = timeout;
-    this.lastFailureTime = null;
-    this.state = "CLOSED";
-  }
-
-  async call(fn) {
-    if (this.state === "OPEN") {
-      if (Date.now() - this.lastFailureTime > this.timeout) {
-        this.state = "HALF_OPEN";
-      } else {
-        throw new Error(
-          "Circuit breaker is OPEN - service temporarily unavailable",
-        );
-      }
-    }
-    try {
-      const result = await fn();
-      if (this.state === "HALF_OPEN") {
-        this.state = "CLOSED";
-        this.failures = 0;
-      }
-      return result;
-    } catch (error) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-      if (this.failures >= this.failureThreshold) this.state = "OPEN";
-      throw error;
-    }
-  }
-
-  reset() {
-    this.failures = 0;
-    this.state = "CLOSED";
-    this.lastFailureTime = null;
-  }
-}
-
-export const apiCircuitBreakers = {
-  ai: new CircuitBreaker(3, 30000),
-  downloader: new CircuitBreaker(5, 60000),
-  media: new CircuitBreaker(3, 45000),
-  weather: new CircuitBreaker(2, 30000),
-};
-
-// ============================================================
 //   BAD MAC SUPPRESSION
 // ============================================================
 const logger = pino({ level: ENV.DEBUG ? "info" : "silent" });
@@ -2065,7 +2058,6 @@ async function _startSocket(session) {
           session.authMethod = null;
           session.ownerConfirmed = false;
           session.reconnectAttempts = 0;
-          clearSessionTempMaps(session.id);
           setTimeout(() => _startSocket(session), 3000);
           return;
         }
@@ -3085,19 +3077,6 @@ function setupWebDashboard() {
       database: dbConnected ? "connected" : "disconnected",
     });
   });
-
-  const PORT = ENV.PORT;
-  server.listen(PORT, "0.0.0.0", () => {
-    log.ok(`Dashboard → http://localhost:${PORT}`);
-    if (ENV.AYOCODES_ADMIN_KEY)
-      log.ok(`Admin → http://localhost:${PORT}/ayocodes-admin`);
-    const publicUrl = process.env.RENDER_EXTERNAL_URL
-      ? process.env.RENDER_EXTERNAL_URL.startsWith("http")
-        ? process.env.RENDER_EXTERNAL_URL
-        : `https://${process.env.RENDER_EXTERNAL_URL}`
-      : `http://localhost:${PORT}`;
-    log.ok(`Public → ${publicUrl}\n`);
-  });
 }
 
 // ============================================================
@@ -3270,6 +3249,7 @@ async function gracefulShutdown(sig) {
     }
     if (session.pingInterval) clearInterval(session.pingInterval);
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
+    if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
     if (session.queueTimeout) clearTimeout(session.queueTimeout);
   }
 
