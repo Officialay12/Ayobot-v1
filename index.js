@@ -46,50 +46,6 @@ import fs from "fs";
 dotenv.config();
 
 // ============================================================
-//   CIRCUIT BREAKER CLASS — MOVED TO TOP TO FIX INITIALIZATION ERROR
-// ============================================================
-class CircuitBreaker {
-  constructor(failureThreshold = 5, timeout = 60000) {
-    this.failures = 0;
-    this.failureThreshold = failureThreshold;
-    this.timeout = timeout;
-    this.lastFailureTime = null;
-    this.state = "CLOSED";
-  }
-
-  async call(fn) {
-    if (this.state === "OPEN") {
-      if (Date.now() - this.lastFailureTime > this.timeout) {
-        this.state = "HALF_OPEN";
-      } else {
-        throw new Error(
-          "Circuit breaker is OPEN - service temporarily unavailable",
-        );
-      }
-    }
-    try {
-      const result = await fn();
-      if (this.state === "HALF_OPEN") {
-        this.state = "CLOSED";
-        this.failures = 0;
-      }
-      return result;
-    } catch (error) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-      if (this.failures >= this.failureThreshold) this.state = "OPEN";
-      throw error;
-    }
-  }
-
-  reset() {
-    this.failures = 0;
-    this.state = "CLOSED";
-    this.lastFailureTime = null;
-  }
-}
-
-// ============================================================
 //   EXPRESS APP SETUP WITH WEB SOCKET
 // ============================================================
 const app = express();
@@ -863,6 +819,57 @@ export const escapeHtml = (text) => {
 };
 
 // ============================================================
+//   CIRCUIT BREAKER
+// ============================================================
+class CircuitBreaker {
+  constructor(failureThreshold = 5, timeout = 60000) {
+    this.failures = 0;
+    this.failureThreshold = failureThreshold;
+    this.timeout = timeout;
+    this.lastFailureTime = null;
+    this.state = "CLOSED";
+  }
+
+  async call(fn) {
+    if (this.state === "OPEN") {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = "HALF_OPEN";
+      } else {
+        throw new Error(
+          "Circuit breaker is OPEN - service temporarily unavailable",
+        );
+      }
+    }
+    try {
+      const result = await fn();
+      if (this.state === "HALF_OPEN") {
+        this.state = "CLOSED";
+        this.failures = 0;
+      }
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+      if (this.failures >= this.failureThreshold) this.state = "OPEN";
+      throw error;
+    }
+  }
+
+  reset() {
+    this.failures = 0;
+    this.state = "CLOSED";
+    this.lastFailureTime = null;
+  }
+}
+
+export const apiCircuitBreakers = {
+  ai: new CircuitBreaker(3, 30000),
+  downloader: new CircuitBreaker(5, 60000),
+  media: new CircuitBreaker(3, 45000),
+  weather: new CircuitBreaker(2, 30000),
+};
+
+// ============================================================
 //   PERSISTENCE FUNCTIONS WITH CIRCUIT BREAKERS
 // ============================================================
 
@@ -1092,7 +1099,6 @@ function cleanupOldData() {
       groupMetadataCache.delete(key);
   }
 
-  // Force garbage collection if available
   if (global.gc) global.gc();
 }
 
@@ -1130,7 +1136,7 @@ setInterval(
     );
   },
   60 * 60 * 1000,
-); // Hourly
+);
 
 // ============================================================
 //   GROUP ACTIVATION FUNCTIONS
@@ -1181,18 +1187,6 @@ export function isAuthorized(
   if (mode === "public") return true;
   return false;
 }
-
-// ============================================================
-//   BAD MAC SUPPRESSION
-// ============================================================
-const logger = pino({ level: ENV.DEBUG ? "info" : "silent" });
-const originalConsoleError = console.error;
-console.error = function (...args) {
-  const m = args[0];
-  if (typeof m === "string" && m.includes("Bad MAC")) return;
-  if (m instanceof Error && m.message?.includes("Bad MAC")) return;
-  originalConsoleError.apply(console, args);
-};
 
 // ============================================================
 //   MONGODB AUTH STATE
@@ -1518,7 +1512,6 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
     `[${session.id.slice(0, 8)}] Owner confirmed: +${cleanPhone} (${cleanName})`,
   );
 
-  // Broadcast to dashboard
   broadcastToSession(session.id, {
     type: "owner_updated",
     owner: { phone: cleanPhone, name: cleanName },
@@ -1558,7 +1551,10 @@ async function runOwnerMigration() {
         );
         cleanedCount++;
         log.info(
-          `[Migration] Cleared owner for disconnected session: ${sessionDoc.sessionId.slice(0, 8)}`,
+          `[Migration] Cleared owner for disconnected session: ${sessionDoc.sessionId.slice(
+            0,
+            8,
+          )}`,
         );
       } else if (
         storedOwner !== deployerPhone &&
@@ -1570,7 +1566,10 @@ async function runOwnerMigration() {
         );
         cleanedCount++;
         log.info(
-          `[Migration] Cleared mismatched owner for session: ${sessionDoc.sessionId.slice(0, 8)}`,
+          `[Migration] Cleared mismatched owner for session: ${sessionDoc.sessionId.slice(
+            0,
+            8,
+          )}`,
         );
       }
     }
@@ -2058,6 +2057,7 @@ async function _startSocket(session) {
           session.authMethod = null;
           session.ownerConfirmed = false;
           session.reconnectAttempts = 0;
+          clearSessionTempMaps(session.id);
           setTimeout(() => _startSocket(session), 3000);
           return;
         }
@@ -2172,7 +2172,6 @@ async function requestPairingCode(session, phoneNumber) {
 // ============================================================
 //   ENHANCED HTML TEMPLATES WITH DARK/LIGHT THEME
 // ============================================================
-
 function sharedHead(title) {
   const theme = ENV.DASHBOARD_THEME;
   return `<!DOCTYPE html>
@@ -2265,8 +2264,14 @@ function connectedHTML(session) {
       <div style="display:flex;align-items:center;gap:16px;">
         <div style="width:56px;height:56px;background:linear-gradient(135deg,#ff3366,#ff6b3d);border-radius:50%;display:flex;align-items:center;justify-content:center;"><i class="fas fa-crown" style="font-size:24px;color:white;"></i></div>
         <div>
-          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(session.ownerName || "Owner")}</div>
-          <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">${session.ownerPhone ? `+${escapeHtml(session.ownerPhone)}` : "Pending first message…"}</div>
+          <div style="font-weight:700;font-size:18px;" id="ownerName">${escapeHtml(
+            session.ownerName || "Owner",
+          )}</div>
+          <div style="font-size:13px;color:#9ca3af;font-family:monospace;" id="ownerPhone">${
+            session.ownerPhone
+              ? `+${escapeHtml(session.ownerPhone)}`
+              : "Pending first message…"
+          }</div>
         </div>
       </div>
       <div class="status-badge status-online"><i class="fas fa-shield-alt"></i> BOT OWNER</div>
@@ -2275,9 +2280,13 @@ function connectedHTML(session) {
     <!-- Stats Grid -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-comments" style="font-size:28px;color:#ff3366;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statMsg">${session.messageCount}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Total Messages</div></div>
-      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-terminal" style="font-size:28px;color:#ff6b3d;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statCmd">${session.commandCount || 0}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Commands Run</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-terminal" style="font-size:28px;color:#ff6b3d;margin-bottom:12px;display:block;"></i><div style="font-size:32px;font-weight:800;" id="statCmd">${
+        session.commandCount || 0
+      }</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Commands Run</div></div>
       <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-clock" style="font-size:28px;color:#ffb347;margin-bottom:12px;display:block;"></i><div style="font-size:28px;font-weight:800;" id="statUptime">${h}h ${m}m ${s}s</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Uptime</div></div>
-      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-globe" style="font-size:28px;color:#22c55e;margin-bottom:12px;display:block;"></i><div style="font-size:20px;font-weight:800;">${escapeHtml((session.mode || ENV.BOT_MODE).toUpperCase())}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Bot Mode</div></div>
+      <div class="card" style="padding:24px;text-align:center;"><i class="fas fa-globe" style="font-size:28px;color:#22c55e;margin-bottom:12px;display:block;"></i><div style="font-size:20px;font-weight:800;">${escapeHtml(
+        (session.mode || ENV.BOT_MODE).toUpperCase(),
+      )}</div><div style="font-size:12px;color:#9ca3af;margin-top:4px;">Bot Mode</div></div>
     </div>
 
     <!-- Charts Row -->
@@ -2297,10 +2306,18 @@ function connectedHTML(session) {
       <div class="card" style="padding:24px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i class="fas fa-robot" style="color:#ff3366;"></i> Bot Information</h3>
         <div style="display:flex;flex-direction:column;gap:12px;">
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">📱 Number</span><span style="font-family:monospace;" id="botNumber">+${escapeHtml(session.botNumber || "—")}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">👤 Name</span><span id="botName">${escapeHtml(session.botName || "—")}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">⚡ Prefix</span><span>${escapeHtml(ENV.PREFIX)}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔐 Auth Method</span><span id="authMethod">${escapeHtml(session.authMethod || "session")}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">📱 Number</span><span style="font-family:monospace;" id="botNumber">+${escapeHtml(
+            session.botNumber || "—",
+          )}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">👤 Name</span><span id="botName">${escapeHtml(
+            session.botName || "—",
+          )}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">⚡ Prefix</span><span>${escapeHtml(
+            ENV.PREFIX,
+          )}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔐 Auth Method</span><span id="authMethod">${escapeHtml(
+            session.authMethod || "session",
+          )}</span></div>
         </div>
       </div>
       <div class="card" style="padding:24px;">
@@ -2309,7 +2326,11 @@ function connectedHTML(session) {
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🟢 Connection</span><span style="color:#22c55e;">STABLE</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🔧 Handlers</span><span style="color:#22c55e;">READY</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">🛡️ Anti-Delete</span><span style="color:#22c55e;">ACTIVE</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">💾 Memory</span><span id="memoryUsage">${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:#9ca3af;">💾 Memory</span><span id="memoryUsage">${(
+            process.memoryUsage().heapUsed /
+            1024 /
+            1024
+          ).toFixed(1)} MB</span></div>
         </div>
       </div>
     </div>
@@ -2459,7 +2480,11 @@ function connectHTML(sessionId, qrUrl) {
       </div>
       <div id="qrTab" style="text-align:center;">
         <div class="qr-container" style="background:white;padding:20px;border-radius:20px;display:inline-block;margin-bottom:24px;">
-          ${qrUrl ? `<img src="${qrUrl}" alt="QR Code" style="width:200px;height:200px;">` : `<div class="spinner" style="margin:0 auto;"></div><p style="margin-top:16px;">Generating QR...</p>`}
+          ${
+            qrUrl
+              ? `<img src="${qrUrl}" alt="QR Code" style="width:200px;height:200px;">`
+              : `<div class="spinner" style="margin:0 auto;"></div><p style="margin-top:16px;">Generating QR...</p>`
+          }
         </div>
         <div style="text-align:left;margin-top:24px;">
           <h4 style="margin-bottom:16px;">How to connect:</h4>
@@ -3077,6 +3102,19 @@ function setupWebDashboard() {
       database: dbConnected ? "connected" : "disconnected",
     });
   });
+
+  const PORT = ENV.PORT;
+  server.listen(PORT, "0.0.0.0", () => {
+    log.ok(`Dashboard → http://localhost:${PORT}`);
+    if (ENV.AYOCODES_ADMIN_KEY)
+      log.ok(`Admin → http://localhost:${PORT}/ayocodes-admin`);
+    const publicUrl = process.env.RENDER_EXTERNAL_URL
+      ? process.env.RENDER_EXTERNAL_URL.startsWith("http")
+        ? process.env.RENDER_EXTERNAL_URL
+        : `https://${process.env.RENDER_EXTERNAL_URL}`
+      : `http://localhost:${PORT}`;
+    log.ok(`Public → ${publicUrl}\n`);
+  });
 }
 
 // ============================================================
@@ -3220,7 +3258,6 @@ async function main() {
   }
 
   setupWebDashboard();
-  setInterval(cleanupOldData, 60 * 60 * 1000);
   setInterval(() => saveCommandStats(), 5 * 60 * 1000);
   await restoreAllSessions();
   await loadAndDisplayFeatures().catch((e) =>
@@ -3249,7 +3286,6 @@ async function gracefulShutdown(sig) {
     }
     if (session.pingInterval) clearInterval(session.pingInterval);
     if (session.reconnectTimeout) clearTimeout(session.reconnectTimeout);
-    if (session.pairingCodeTimeout) clearTimeout(session.pairingCodeTimeout);
     if (session.queueTimeout) clearTimeout(session.queueTimeout);
   }
 
