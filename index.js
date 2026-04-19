@@ -45,11 +45,9 @@ import fs from "fs";
 
 dotenv.config();
 
-validateConfig();
-
 const originalConsoleError = console.error;
 const logger = pino({
-  level: ENV.DEBUG ? "debug" : "info",
+  level: process.env.DEBUG === "true" ? "debug" : "info",
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
