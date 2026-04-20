@@ -12,13 +12,13 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Cache constants ──────────────────────────────────────────────────────
-const ADMIN_CACHE_TTL = 30_000; // 30 s
-const GROUP_META_TTL = 60_000; // 60 s
-const MAX_CACHE_SIZE = 500; // evict oldest when exceeded
+const ADMIN_CACHE_TTL  = 30_000;   // 30 s
+const GROUP_META_TTL   = 60_000;   // 60 s
+const MAX_CACHE_SIZE   = 500;      // evict oldest when exceeded
 
-const groupMetaCache = new Map(); // groupJid  → { data, timestamp }
-const botAdminCache = new Map(); // groupJid  → { isAdmin, timestamp }
-const userAdminCache = new Map(); // `${g}_${p}` → { isAdmin, timestamp }
+const groupMetaCache  = new Map(); // groupJid  → { data, timestamp }
+const botAdminCache   = new Map(); // groupJid  → { isAdmin, timestamp }
+const userAdminCache  = new Map(); // `${g}_${p}` → { isAdmin, timestamp }
 
 // ── Generic TTL-aware cache write ────────────────────────────────────────
 function cacheSet(map, key, value) {
@@ -63,19 +63,11 @@ export const normalizePhone = normalizeNum;
  * @param {boolean} bypassCache
  * @returns {Promise<object|null>}
  */
-export async function getGroupMetadataCached(
-  groupJid,
-  sock,
-  bypassCache = false,
-) {
+export async function getGroupMetadataCached(groupJid, sock, bypassCache = false) {
   if (!groupJid || !sock) return null;
 
   const cached = groupMetaCache.get(groupJid);
-  if (
-    !bypassCache &&
-    cached &&
-    Date.now() - cached.timestamp < GROUP_META_TTL
-  ) {
+  if (!bypassCache && cached && Date.now() - cached.timestamp < GROUP_META_TTL) {
     return cached.data;
   }
 
@@ -101,25 +93,17 @@ export async function getGroupMetadataCached(
  * @param {boolean} bypassCache
  * @returns {Promise<boolean>}
  */
-export async function isBotGroupAdminCached(
-  groupJid,
-  sock,
-  bypassCache = false,
-) {
+export async function isBotGroupAdminCached(groupJid, sock, bypassCache = false) {
   if (!groupJid || !sock) return false;
 
   const cached = botAdminCache.get(groupJid);
-  if (
-    !bypassCache &&
-    cached &&
-    Date.now() - cached.timestamp < ADMIN_CACHE_TTL
-  ) {
+  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
     return cached.isAdmin;
   }
 
   try {
-    const meta = await getGroupMetadataCached(groupJid, sock, bypassCache);
-    const botRaw = sock.user?.id ?? "";
+    const meta    = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const botRaw  = sock.user?.id ?? "";
     const botPhone = normalizeNum(botRaw);
 
     if (!botPhone) return false;
@@ -127,7 +111,7 @@ export async function isBotGroupAdminCached(
     const participant = (meta?.participants ?? []).find(
       (p) => normalizeNum(p.id) === botPhone,
     );
-    const isAdmin = !!participant?.admin;
+    const isAdmin = !!(participant?.admin);
 
     cacheSet(botAdminCache, groupJid, { isAdmin, timestamp: Date.now() });
     return isAdmin;
@@ -150,33 +134,24 @@ export async function isBotGroupAdminCached(
  * @param {boolean} bypassCache
  * @returns {Promise<boolean>}
  */
-export async function isGroupAdminCached(
-  groupJid,
-  userJid,
-  sock,
-  bypassCache = false,
-) {
+export async function isGroupAdminCached(groupJid, userJid, sock, bypassCache = false) {
   if (!groupJid || !userJid || !sock) return false;
 
   const userPhone = normalizeNum(userJid);
   if (!userPhone) return false;
 
-  const key = `${groupJid}_${userPhone}`;
+  const key    = `${groupJid}_${userPhone}`;
   const cached = userAdminCache.get(key);
-  if (
-    !bypassCache &&
-    cached &&
-    Date.now() - cached.timestamp < ADMIN_CACHE_TTL
-  ) {
+  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
     return cached.isAdmin;
   }
 
   try {
-    const meta = await getGroupMetadataCached(groupJid, sock, bypassCache);
+    const meta        = await getGroupMetadataCached(groupJid, sock, bypassCache);
     const participant = (meta?.participants ?? []).find(
       (p) => normalizeNum(p.id) === userPhone,
     );
-    const isAdmin = !!participant?.admin;
+    const isAdmin = !!(participant?.admin);
 
     cacheSet(userAdminCache, key, { isAdmin, timestamp: Date.now() });
     return isAdmin;
@@ -207,11 +182,11 @@ export async function ensureBotAdminInheritance(groupJid, sock, ownerJid) {
   try {
     if (!groupJid || !sock || !ownerJid) return false;
 
-    const metadata = await getGroupMetadataCached(groupJid, sock, true);
-    if (!metadata) return false;
+    const metadata   = await getGroupMetadataCached(groupJid, sock, true);
+    if (!metadata)   return false;
 
     const ownerPhone = normalizeNum(ownerJid);
-    const botPhone = getBotNumber(sock);
+    const botPhone   = getBotNumber(sock);
     if (!ownerPhone || !botPhone) return false;
 
     const ownerParticipant = metadata.participants.find(
@@ -335,13 +310,13 @@ export function getBotNumber(sock) {
 export function extractTargetUser(args, message) {
   const ctx =
     message?.message?.extendedTextMessage?.contextInfo ??
-    message?.message?.imageMessage?.contextInfo ??
-    message?.message?.videoMessage?.contextInfo ??
+    message?.message?.imageMessage?.contextInfo      ??
+    message?.message?.videoMessage?.contextInfo      ??
     null;
 
   // 1. @mention
   if (ctx?.mentionedJid?.length) {
-    const jid = ctx.mentionedJid[0];
+    const jid   = ctx.mentionedJid[0];
     const phone = normalizeNum(jid);
     if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
@@ -354,7 +329,7 @@ export function extractTargetUser(args, message) {
 
   // 3. Bare phone number in first arg
   if (args?.length) {
-    const raw = String(args[0]).replace(/[^0-9]/g, "");
+    const raw   = String(args[0]).replace(/[^0-9]/g, "");
     const phone = raw.length >= 7 ? raw : null;
     if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
   }
