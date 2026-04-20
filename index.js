@@ -24,6 +24,8 @@
 //   18. requireAdmin consistent across all admin routes
 //   19. Admin dashboard auto-refresh clears on page unload
 //   20. All API endpoints return correct JSON shapes
+//   21. MongoDB index conflict fix — catches ALL conflict error codes/messages
+//       and drops+recreates the index cleanly on any conflict type
 // ============================================================
 import makeWASocket, {
   Browsers,
@@ -68,7 +70,7 @@ const app    = express();
 const server = http.createServer(app);
 const wss    = new WebSocketServer({ noServer: true });
 
-// FIX: Handle upgrade manually so WebSocket only handles /ws path
+// Handle upgrade manually so WebSocket only handles /ws path
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === "/ws") {
@@ -311,7 +313,7 @@ export function getRealPhoneFromJid(jid, sessionId = null) {
   return cleanJid;
 }
 
-// FIX: Short-circuit immediately when ownerConfirmed — no mapping needed
+// Short-circuit immediately when ownerConfirmed — no mapping needed
 export function autoMapOwnerTempId(sessionId, senderJid, ownerPhone) {
   if (!senderJid || !ownerPhone || !sessionId) return false;
 
@@ -469,7 +471,7 @@ export function isBotOwner(userJid, botOwnerJid, sessionId = null) {
   return user === owner;
 }
 
-// FIX: exact match only — removed partial-match (includes) that caused false positives
+// Exact match only — removed partial-match (includes) that caused false positives
 export function isAdmin(userJid, ownerPhone, sessionId = null) {
   if (!userJid || !ownerPhone) return false;
 
@@ -707,7 +709,7 @@ export const escapeHtml = (text) => {
     .replace(/'/g, "&#39;");
 };
 
-// FIX: Safe session ID for JS interpolation — hex only
+// Safe session ID for JS interpolation — hex only
 function safeSessionId(sid) {
   return String(sid).replace(/[^a-f0-9]/gi, "").slice(0, 64);
 }
@@ -973,7 +975,7 @@ async function backupToLocalFile(data, filename) {
   }
 }
 
-// FIX: guarded by PERSIST_STATE flag
+// Guarded by PERSIST_STATE flag
 if (ENV.PERSIST_STATE) {
   setInterval(async () => {
     await backupToLocalFile(Array.from(bannedUsers.entries()),   "bannedUsers_backup.json");
@@ -1150,6 +1152,8 @@ function createSessionObject(sessionId) {
 
 // ============================================================
 //   DATABASE CONNECTION — MongoDB v5+ safe (ping-based check)
+//   FIX: Index conflict now caught by code 85, 86, AND message
+//        string matching — handles ALL MongoDB driver versions
 // ============================================================
 async function ensureMongoConnection() {
   if (mongoClient) {
@@ -1182,14 +1186,50 @@ async function ensureMongoConnection() {
   adminTokenCollection   = db.collection("admin_tokens");
 
   await authCollection.createIndex({ _id: 1 });
- await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true, sparse: true }).catch(async (err) => {
-  if (err.codeName === 'IndexOptionsConflict' || err.code === 85) {
-    await sessionMetaCollection.dropIndex('sessionId_1').catch(() => {});
-    await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true, sparse: true });
-  } else {
-    throw err;
-  }
-});
+
+  // ── FIX: Robust index creation that handles ALL conflict types ──
+  // MongoDB can throw different error codes depending on the conflict:
+  //   85  = IndexOptionsConflict  (same name, different options)
+  //   86  = IndexKeySpecsConflict (same keys, different name)
+  // Both produce an error message containing "same name" or "existing index".
+  // We catch all of these and drop+recreate.
+  await (async () => {
+    try {
+      await sessionMetaCollection.createIndex(
+        { sessionId: 1 },
+        { unique: true, sparse: true },
+      );
+    } catch (err) {
+      const isConflict =
+        err.code === 85 ||
+        err.code === 86 ||
+        err.codeName === "IndexOptionsConflict" ||
+        err.codeName === "IndexKeySpecsConflict" ||
+        (err.message && err.message.includes("same name")) ||
+        (err.message && err.message.includes("existing index")) ||
+        (err.message && err.message.includes("An existing index"));
+
+      if (isConflict) {
+        log.warn("sessionId_1 index conflict detected — dropping and recreating...");
+        try {
+          await sessionMetaCollection.dropIndex("sessionId_1");
+          log.ok("Old index dropped");
+        } catch (dropErr) {
+          // Index might not exist under that exact name — ignore
+          log.warn(`Drop index warning (non-fatal): ${dropErr.message}`);
+        }
+        await sessionMetaCollection.createIndex(
+          { sessionId: 1 },
+          { unique: true, sparse: true },
+        );
+        log.ok("sessionId_1 index recreated with sparse:true");
+      } else {
+        // Unknown error — rethrow so startup fails loudly
+        throw err;
+      }
+    }
+  })();
+
   await sessionMetaCollection.createIndex({ active: 1 });
   await sessionMetaCollection.createIndex({ updatedAt: -1 });
   await userLogCollection.createIndex({ phone: 1 }, { unique: true });
@@ -1353,7 +1393,7 @@ function setSessionOwner(session, jid, phone, name = "Owner") {
 
   if (cleanPhone) sessionOwnerMap.set(cleanPhone, session);
 
-  // FIX: resolve the welcome-message promise so sendWelcomeMessage unblocks
+  // Resolve the welcome-message promise so sendWelcomeMessage unblocks
   if (session._ownerReadyResolve) {
     session._ownerReadyResolve();
     session._ownerReadyResolve = null;
@@ -1505,7 +1545,7 @@ function attachListeners(session) {
         rawSender = from;
       }
 
-      // FIX: only run temp-ID mapping when owner is NOT yet confirmed
+      // Only run temp-ID mapping when owner is NOT yet confirmed
       if (!session.ownerConfirmed && session.ownerPhone && rawSender && !session.destroyed) {
         autoMapOwnerTempId(session.id, rawSender, session.ownerPhone);
       }
@@ -1662,10 +1702,8 @@ async function sendWelcomeMessage(session, sock) {
 // ============================================================
 async function clearSessionAuth(sessionId) {
   try {
-    // FIX: Validate sessionId is hex-only before using in regex
     const safePrefix = String(sessionId).replace(/[^a-f0-9]/gi, "").slice(0, 64);
     if (!safePrefix) return;
-    // Use anchored regex — only matches exact prefix at start of _id
     await authCollection.deleteMany({
       _id: { $regex: `^${safePrefix}:`, $options: "" },
     });
@@ -1731,7 +1769,7 @@ async function startSession(sessionId, isNew = true) {
     log.err(`startSession(${sessionId.slice(0, 8)}) failed: ${err.message}`);
     return null;
   } finally {
-    // FIX: always clear the lock regardless of outcome
+    // Always clear the lock regardless of outcome
     sessionCreationLocks.delete(sessionId);
   }
 }
@@ -1860,7 +1898,7 @@ async function _startSocket(session) {
 
         if (!globalBotNumber) setGlobalBotNumber(botNumber);
 
-        // FIX: set owner FIRST (synchronous) before async handler loading
+        // Set owner FIRST (synchronous) before async handler loading
         if (!session.ownerConfirmed) {
           const adminPhone = ENV.ADMIN ? _bareNormalize(ENV.ADMIN) : "";
 
@@ -2172,7 +2210,7 @@ function connectedHTML(session) {
       <div class="status-badge status-online"><i class="fas fa-shield-alt"></i> BOT OWNER</div>
     </div>
 
-    <!-- Stats Grid — FIX: stat-value is text, not an icon -->
+    <!-- Stats Grid -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card stat-card">
         <div class="stat-icon" style="color:#ff3366;"><i class="fas fa-comments"></i></div>
@@ -2249,7 +2287,6 @@ function connectedHTML(session) {
     const SID = '${SID}';
     let ws = null, commandChart = null, resourceChart = null, statsInterval = null, memInterval = null;
 
-    // WebSocket
     function connectWS() {
       try {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2314,7 +2351,6 @@ function connectedHTML(session) {
         const isDark = ${JSON.stringify(ENV.DASHBOARD_THEME === "dark")};
         const textColor = isDark ? '#9ca3af' : '#6b7280';
 
-        // Command chart
         const res = await fetch('/api/command-stats/' + SID, { credentials: 'same-origin' });
         const stats = await res.json();
         const ctx1 = document.getElementById('commandChart').getContext('2d');
@@ -2332,7 +2368,6 @@ function connectedHTML(session) {
           document.getElementById('noCommandData').style.display = 'block';
         }
 
-        // Memory doughnut
         const memRes = await fetch('/api/memory/' + SID, { credentials: 'same-origin' });
         const mem = await memRes.json();
         const ctx2 = document.getElementById('resourceChart').getContext('2d');
@@ -2361,14 +2396,12 @@ function connectedHTML(session) {
       } catch(_) {}
     }
 
-    // Init
     connectWS();
     fetchStats();
     initCharts();
     statsInterval = setInterval(fetchStats, 30000);
     memInterval   = setInterval(updateMemory, 10000);
 
-    // FIX: clear intervals on page unload
     window.addEventListener('beforeunload', () => {
       clearInterval(statsInterval);
       clearInterval(memInterval);
@@ -2505,7 +2538,6 @@ function connectHTML(sessionId, qrUrl) {
       }
     }
 
-    // Poll for connection every 4s
     let pollInterval = setInterval(async () => {
       try {
         const res = await fetch('/api/status/' + SID, { credentials: 'same-origin' });
@@ -2603,13 +2635,9 @@ function adminLoginHTML(error = "") {
 }
 
 // ============================================================
-//   ADMIN DASHBOARD HTML — FULLY FIXED
-//   FIX: stat values are numeric, not icons; all routes exist;
-//        kill button uses data attribute (no XSS); interval cleared on unload
+//   ADMIN DASHBOARD HTML
 // ============================================================
 function adminDashboardHTML() {
-  const theme   = ENV.DASHBOARD_THEME;
-  const textClr = theme === "dark" ? "#e8e8f0" : "#1a1a2e";
   return (
     sharedHead("AYOBOT — Admin Panel") +
     `<body>
@@ -2628,7 +2656,6 @@ function adminDashboardHTML() {
       <p style="color:#9ca3af;margin-top:4px;">Monitor and manage all active bot sessions</p>
     </div>
 
-    <!-- FIX: stat cards use .stat-value div for numbers, not icons -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card stat-card">
         <div class="stat-icon" style="color:#ff3366;"><i class="fas fa-robot"></i></div>
@@ -2652,7 +2679,6 @@ function adminDashboardHTML() {
       </div>
     </div>
 
-    <!-- Action Buttons -->
     <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;">
       <button onclick="refreshInstances()" class="btn-secondary" id="refreshBtn"><i class="fas fa-sync-alt"></i> Refresh</button>
       <button onclick="deleteOffline()" class="btn-danger"><i class="fas fa-trash"></i> Delete Offline</button>
@@ -2660,7 +2686,6 @@ function adminDashboardHTML() {
       <span id="lastRefreshed" style="color:#6b7280;font-size:12px;margin-left:auto;"></span>
     </div>
 
-    <!-- Instances Table -->
     <div class="card" style="overflow-x:auto;">
       <table class="data-table">
         <thead>
@@ -2699,7 +2724,6 @@ function adminDashboardHTML() {
         const data = await res.json();
         instancesCache = data.instances || [];
 
-        // Update stat cards
         document.getElementById('totalInstances').textContent = (data.total || 0).toLocaleString();
         document.getElementById('onlineInstances').textContent = (data.online || 0).toLocaleString();
         const totalMsg = instancesCache.reduce((s, i) => s + (i.messageCount || 0), 0);
@@ -2727,11 +2751,9 @@ function adminDashboardHTML() {
         const h  = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60);
         const statusClass = inst.connected ? 'status-online' : 'status-offline';
         const statusText  = inst.connected ? 'LIVE' : 'OFFLINE';
-        const statusIcon  = inst.connected ? 'fa-circle' : 'fa-circle';
-        // FIX: use data-id attribute for kill button — no XSS via inline interpolation
         const instanceIdAttr = encodeURIComponent(inst.instanceId || '');
         return \`<tr>
-          <td><span class="status-badge \${statusClass}"><i class="fas \${statusIcon}" style="font-size:8px;"></i> \${statusText}</span></td>
+          <td><span class="status-badge \${statusClass}"><i class="fas fa-circle" style="font-size:8px;"></i> \${statusText}</span></td>
           <td><span style="font-family:monospace;color:#ffb347;">\${inst.ownerPhone ? '+' + inst.ownerPhone : '<span style="color:#6b7280;">—</span>'}</span></td>
           <td><span style="font-family:monospace;">\${inst.botNumber ? '+' + inst.botNumber : '<span style="color:#6b7280;">—</span>'}</span></td>
           <td>\${h}h \${m}m</td>
@@ -2791,7 +2813,6 @@ function adminDashboardHTML() {
       setTimeout(() => el.remove(), 4000);
     }
 
-    // FIX: clear interval on unload to prevent ghost requests
     refreshInstances();
     refreshInterval = setInterval(refreshInstances, 15000);
     window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
@@ -2801,7 +2822,7 @@ function adminDashboardHTML() {
 }
 
 // ============================================================
-//   ADMIN ANALYTICS HTML — NEW: was missing, caused 404
+//   ADMIN ANALYTICS HTML
 // ============================================================
 function adminAnalyticsHTML() {
   return (
@@ -2820,7 +2841,6 @@ function adminAnalyticsHTML() {
       <p style="color:#9ca3af;margin-top:4px;">System-wide metrics and performance data</p>
     </div>
 
-    <!-- System Stats -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:32px;" id="systemCards">
       <div class="card stat-card"><div class="stat-icon" style="color:#ff3366;"><i class="fas fa-server"></i></div><div class="stat-value" id="sysUptime">—</div><div class="stat-label">Server Uptime (s)</div></div>
       <div class="card stat-card"><div class="stat-icon" style="color:#ff6b3d;"><i class="fas fa-memory"></i></div><div class="stat-value" id="sysMemUsed">—</div><div class="stat-label">Heap Used (MB)</div></div>
@@ -2828,7 +2848,6 @@ function adminAnalyticsHTML() {
       <div class="card stat-card"><div class="stat-icon" style="color:#22c55e;"><i class="fas fa-database"></i></div><div class="stat-value" id="sysNode">—</div><div class="stat-label">Node Version</div></div>
     </div>
 
-    <!-- Charts Row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:20px;margin-bottom:32px;">
       <div class="card" style="padding:24px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;"><i class="fas fa-chart-area" style="color:#ff3366;"></i> Memory Usage Over Time</h3>
@@ -2840,7 +2859,6 @@ function adminAnalyticsHTML() {
       </div>
     </div>
 
-    <!-- Metrics Table -->
     <div class="card" style="padding:24px;">
       <h3 style="font-size:16px;font-weight:600;margin-bottom:20px;"><i class="fas fa-list" style="color:#ffb347;"></i> Detailed Metrics</h3>
       <div id="metricsBody" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">
@@ -2866,7 +2884,6 @@ function adminAnalyticsHTML() {
         document.getElementById('sysCpu').textContent     = d.system?.cpuCount || '—';
         document.getElementById('sysNode').textContent    = (d.system?.nodeVersion || '—').replace('v','');
 
-        // Accumulate memory history for timeline
         const usedMB = ((d.memory?.heapUsed || 0) / 1024 / 1024);
         const now = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         memHistory.push({ t: now, v: parseFloat(usedMB.toFixed(1)) });
@@ -2888,7 +2905,6 @@ function adminAnalyticsHTML() {
           memChart.update('none');
         }
 
-        // Session distribution chart
         const online = d.activeSessions ? Math.min(d.activeSessions, 50) : 0;
         const offline = Math.max(0, (d.activeSessions || 0) - online);
         if (!sessChart) {
@@ -2903,7 +2919,6 @@ function adminAnalyticsHTML() {
           });
         }
 
-        // Detailed metrics grid
         const entries = [
           ['Total Sessions', d.activeSessions ?? '—'],
           ['Total Messages', (d.totalMessages || 0).toLocaleString()],
@@ -3007,7 +3022,6 @@ function userTrackingHTML() {
           '</tr>';
         }).join('');
 
-        // Pagination
         const pages = Math.ceil((data.total || 0) / 50);
         const maxPages = Math.min(pages, 10);
         let pHtml = '';
@@ -3057,7 +3071,6 @@ function requireAdmin(req, res, next) {
   }
   const token = req.cookies?.ayoAdminToken;
   if (!token || !adminTokens.has(token)) {
-    // API routes return JSON, page routes redirect
     if (req.path.includes("/api/")) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -3070,17 +3083,14 @@ function requireAdmin(req, res, next) {
 //   WEB DASHBOARD ROUTES
 // ============================================================
 function setupWebDashboard() {
-  // Main redirect
   app.get("/", (req, res) => {
     const sid = getOrCreateSessionId(req, res);
     res.redirect(`/dashboard/${sid}`);
   });
 
-  // Per-session dashboard
   app.get("/dashboard/:sessionId", async (req, res) => {
     const { sessionId } = req.params;
 
-    // Validate sessionId format
     if (!/^[a-f0-9]{32}$/.test(sessionId)) {
       return res.redirect("/");
     }
@@ -3111,7 +3121,6 @@ function setupWebDashboard() {
     return res.send(loadingHTML(sessionId));
   });
 
-  // Session status API
   app.get("/api/status/:sessionId", (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ exists: false, connected: false });
@@ -3134,7 +3143,6 @@ function setupWebDashboard() {
     });
   });
 
-  // Command stats API
   app.get("/api/command-stats/:sessionId", (req, res) => {
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.json({ topCommands: [] });
@@ -3145,7 +3153,6 @@ function setupWebDashboard() {
     res.json({ topCommands: stats });
   });
 
-  // Memory API
   app.get("/api/memory/:sessionId", (req, res) => {
     const mem   = process.memoryUsage();
     const used  = parseFloat((mem.heapUsed  / 1024 / 1024).toFixed(1));
@@ -3154,7 +3161,6 @@ function setupWebDashboard() {
     res.json({ used, free, total });
   });
 
-  // Request pairing code
   app.post("/api/request-pairing/:sessionId", async (req, res) => {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.json({ success: false, error: "Phone number required." });
@@ -3164,7 +3170,6 @@ function setupWebDashboard() {
     res.json(await requestPairingCode(session, phoneNumber));
   });
 
-  // Logout
   app.post("/api/logout/:sessionId", async (req, res) => {
     if (req.cookies?.ayoSessionId !== req.params.sessionId) {
       return res.json({ success: false, error: "Unauthorized" });
@@ -3174,7 +3179,6 @@ function setupWebDashboard() {
     res.json({ success: true });
   });
 
-  // Waitlist
   app.post("/api/waitlist-join/:sessionId", async (req, res) => {
     const { version } = req.body;
     if (!version) return res.json({ success: false, error: "version required" });
@@ -3223,22 +3227,18 @@ function setupWebDashboard() {
     res.redirect("/ayocodes-admin/login");
   });
 
-  // Admin dashboard root
   app.get("/ayocodes-admin", requireAdmin, (req, res) => {
     res.send(adminDashboardHTML());
   });
 
-  // FIX: /ayocodes-admin/analytics route was missing — implemented
   app.get("/ayocodes-admin/analytics", requireAdmin, (req, res) => {
     res.send(adminAnalyticsHTML());
   });
 
-  // Admin users page
   app.get("/ayocodes-admin/users", requireAdmin, (req, res) => {
     res.send(userTrackingHTML());
   });
 
-  // Admin API — instances list (FIX: returns correct numeric values)
   app.get("/ayocodes-admin/api/instances", requireAdmin, (req, res) => {
     const list = Array.from(sessions.values()).map((s) => ({
       instanceId:     s.id,
@@ -3260,18 +3260,15 @@ function setupWebDashboard() {
     });
   });
 
-  // Admin API — disconnect instance
   app.post("/ayocodes-admin/api/disconnect", requireAdmin, async (req, res) => {
     const { instanceId } = req.body;
     if (!instanceId) return res.status(400).json({ error: "instanceId required" });
-    // FIX: sanitize instanceId before use
     const safeId = String(instanceId).replace(/[^a-f0-9]/gi, "").slice(0, 64);
     if (!safeId) return res.status(400).json({ error: "Invalid instanceId" });
     await destroySession(safeId).catch(() => {});
     res.json({ ok: true, instanceId: safeId });
   });
 
-  // Admin API — delete all offline sessions
   app.post("/ayocodes-admin/api/delete-offline", requireAdmin, async (req, res) => {
     const offline = Array.from(sessions.values()).filter((s) => !s.connected);
     let deleted = 0;
@@ -3281,7 +3278,6 @@ function setupWebDashboard() {
     res.json({ ok: true, deleted, remaining: sessions.size });
   });
 
-  // Admin API — users list with pagination + search
   app.get("/ayocodes-admin/api/users", requireAdmin, async (req, res) => {
     try {
       await ensureMongoConnection();
@@ -3325,7 +3321,6 @@ function setupWebDashboard() {
     }
   });
 
-  // Admin API — export all data
   app.get("/ayocodes-admin/api/export-all", requireAdmin, async (req, res) => {
     try {
       await ensureMongoConnection();
@@ -3363,7 +3358,6 @@ function setupWebDashboard() {
     }
   });
 
-  // Metrics endpoint — admin protected
   app.get("/api/metrics", requireAdmin, (req, res) => {
     res.json({
       uptime:         process.uptime(),
@@ -3385,7 +3379,6 @@ function setupWebDashboard() {
     });
   });
 
-  // Health check — public
   app.get("/health", async (req, res) => {
     let dbConnected = false;
     try {
@@ -3404,7 +3397,6 @@ function setupWebDashboard() {
     });
   });
 
-  // Start HTTP server
   const PORT = ENV.PORT;
   server.listen(PORT, "0.0.0.0", () => {
     log.ok(`Dashboard → http://localhost:${PORT}`);
@@ -3514,7 +3506,6 @@ async function restoreAllSessions() {
             log.info(`[${s.sessionId.slice(0, 8)}] No owner data — awaiting first DM command`);
           }
 
-          // Wait up to 30s for handlers to be ready
           for (let i = 0; i < 30 && !session.handlersReady; i++) await delay(1000);
           if (session.handlersReady) {
             log.info(`[${s.sessionId.slice(0, 8)}] Session restored successfully`);
@@ -3546,7 +3537,6 @@ async function main() {
 
   setupWebDashboard();
 
-  // FIX: only schedule commandStats save when PERSIST_STATE=true
   if (ENV.PERSIST_STATE) {
     setInterval(() => saveCommandStats(), 5 * 60 * 1000);
   }
@@ -3558,12 +3548,11 @@ async function main() {
 }
 
 // ============================================================
-//   GRACEFUL SHUTDOWN — FIX: persistence guarded by PERSIST_STATE
+//   GRACEFUL SHUTDOWN
 // ============================================================
 async function gracefulShutdown(sig) {
   console.log(`\n${C.red}🛑 ${sig} — Shutting down gracefully…${C.reset}`);
 
-  // FIX: only save state if PERSIST_STATE is enabled
   if (ENV.PERSIST_STATE) {
     await saveBannedUsers().catch(() => {});
     await saveGroupSettings().catch(() => {});
@@ -3572,7 +3561,6 @@ async function gracefulShutdown(sig) {
   }
 
   for (const session of sessions.values()) {
-    // Resolve any pending owner-ready promises
     if (session._ownerReadyResolve) {
       session._ownerReadyResolve();
       session._ownerReadyResolve = null;
@@ -3585,7 +3573,6 @@ async function gracefulShutdown(sig) {
     if (session.queueTimeout)     clearTimeout(session.queueTimeout);
   }
 
-  // Close WebSocket server
   try { wss.close(); } catch (_) {}
 
   if (mongoClient) {
