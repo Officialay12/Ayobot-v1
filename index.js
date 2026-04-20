@@ -1182,7 +1182,26 @@ async function ensureMongoConnection() {
   adminTokenCollection   = db.collection("admin_tokens");
 
   await authCollection.createIndex({ _id: 1 });
-  await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true, sparse: true });
+
+  // Handle index conflict for sessionId_1 with sparse option
+  try {
+    await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true, sparse: true });
+  } catch (err) {
+    if (err.codeName === 'IndexOptionsConflict' || err.code === 85) {
+      log.warn("Index conflict detected, dropping existing index and recreating...");
+      try {
+        await sessionMetaCollection.dropIndex('sessionId_1');
+        await sessionMetaCollection.createIndex({ sessionId: 1 }, { unique: true, sparse: true });
+        log.ok("Index recreated successfully with sparse option");
+      } catch (dropErr) {
+        log.err(`Failed to recreate index: ${dropErr.message}`);
+        throw dropErr;
+      }
+    } else {
+      throw err;
+    }
+  }
+
   await sessionMetaCollection.createIndex({ active: 1 });
   await sessionMetaCollection.createIndex({ updatedAt: -1 });
   await userLogCollection.createIndex({ phone: 1 }, { unique: true });
@@ -3176,7 +3195,7 @@ function setupWebDashboard() {
       return res.json({ success: false, error: "Bot not connected" });
     }
     const names = {
-      v2: "AYOBOT v2 — Multi-device + AI Memory",
+      v2: "AYOBOT v2 — More dope features + stability",
       v3: "AYOBOT v3 — Telegram + WhatsApp",
     };
     try {
