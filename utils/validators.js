@@ -122,263 +122,292 @@ export async function isBotGroupAdminCached(groupJid, sock, bypassCache = false)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  USER ADMIN STATUS (cached)
+// USER ADMIN STATUS (cached) — FIXED: compares by phone number only
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Returns true when userJid is a group admin or superadmin in groupJid.
- *
- * @param {string} groupJid
- * @param {string} userJid
- * @param {object} sock
- * @param {boolean} bypassCache
- * @returns {Promise<boolean>}
- */
+
+Returns true when userJid is a group admin or superadmin in groupJid.
+
+IMPORTANT: This compares by phone number only, ignoring temporary JID suffixes.
+
+@param {string} groupJid
+
+@param {string} userJid
+
+@param {object} sock
+
+@param {boolean} bypassCache
+
+@returns {Promise<boolean>}
+*/
 export async function isGroupAdminCached(groupJid, userJid, sock, bypassCache = false) {
-  if (!groupJid || !userJid || !sock) return false;
+if (!groupJid || !userJid || !sock) return false;
 
-  const userPhone = normalizeNum(userJid);
-  if (!userPhone) return false;
+const userPhone = normalizeNum(userJid);
+if (!userPhone) return false;
 
-  const key    = `${groupJid}_${userPhone}`;
-  const cached = userAdminCache.get(key);
-  if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
-    return cached.isAdmin;
-  }
+const key = ${groupJid}_${userPhone};
+const cached = userAdminCache.get(key);
+if (!bypassCache && cached && Date.now() - cached.timestamp < ADMIN_CACHE_TTL) {
+return cached.isAdmin;
+}
 
-  try {
-    const meta        = await getGroupMetadataCached(groupJid, sock, bypassCache);
-    const participant = (meta?.participants ?? []).find(
-      (p) => normalizeNum(p.id) === userPhone,
-    );
-    const isAdmin = !!(participant?.admin);
+try {
+const meta = await getGroupMetadataCached(groupJid, sock, bypassCache);
 
-    cacheSet(userAdminCache, key, { isAdmin, timestamp: Date.now() });
-    return isAdmin;
-  } catch (err) {
-    console.error(`[validators] isGroupAdminCached: ${err.message}`);
-    return false;
-  }
+// Find participant by phone number only (handles temp IDs)
+const participant = (meta?.participants ?? []).find(
+(p) => normalizeNum(p.id) === userPhone,
+);
+const isAdmin = !!(participant?.admin === "admin" || participant?.admin === "superadmin");
+
+cacheSet(userAdminCache, key, { isAdmin, timestamp: Date.now() });
+return isAdmin;
+} catch (err) {
+console.error([validators] isGroupAdminCached: ${err.message});
+return false;
+}
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  BOT ADMIN INHERITANCE (FIXED)
+// BOT ADMIN INHERITANCE (FIXED)
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * If the bot owner is a group admin, the bot is treated as having admin
- * rights immediately.  Auto-promotion is attempted in background via
- * setTimeout(fn, 0) — safe in all Node.js ESM environments.
- *
- * FIX: previously used setImmediate (not available in all ESM envs).
- * FIX: now returns true on first call when owner is admin instead of false.
- *
- * @param {string} groupJid
- * @param {object} sock
- * @param {string} ownerJid
- * @returns {Promise<boolean>}
- */
+
+If the bot owner is a group admin, the bot is treated as having admin
+
+rights immediately. Auto-promotion is attempted in background via
+
+setTimeout(fn, 0) — safe in all Node.js ESM environments.
+
+FIX: previously used setImmediate (not available in all ESM envs).
+
+FIX: now returns true on first call when owner is admin instead of false.
+
+@param {string} groupJid
+
+@param {object} sock
+
+@param {string} ownerJid
+
+@returns {Promise<boolean>}
+*/
 export async function ensureBotAdminInheritance(groupJid, sock, ownerJid) {
-  try {
-    if (!groupJid || !sock || !ownerJid) return false;
+try {
+if (!groupJid || !sock || !ownerJid) return false;
 
-    const metadata   = await getGroupMetadataCached(groupJid, sock, true);
-    if (!metadata)   return false;
+const metadata = await getGroupMetadataCached(groupJid, sock, true);
+if (!metadata) return false;
 
-    const ownerPhone = normalizeNum(ownerJid);
-    const botPhone   = getBotNumber(sock);
-    if (!ownerPhone || !botPhone) return false;
+const ownerPhone = normalizeNum(ownerJid);
+const botPhone = getBotNumber(sock);
+if (!ownerPhone || !botPhone) return false;
 
-    const ownerParticipant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === ownerPhone,
-    );
-    const isOwnerAdmin =
-      ownerParticipant?.admin === "admin" ||
-      ownerParticipant?.admin === "superadmin";
+const ownerParticipant = metadata.participants.find(
+(p) => normalizeNum(p.id) === ownerPhone,
+);
+const isOwnerAdmin =
+ownerParticipant?.admin === "admin" ||
+ownerParticipant?.admin === "superadmin";
 
-    if (!isOwnerAdmin) return false;
+if (!isOwnerAdmin) return false;
 
-    const botParticipant = metadata.participants.find(
-      (p) => normalizeNum(p.id) === botPhone,
-    );
-    const isBotAdmin =
-      botParticipant?.admin === "admin" ||
-      botParticipant?.admin === "superadmin";
+const botParticipant = metadata.participants.find(
+(p) => normalizeNum(p.id) === botPhone,
+);
+const isBotAdmin =
+botParticipant?.admin === "admin" ||
+botParticipant?.admin === "superadmin";
 
-    // Bot already admin — nothing to do
-    if (isBotAdmin) return true;
+// Bot already admin — nothing to do
+if (isBotAdmin) return true;
 
-    // Owner is admin → consider bot as admin immediately (commands work now)
-    // Attempt promotion in background — non-blocking, safe ESM alternative to setImmediate
-    setTimeout(async () => {
-      try {
-        await sock.groupParticipantsUpdate(
-          groupJid,
-          [`${botPhone}@s.whatsapp.net`],
-          "promote",
-        );
-        console.log(
-          `✅ [INHERITANCE] Auto-promoted bot in ${groupJid} because owner is admin`,
-        );
-        clearGroupCache(groupJid);
-        await sock.sendMessage(groupJid, {
-          text:
-            `🤖 *Bot Admin Inherited*\n\n` +
-            `Bot owner is a group admin, so I have been automatically promoted.\n\n` +
-            `👑 Owner: @${ownerPhone}`,
-          mentions: [`${ownerPhone}@s.whatsapp.net`],
-        });
-      } catch (err) {
-        console.log(
-          `⚠️ [INHERITANCE] Could not auto-promote bot in ${groupJid}: ` +
-            `${err.message} — commands still work via owner inheritance`,
-        );
-      }
-    }, 0);
+// Owner is admin → consider bot as admin immediately (commands work now)
+// Attempt promotion in background — non-blocking, safe ESM alternative to setImmediate
+setTimeout(async () => {
+try {
+await sock.groupParticipantsUpdate(
+groupJid,
+[${botPhone}@s.whatsapp.net],
+"promote",
+);
+console.log(
+✅ [INHERITANCE] Auto-promoted bot in ${groupJid} because owner is admin,
+);
+clearGroupCache(groupJid);
+await sock.sendMessage(groupJid, {
+text:
+🤖 *Bot Admin Inherited*\n\n +
+Bot owner is a group admin, so I have been automatically promoted.\n\n +
+👑 Owner: @${ownerPhone},
+mentions: [${ownerPhone}@s.whatsapp.net],
+});
+} catch (err) {
+console.log(
+⚠️ [INHERITANCE] Could not auto-promote bot in ${groupJid}: +
+${err.message} — commands still work via owner inheritance,
+);
+}
+}, 0);
 
-    // Return true immediately so commands aren't blocked while promotion runs
-    return true;
-  } catch (error) {
-    console.error(`[INHERITANCE] Error: ${error.message}`);
-    return false;
-  }
+// Return true immediately so commands aren't blocked while promotion runs
+return true;
+} catch (error) {
+console.error([INHERITANCE] Error: ${error.message});
+return false;
+}
 }
 
 /**
- * Returns true if:
- *   • the bot itself is a group admin, OR
- *   • the bot owner is a group admin (inheritance)
- *
- * FIX: bypassCache=true on the retry so stale cached false doesn't persist.
- *
- * @param {string} groupJid
- * @param {object} sock
- * @param {string} ownerJid
- * @returns {Promise<boolean>}
- */
-export async function isBotAdminWithInheritance(groupJid, sock, ownerJid) {
-  // Fast path — direct admin check (cached)
-  const isDirectAdmin = await isBotGroupAdminCached(groupJid, sock, false);
-  if (isDirectAdmin) return true;
 
-  // Slow path — inheritance check (always bypasses cache for accuracy)
-  return ensureBotAdminInheritance(groupJid, sock, ownerJid);
+Returns true if:
+
+• the bot itself is a group admin, OR
+
+• the bot owner is a group admin (inheritance)
+
+FIX: bypassCache=true on the retry so stale cached false doesn't persist.
+
+@param {string} groupJid
+
+@param {object} sock
+
+@param {string} ownerJid
+
+@returns {Promise<boolean>}
+*/
+export async function isBotAdminWithInheritance(groupJid, sock, ownerJid) {
+// Fast path — direct admin check (cached)
+const isDirectAdmin = await isBotGroupAdminCached(groupJid, sock, false);
+if (isDirectAdmin) return true;
+
+// Slow path — inheritance check (always bypasses cache for accuracy)
+return ensureBotAdminInheritance(groupJid, sock, ownerJid);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  CACHE MANAGEMENT
+// CACHE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Wipe all cached entries for a group (call after promote/demote/etc.) */
 export function clearGroupCache(groupJid) {
-  groupMetaCache.delete(groupJid);
-  botAdminCache.delete(groupJid);
-  for (const key of userAdminCache.keys()) {
-    if (key.startsWith(groupJid)) userAdminCache.delete(key);
-  }
+groupMetaCache.delete(groupJid);
+botAdminCache.delete(groupJid);
+for (const key of userAdminCache.keys()) {
+if (key.startsWith(groupJid)) userAdminCache.delete(key);
+}
 }
 
 /** Force-refresh bot admin status for a group and return new value. */
 export async function refreshBotAdminStatus(groupJid, sock) {
-  clearGroupCache(groupJid);
-  return isBotGroupAdminCached(groupJid, sock, true);
+clearGroupCache(groupJid);
+return isBotGroupAdminCached(groupJid, sock, true);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  BOT NUMBER HELPER
+// BOT NUMBER HELPER
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Return the bot's own normalised phone number. */
 export function getBotNumber(sock) {
-  return normalizeNum(sock?.user?.id ?? "");
+return normalizeNum(sock?.user?.id ?? "");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  TARGET USER EXTRACTION
+// TARGET USER EXTRACTION
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Extract the target user from:
- *   1. A @mention in contextInfo
- *   2. A quoted/replied-to message sender
- *   3. A bare phone number in args[0]
- *
- * @param {string[]} args
- * @param {object}   message  Baileys message object
- * @returns {{ jid: string, phone: string } | null}
- */
+
+Extract the target user from:
+
+A @mention in contextInfo
+A quoted/replied-to message sender
+A bare phone number in args[0]
+@param {string[]} args
+
+@param {object} message Baileys message object
+
+@returns {{ jid: string, phone: string } | null}
+*/
 export function extractTargetUser(args, message) {
-  const ctx =
-    message?.message?.extendedTextMessage?.contextInfo ??
-    message?.message?.imageMessage?.contextInfo      ??
-    message?.message?.videoMessage?.contextInfo      ??
-    null;
+const ctx =
+message?.message?.extendedTextMessage?.contextInfo ??
+message?.message?.imageMessage?.contextInfo ??
+message?.message?.videoMessage?.contextInfo ??
+null;
 
-  // 1. @mention
-  if (ctx?.mentionedJid?.length) {
-    const jid   = ctx.mentionedJid[0];
-    const phone = normalizeNum(jid);
-    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
-  }
+// 1. @mention
+if (ctx?.mentionedJid?.length) {
+const jid = ctx.mentionedJid[0];
+const phone = normalizeNum(jid);
+if (phone) return { jid: ${phone}@s.whatsapp.net, phone };
+}
 
-  // 2. Quoted message sender
-  if (ctx?.participant) {
-    const phone = normalizeNum(ctx.participant);
-    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
-  }
+// 2. Quoted message sender
+if (ctx?.participant) {
+const phone = normalizeNum(ctx.participant);
+if (phone) return { jid: ${phone}@s.whatsapp.net, phone };
+}
 
-  // 3. Bare phone number in first arg
-  if (args?.length) {
-    const raw   = String(args[0]).replace(/[^0-9]/g, "");
-    const phone = raw.length >= 7 ? raw : null;
-    if (phone) return { jid: `${phone}@s.whatsapp.net`, phone };
-  }
+// 3. Bare phone number in first arg
+if (args?.length) {
+const raw = String(args[0]).replace(/[^0-9]/g, "");
+const phone = raw.length >= 7 ? raw : null;
+if (phone) return { jid: ${phone}@s.whatsapp.net, phone };
+}
 
-  return null;
+return null;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  GROUP COMMAND GUARD
+// GROUP COMMAND GUARD
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
- * Quick sanity-check used at the top of group commands.
- * Returns { valid: false, reason } when the check fails.
- *
- * @param {string} groupJid
- * @param {object} sock
- * @returns {Promise<{ valid: boolean, reason?: string }>}
- */
+
+Quick sanity-check used at the top of group commands.
+
+Returns { valid: false, reason } when the check fails.
+
+@param {string} groupJid
+
+@param {object} sock
+
+@returns {Promise<{ valid: boolean, reason?: string }>}
+*/
 export async function validateGroupCommand(groupJid, sock) {
-  if (!groupJid?.endsWith("@g.us")) {
-    return { valid: false, reason: "❌ This command only works in groups." };
-  }
-  const botAdmin = await isBotGroupAdminCached(groupJid, sock);
-  if (!botAdmin) {
-    return {
-      valid: false,
-      reason:
-        "⚠️ *Bot Not Admin*\n\nPromote me to group admin first, then run `.refreshadmin`.",
-    };
-  }
-  return { valid: true };
+if (!groupJid?.endsWith("@g.us")) {
+return { valid: false, reason: "❌ This command only works in groups." };
+}
+const botAdmin = await isBotGroupAdminCached(groupJid, sock);
+if (!botAdmin) {
+return {
+valid: false,
+reason:
+"⚠️ Bot Not Admin\n\nPromote me to group admin first, then run .refreshadmin.",
+};
+}
+return { valid: true };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  DEFAULT EXPORT
+// DEFAULT EXPORT
 // ══════════════════════════════════════════════════════════════════════════
 
 export default {
-  normalizeNum,
-  normalizePhone,
-  getGroupMetadataCached,
-  isBotGroupAdminCached,
-  isGroupAdminCached,
-  clearGroupCache,
-  refreshBotAdminStatus,
-  getBotNumber,
-  extractTargetUser,
-  validateGroupCommand,
-  ensureBotAdminInheritance,
-  isBotAdminWithInheritance,
+normalizeNum,
+normalizePhone,
+getGroupMetadataCached,
+isBotGroupAdminCached,
+isGroupAdminCached,
+clearGroupCache,
+refreshBotAdminStatus,
+getBotNumber,
+extractTargetUser,
+validateGroupCommand,
+ensureBotAdminInheritance,
+isBotAdminWithInheritance,
 };

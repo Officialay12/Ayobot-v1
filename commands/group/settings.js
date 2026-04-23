@@ -860,11 +860,10 @@ export async function leave({ from, userJid, sock, isAdmin }) {
     console.error("leave error:", error.message);
   }
 }
-
 // ============================================================================
-//  TEST ADMIN
+//  DEBUG - FIXED to show temp ID mapping and owner detection
 // ============================================================================
-export async function testAdmin({ from, userJid, sock, isAdmin }) {
+export async function debug({ from, userJid, sock, isAdmin, session }) {
   try {
     if (!from.endsWith("@g.us")) {
       return sock.sendMessage(from, {
@@ -872,40 +871,66 @@ export async function testAdmin({ from, userJid, sock, isAdmin }) {
       });
     }
 
-    const botNumber = getBotNumber(sock);
-    const botAdmin = await isBotGroupAdminCached(from, sock, true);
-    const userAdmin = await isGroupAdminCached(from, userJid, sock);
-    const globalAdmin = isAdmin;
-
     const metadata = await getGroupMetadataCached(from, sock, true);
+    const botNumber = getBotNumber(sock);
+    const userNumber = phone(userJid);
+
+    // Get real phone from session or ENV
+    const ownerPhone = session?.ownerPhone || ENV.ADMIN || ENV.OWNER_PHONE || "";
+    const ownerNumber = phone(ownerPhone);
+
+    // Check if user is the owner (using real number comparison)
+    const isOwner = userNumber === ownerNumber;
+
+    // Check if user is group admin (phone-based comparison)
+    const userIsGroupAdmin = await isGroupAdminCached(from, userJid, sock, true);
+
+    // Check if owner is group admin
+    let ownerIsGroupAdmin = false;
+    if (ownerNumber) {
+      const ownerParticipant = metadata?.participants?.find(
+        (p) => phone(p.id) === ownerNumber
+      );
+      ownerIsGroupAdmin = !!(ownerParticipant?.admin === "admin" || ownerParticipant?.admin === "superadmin");
+    }
+
     const botParticipant = metadata?.participants?.find((p) => phone(p.id) === botNumber);
+    const botIsGroupAdmin = !!(botParticipant?.admin === "admin" || botParticipant?.admin === "superadmin");
 
-    const info =
-      `🔍 *ADMIN DIAGNOSTIC*\n\n` +
-      `🤖 *Bot Information*\n` +
-      `├─ Number: +${botNumber}\n` +
-      `├─ Admin:  ${botAdmin ? "✅ YES" : "❌ NO"}\n` +
-      `└─ Role:   ${botParticipant?.admin || "Member"}\n\n` +
-      `👤 *Your Information*\n` +
-      `├─ Number: @${phone(userJid)}\n` +
-      `├─ Group Admin:  ${userAdmin ? "✅ YES" : "❌ NO"}\n` +
-      `└─ Global Admin: ${globalAdmin ? "✅ YES" : "❌ NO"}\n\n` +
-      `👥 *Group Information*\n` +
-      `├─ Name: ${metadata?.subject || "Unknown"}\n` +
-      `├─ Members: ${metadata?.participants?.length || 0}\n` +
-      `└─ Owner: @${phone(metadata?.owner) || "Unknown"}\n\n` +
-      `💡 If bot shows ❌ NO after being promoted:\n` +
-      `1. Use ${ENV.PREFIX}refreshadmin to clear cache\n` +
-      `2. Wait 10 seconds and try again\n` +
-      `3. Demote and promote the bot again`;
+    const settings = groupSettings.get(from) || {};
 
-    await sock.sendMessage(from, {
-      text: fmt("✅", "DIAGNOSTIC", info),
-      mentions: [userJid, metadata?.owner].filter(Boolean),
-    });
+    const debugInfo =
+      `📛 *Group:* ${metadata?.subject || "Unknown"}\n` +
+      `👥 *Members:* ${metadata?.participants?.length || 0}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🤖 *BOT (+${botNumber})*\n` +
+      `├─ Admin:  ${botIsGroupAdmin ? "✅ Yes" : "❌ No"}\n` +
+      `└─ Role:   ${botParticipant?.admin || "Member"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👤 *YOU (+${userNumber})*\n` +
+      `├─ Raw JID:      ${userJid}\n` +
+      `├─ Group Admin:  ${userIsGroupAdmin ? "✅ Yes" : "❌ No"}\n` +
+      `├─ Bot Owner:    ${isAdmin ? "✅ Yes (global)" : "❌ No"}\n` +
+      `└─ Owner Match:  ${isOwner ? "✅ Yes (phone)" : "❌ No"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👑 *OWNER (+${ownerNumber})*\n` +
+      `├─ In Group:     ${metadata?.participants?.some(p => phone(p.id) === ownerNumber) ? "✅ Yes" : "❌ No"}\n` +
+      `├─ Group Admin:  ${ownerIsGroupAdmin ? "✅ Yes" : "❌ No"}\n` +
+      `└─ Inheritance:  ${ownerIsGroupAdmin && !botIsGroupAdmin ? "✅ Active (owner admin, bot inherits)" : botIsGroupAdmin ? "✅ Bot is already admin" : "❌ Not active"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `⚙️ *Bot Settings*\n` +
+      `├─ 🔗 AntiLink: ${settings.antilink ? "✅" : "❌"}\n` +
+      `├─ 🚫 AntiSpam: ${settings.antispam ? "✅" : "❌"}\n` +
+      `├─ 👋 Welcome:  ${settings.welcome ? "✅" : "❌"}\n` +
+      `└─ 👋 Goodbye:  ${settings.goodbye ? "✅" : "❌"}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 *Bot Admin Inheritance:* If owner is group admin, bot has admin rights even if not promoted.\n` +
+      `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
+
+    await sock.sendMessage(from, { text: fmt("✅", "DEBUG", debugInfo) });
   } catch (error) {
     await sock.sendMessage(from, {
-      text: fmt("❌", "TEST FAILED", error.message),
+      text: fmt("❌", "DEBUG ERROR", error.message),
     });
   }
 }

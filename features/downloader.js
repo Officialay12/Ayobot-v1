@@ -16,7 +16,7 @@ import { formatError, formatInfo } from "../../utils/formatters.js";
 //  CONSTANTS
 // ════════════════════════════════════════════════════════════════════════════
 
-const TAG = `⚡ _AYOBOT v2_ | 👑 _AYOCODES_`;
+const TAG = `⚡ _AYOBOT v1_ | 👑 _AYOCODES_`;
 
 // ✅ Single shared agent — not re-created inside retry loops
 const HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false });
